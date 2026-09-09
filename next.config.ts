@@ -8,7 +8,10 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // `build` usa `next build --webpack` porque @serwist/next aporta config de
+  // webpack para bundlear el service worker. En dev serwist está deshabilitado,
+  // así que dejamos Turbopack (default de Next 16) explícito y sin config.
+  turbopack: {},
 };
 
 export default withSerwist(nextConfig);

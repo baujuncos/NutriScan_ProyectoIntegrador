@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { todayAR, daysAgoAR } from '@/lib/date';
 
 function formatFechaTitle(fecha: string): string {
@@ -102,6 +102,7 @@ export default function AlimentacionClient({
   const [editingCantidad, setEditingCantidad] = useState('');
   const [showManualModal, setShowManualModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const accentColor = MEAL_COLOR[tipoIngesta];
   const label = MEAL_LABEL[tipoIngesta];
@@ -172,6 +173,7 @@ export default function AlimentacionClient({
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
             <input
+              ref={searchInputRef}
               type="text"
               value={query}
               onChange={(e) => {
@@ -303,7 +305,16 @@ export default function AlimentacionClient({
       </Modal>
 
       {/* AI recognition modal (mockup) */}
-      <AIRecognitionModal open={showAIModal} onClose={() => setShowAIModal(false)} />
+      <AIRecognitionModal
+        open={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        onSelectOtro={() => {
+          // "Otro" (NUT-160): sin foto calibrada — cerrar el modal y llevar al
+          // buscador de alimentos que ya está en la página.
+          setShowAIModal(false);
+          setTimeout(() => searchInputRef.current?.focus(), 0);
+        }}
+      />
 
       {/* Add form (shown when food is selected) */}
       {canEdit && selectedAlimento && (

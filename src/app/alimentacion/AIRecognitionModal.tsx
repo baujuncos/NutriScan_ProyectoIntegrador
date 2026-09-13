@@ -11,6 +11,12 @@ import {
   validarDiametro,
   type VajillaTipo,
 } from '@/lib/vajilla';
+import { evaluarAngulo, type LecturaAngulo } from '@/lib/anguloDispositivo';
+import {
+  calcularRecorte,
+  recortarImagen,
+  type EntradaReconocimiento,
+} from '@/lib/recorteFoto';
 import VajillaSelector, { VajillaGuia } from './VajillaSelector';
 import CameraCapture from './CameraCapture';
 
@@ -38,6 +44,10 @@ export default function AIRecognitionModal({
   const capturedFileRef = useRef<File | null>(null);
   // Espejo del object URL vigente para poder liberarlo al desmontar.
   const imageUrlRef = useRef<string | null>(null);
+  // Lectura de ángulo al momento de capturar + tamaño natural de la foto + contenedor de preview.
+  const anguloRef = useRef<LecturaAngulo>(evaluarAngulo(null));
+  const imgSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const setImage = (url: string | null) => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
@@ -63,6 +73,8 @@ export default function AIRecognitionModal({
     setDiametroInput('');
     setDiametroCm(null);
     capturedFileRef.current = null;
+    anguloRef.current = evaluarAngulo(null);
+    imgSizeRef.current = null;
     resetEncuadre();
   };
 
@@ -109,9 +121,11 @@ export default function AIRecognitionModal({
     setStage('capture');
   };
 
-  const handleCaptured = (file: File) => {
+  const handleCaptured = (file: File, angulo: LecturaAngulo) => {
     setImage(URL.createObjectURL(file));
     capturedFileRef.current = file;
+    anguloRef.current = angulo;
+    imgSizeRef.current = null;
     resetEncuadre();
     setStage('preview');
   };
@@ -129,17 +143,44 @@ export default function AIRecognitionModal({
     dragRef.current = null;
   };
 
-  const handleRecognize = () => {
-    if (!vajillaTipo || !capturedFileRef.current) return;
-    // Este payload (foto + metadato de vajilla + encuadre) es lo que va a consumir
-    // el módulo de reconocimiento visual de la épica NUT-12 para calibrar la escala.
-    const payload = {
-      image: capturedFileRef.current,
+  const handleRecognize = async () => {
+    const file = capturedFileRef.current;
+    if (!vajillaTipo || !file) return;
+    setStage('recognizing');
+
+    // NUT-165: recortar la foto según el encuadre manual (zoom/pan) antes del
+    // reconocimiento. Con zoom=1 y pan=0,0 el recorte es la imagen completa.
+    const imgSize = imgSizeRef.current;
+    const rectView = previewContainerRef.current?.getBoundingClientRect();
+    let imagen = file;
+    if (imgSize && rectView && rectView.width > 0) {
+      const recorte = calcularRecorte({
+        imgW: imgSize.w,
+        imgH: imgSize.h,
+        viewW: rectView.width,
+        viewH: rectView.height,
+        zoom,
+        panX: pan.x,
+        panY: pan.y,
+      });
+      imagen = await recortarImagen(file, recorte);
+    }
+
+    const angulo = anguloRef.current;
+    const entrada: EntradaReconocimiento = {
+      imagen,
       vajilla: construirMetadataVajilla(vajillaTipo, diametroCm),
       encuadre: { zoom: Number(zoom.toFixed(2)), panX: Math.round(pan.x), panY: Math.round(pan.y) },
+      angulo: { beta: angulo.beta, estado: angulo.estado, dentroDeRango: angulo.dentroDeRango },
     };
-    console.debug('[NUT-157] payload de reconocimiento', payload.vajilla);
-    setStage('recognizing');
+    console.debug('[NUT-161] entrada de reconocimiento', {
+      vajilla: entrada.vajilla,
+      encuadre: entrada.encuadre,
+      angulo: entrada.angulo,
+      bytes: entrada.imagen.size,
+    });
+    // TODO NUT-12: acá va la llamada real a Gemini con `entrada`.
+
     setTimeout(() => setStage('done'), 1200);
   };
 
@@ -260,6 +301,7 @@ export default function AIRecognitionModal({
               </span>
             )}
             <div
+              ref={previewContainerRef}
               className="relative h-72 overflow-hidden rounded-2xl border border-gray-100 bg-gray-900"
               style={{ touchAction: 'none', cursor: stage === 'preview' ? 'grab' : 'default' }}
               onPointerDown={handlePointerDown}
@@ -272,6 +314,12 @@ export default function AIRecognitionModal({
                 src={imageUrl}
                 alt="Vista previa de la comida"
                 draggable={false}
+                onLoad={(e) => {
+                  imgSizeRef.current = {
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  };
+                }}
                 className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -338,7 +386,7 @@ export default function AIRecognitionModal({
                 className="flex-1"
                 loading={stage === 'recognizing'}
                 disabled={stage === 'recognizing'}
-                onClick={handleRecognize}
+                onClick={() => void handleRecognize()}
               >
                 {stage === 'recognizing' ? 'Reconociendo...' : 'Reconocer alimentos'}
               </Button>

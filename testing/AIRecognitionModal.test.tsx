@@ -120,7 +120,7 @@ describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
     expect(screen.getByRole('button', { name: 'Reencuadrar' })).toBeInTheDocument();
   });
 
-  it('el flujo de un plato sí produce metadato de calibración (console.debug del payload)', async () => {
+  it('el flujo de un plato arma la EntradaReconocimiento (vajilla + encuadre + ángulo)', async () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     mockGetUserMedia(() =>
       Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }),
@@ -139,8 +139,12 @@ describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
 
     await waitFor(() =>
       expect(debugSpy).toHaveBeenCalledWith(
-        '[NUT-157] payload de reconocimiento',
-        expect.objectContaining({ tipo: 'plato_playo', diametroCm: 26, calibracionPorFoto: true }),
+        '[NUT-161] entrada de reconocimiento',
+        expect.objectContaining({
+          vajilla: expect.objectContaining({ tipo: 'plato_playo', diametroCm: 26, calibracionPorFoto: true }),
+          encuadre: expect.objectContaining({ zoom: 1, panX: 0, panY: 0 }),
+          angulo: expect.objectContaining({ estado: 'desconocido', dentroDeRango: true }),
+        }),
       ),
     );
     debugSpy.mockRestore();

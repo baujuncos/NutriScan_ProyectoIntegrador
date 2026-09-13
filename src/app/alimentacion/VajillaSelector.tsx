@@ -1,5 +1,6 @@
 'use client';
 
+import { ESCORZO_OBLICUO } from '@/lib/anguloDispositivo';
 import { getVajillaInfo, VAJILLA_TIPOS, type VajillaTipo } from '@/lib/vajilla';
 
 const ACCENT = '#a855f7';
@@ -8,14 +9,18 @@ const ACCENT = '#a855f7';
  * Silueta calibrada según las dimensiones estándar del tipo de vajilla.
  * - `variant="card"`: ícono para la tarjeta del selector.
  * - `variant="overlay"`: marco guía para superponer sobre la cámara / la foto.
+ *   `alerta` recolorea la elipse a ámbar cuando el ángulo del celular está fuera
+ *   de rango (NUT-163) — mismo overlay, sin componente de feedback aparte.
  */
 export function VajillaGuia({
   tipo,
   variant = 'card',
+  alerta = false,
   className = '',
 }: {
   tipo: VajillaTipo;
   variant?: 'card' | 'overlay';
+  alerta?: boolean;
   className?: string;
 }) {
   const info = getVajillaInfo(tipo);
@@ -26,23 +31,24 @@ export function VajillaGuia({
     const cx = 50;
     const cy = 47;
     const rx = 44 * info.siluetaDiametroRelativo;
-    const ry = rx * 0.56; // escorzo de una vista oblicua (~35° sobre la mesa)
+    const ry = rx * ESCORZO_OBLICUO; // escorzo de una vista oblicua (~35° sobre la mesa)
     // profundidad de pared visible: mínima en plato playo, marcada en plato hondo
     const wall = 3.2 * info.siluetaProfundidadRelativa;
+    const trazo = alerta ? '#f59e0b' : '#ffffff';
     return (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" className={className} aria-hidden="true">
         {wall > 4 && (
           <path
             d={`M ${cx - rx} ${cy} A ${rx} ${ry} 0 0 0 ${cx + rx} ${cy}
                 L ${cx + rx} ${cy + wall} A ${rx} ${ry} 0 0 1 ${cx - rx} ${cy + wall} Z`}
-            fill="#ffffff"
+            fill={trazo}
             opacity="0.12"
           />
         )}
         <ellipse cx={cx} cy={cy + 0.6} rx={rx + 0.6} ry={ry + 0.6} fill="none" stroke="rgba(0,0,0,0.4)" strokeWidth="1" />
-        <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="#ffffff" strokeWidth="1.6" strokeDasharray="4 3" />
+        <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={trazo} strokeWidth="1.6" strokeDasharray="4 3" />
         {wall > 4 && (
-          <ellipse cx={cx} cy={cy + wall} rx={rx} ry={ry} fill="none" stroke="#ffffff" strokeWidth="1.2" strokeDasharray="2 3" opacity="0.6" />
+          <ellipse cx={cx} cy={cy + wall} rx={rx} ry={ry} fill="none" stroke={trazo} strokeWidth="1.2" strokeDasharray="2 3" opacity="0.6" />
         )}
       </svg>
     );

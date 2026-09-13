@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
+import { mensajeAngulo, type LecturaAngulo } from '@/lib/anguloDispositivo';
 import { getVajillaInfo, type VajillaTipo } from '@/lib/vajilla';
 import { VajillaGuia } from './VajillaSelector';
+import { useDeviceAngle } from './useDeviceAngle';
 
 type Mode = 'loading' | 'live' | 'fallback';
 
@@ -20,7 +22,7 @@ export default function CameraCapture({
   onCapture,
 }: {
   guiaTipo: VajillaTipo;
-  onCapture: (file: File) => void;
+  onCapture: (file: File, angulo: LecturaAngulo) => void;
 }) {
   const supportsCamera =
     typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getUserMedia === 'function';
@@ -34,6 +36,9 @@ export default function CameraCapture({
   const streamRef = useRef<MediaStream | null>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // NUT-163/164 — inclinación del celular en vivo (solo mientras la cámara está abierta).
+  const { lectura, soporte, solicitarPermiso } = useDeviceAngle(mode === 'live');
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -95,7 +100,7 @@ export default function CameraCapture({
   const handleFile = (file: File | undefined) => {
     if (!file) return;
     stopStream();
-    onCapture(file);
+    onCapture(file, lectura);
   };
 
   const handleShutter = () => {
@@ -111,7 +116,7 @@ export default function CameraCapture({
       (blob) => {
         if (!blob) return;
         stopStream();
-        onCapture(new File([blob], `comida-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+        onCapture(new File([blob], `comida-${Date.now()}.jpg`, { type: 'image/jpeg' }), lectura);
       },
       'image/jpeg',
       0.92,
@@ -120,25 +125,55 @@ export default function CameraCapture({
 
   const guiaLabel = getVajillaInfo(guiaTipo).label;
 
+  // Feedback de ángulo (NUT-163): reutiliza el overlay + el texto de ayuda, sin componente nuevo.
+  const anguloAlerta = !lectura.dentroDeRango;
+  const ayuda =
+    lectura.estado === 'ok'
+      ? { texto: 'Ángulo correcto ✓', clase: 'text-emerald-300' }
+      : lectura.estado === 'muy_cenital' || lectura.estado === 'muy_rasante'
+        ? { texto: mensajeAngulo(lectura.estado), clase: 'text-amber-300' }
+        : {
+            texto: `Encuadrá el ${guiaLabel.toLowerCase()} en la elipse — sacá la foto en ángulo, no desde arriba`,
+            clase: 'text-white/90',
+          };
+  const anguloNoDisponible =
+    soporte === 'no-soportado' || soporte === 'denegado' || soporte === 'sin-datos';
+
   return (
     <div className="space-y-4">
       {mode === 'live' && (
-        <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-black">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="h-72 w-full object-cover"
-            aria-label="Vista de la cámara"
-          />
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <VajillaGuia tipo={guiaTipo} variant="overlay" className="h-full w-full" />
+        <>
+          <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="h-72 w-full object-cover"
+              aria-label="Vista de la cámara"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <VajillaGuia tipo={guiaTipo} variant="overlay" alerta={anguloAlerta} className="h-full w-full" />
+            </div>
+            <p
+              className={`pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-xs font-medium drop-shadow ${ayuda.clase}`}
+              aria-live="polite"
+            >
+              {ayuda.texto}
+            </p>
           </div>
-          <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-xs font-medium text-white/90 drop-shadow">
-            Encuadrá el {guiaLabel.toLowerCase()} en la elipse — sacá la foto en ángulo, no desde arriba
-          </p>
-        </div>
+
+          {soporte === 'ios-permiso' && (
+            <Button type="button" variant="outline" className="w-full" onClick={solicitarPermiso}>
+              Activar guía de ángulo
+            </Button>
+          )}
+          {anguloNoDisponible && (
+            <p className="text-center text-xs text-gray-400">
+              No pudimos leer el ángulo del celular — seguí la guía visual.
+            </p>
+          )}
+        </>
       )}
 
       {mode === 'loading' && (

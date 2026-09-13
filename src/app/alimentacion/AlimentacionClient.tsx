@@ -20,6 +20,8 @@ import { type IngestaTipo } from '@/lib/nutrition';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import AIRecognitionModal from './AIRecognitionModal';
+import ChatFoodModal from './ChatFoodModal';
+import type { FoodChatResult } from '@/lib/chatFood';
 
 type AlimentoOption = {
   id_alimento: number;
@@ -102,6 +104,7 @@ export default function AlimentacionClient({
   const [editingCantidad, setEditingCantidad] = useState('');
   const [showManualModal, setShowManualModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const accentColor = MEAL_COLOR[tipoIngesta];
@@ -243,6 +246,20 @@ export default function AlimentacionClient({
           <span aria-hidden="true">✨</span>
           <span className="hidden sm:inline">Reconocimiento por IA</span>
         </button>
+
+        {/* Chat food registration button (NUT-187) */}
+        <button
+          type="button"
+          onClick={() => setShowChatModal(true)}
+          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
+          style={{
+            backgroundImage: 'linear-gradient(135deg, #0ea5e9 0%, #22c55e 100%)',
+            boxShadow: '0 8px 20px rgba(14,165,233,0.35)',
+          }}
+        >
+          <span aria-hidden="true">💬</span>
+          <span className="hidden sm:inline">Registrar por chat</span>
+        </button>
       </div>
       )}
 
@@ -312,6 +329,20 @@ export default function AlimentacionClient({
           // "Otro" (NUT-160): sin foto calibrada — cerrar el modal y llevar al
           // buscador de alimentos que ya está en la página.
           setShowAIModal(false);
+          setTimeout(() => searchInputRef.current?.focus(), 0);
+        }}
+      />
+
+      {/* Chat food registration modal (NUT-187) */}
+      <ChatFoodModal
+        open={showChatModal}
+        onClose={() => setShowChatModal(false)}
+        onConfirm={(result: FoodChatResult) => {
+          // NUT-191: acá se debe redirigir/enviar `result` al módulo de
+          // desglose/confirmación de comida cuando ese módulo exista. Por
+          // ahora cerramos el chat y enfocamos el buscador, como con "Otro".
+          console.debug('[NUT-191] alimentos a integrar en el módulo de desglose', result.alimentos);
+          setShowChatModal(false);
           setTimeout(() => searchInputRef.current?.focus(), 0);
         }}
       />

@@ -11,12 +11,6 @@ import AlimentacionView from './AlimentacionView';
 
 export const dynamic = 'force-dynamic';
 
-type AlimentoOption = {
-  id_alimento: number;
-  nombre: string;
-  categoria: string | null;
-};
-
 type ItemRow = {
   id_item: number;
   id_alimento: number | null;
@@ -79,14 +73,7 @@ export default async function AlimentacionPage({
     .eq('id_usuario', user.id)
     .eq('fecha', fecha);
 
-  const { data: alimentosData } = await supabase
-    .from('alimentos')
-    .select('id_alimento, nombre, categoria')
-    .order('nombre', { ascending: true })
-    .limit(1000);
-
   const ingestas = (ingestasData ?? []) as IngestaRow[];
-  const alimentos = (alimentosData ?? []) as AlimentoOption[];
 
   return (
     <>
@@ -113,7 +100,6 @@ export default async function AlimentacionPage({
 
           <AlimentacionView
             ingestas={ingestas}
-            alimentos={alimentos}
             fecha={fecha}
             initialTipo={selectedTipo}
             hideNutrition={hideNutrition}

@@ -6,6 +6,49 @@ import { createClient } from '@/lib/supabase/server';
 import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { todayAR, daysAgoAR } from '@/lib/date';
 
+export type AlimentoOption = {
+  id_alimento: number;
+  nombre: string;
+  categoria: string | null;
+  fuente: string;
+  marca: string | null;
+  denominacion: string | null;
+};
+
+const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion' as const;
+
+export async function searchAlimentosAction(query: string, tipoIngesta: string): Promise<AlimentoOption[]> {
+  const q = query.trim().replace(/[*,\\]/g, '');
+  if (q.length < 2) return [];
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const isSuplemento = tipoIngesta === 'suplemento';
+
+  // Two parallel queries for relevance ordering:
+  // 1. nombre matches (most relevant) — come first
+  // 2. marca/denominacion-only matches — come after, deduplicated via NOT nombre match
+  // ponytail: two round-trips; replace with one RPC + ORDER BY rank if latency matters
+  const q1 = supabase.from('alimentos').select(SEL)
+    .ilike('nombre', `%${q}%`)
+    .order('nombre', { ascending: true })
+    .limit(60);
+  const q2 = supabase.from('alimentos').select(SEL)
+    .or(`marca.ilike.*${q}*,denominacion.ilike.*${q}*`)
+    .not('nombre', 'ilike', `%${q}%`)
+    .order('nombre', { ascending: true })
+    .limit(40);
+
+  const [r1, r2] = await Promise.all([
+    isSuplemento ? q1.ilike('categoria', '%suplemento%') : q1.not('categoria', 'ilike', '%suplemento%'),
+    isSuplemento ? q2.ilike('categoria', '%suplemento%') : q2.not('categoria', 'ilike', '%suplemento%'),
+  ]);
+
+  return [...(r1.data ?? []), ...(r2.data ?? [])].slice(0, 80) as AlimentoOption[];
+}
+
 function isWithinEditableRange(fecha: string): boolean {
   return fecha >= daysAgoAR(7) && fecha <= todayAR();
 }

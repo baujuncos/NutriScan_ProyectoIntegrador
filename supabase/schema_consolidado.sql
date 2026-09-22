@@ -674,6 +674,21 @@ ALTER TABLE public.items
   ADD CONSTRAINT items_alimento_or_manual_check
   CHECK (id_alimento IS NOT NULL OR nombre_manual IS NOT NULL) NOT VALID;
 
+-- ============================================================
+-- 009 — Integración ANMAT: fuente, marca, denominacion en alimentos
+-- ============================================================
+
+ALTER TABLE public.alimentos
+  ADD COLUMN IF NOT EXISTS fuente TEXT NOT NULL DEFAULT 'SARA2',
+  ADD COLUMN IF NOT EXISTS marca TEXT,
+  ADD COLUMN IF NOT EXISTS denominacion TEXT;
+
+-- ponytail: btree only; add GIN+pg_trgm if ilike at 40k rows becomes slow
+CREATE INDEX IF NOT EXISTS idx_alimentos_fuente ON public.alimentos(fuente);
+
+GRANT SELECT ON public.alimentos TO anon, authenticated;
+
+
 CREATE OR REPLACE FUNCTION public.calculate_item_nutrients()
 RETURNS TRIGGER AS $$
 DECLARE

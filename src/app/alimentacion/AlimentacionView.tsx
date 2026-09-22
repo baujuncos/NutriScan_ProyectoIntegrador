@@ -5,12 +5,6 @@ import { INGESTA_TIPOS, formatIngestaLabel, type IngestaTipo } from '@/lib/nutri
 import AlimentacionClient from './AlimentacionClient';
 import DatePicker from './DatePicker';
 
-type AlimentoOption = {
-  id_alimento: number;
-  nombre: string;
-  categoria: string | null;
-};
-
 type ItemRow = {
   id_item: number;
   id_alimento: number | null;
@@ -105,13 +99,11 @@ function MealIcon({ tipo, size = 20 }: { tipo: IngestaTipo; size?: number }) {
 
 export default function AlimentacionView({
   ingestas,
-  alimentos,
   fecha,
   initialTipo,
   hideNutrition,
 }: {
   ingestas: IngestaRow[];
-  alimentos: AlimentoOption[];
   fecha: string;
   initialTipo: IngestaTipo;
   hideNutrition: boolean;
@@ -204,7 +196,6 @@ export default function AlimentacionView({
       </div>
 
       <AlimentacionClient
-        alimentos={alimentos}
         ingesta={selectedIngesta}
         tipoIngesta={selectedTipo}
         fecha={fecha}

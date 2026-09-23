@@ -120,13 +120,13 @@ npm install
 Crear el archivo `.env.local` en la raíz del proyecto con el siguiente contenido:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://<tu-proyecto>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<tu-anon-key>
+SUPABASE_URL=https://<tu-proyecto>.supabase.co
+SUPABASE_ANON_KEY=<tu-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<tu-service-role-key>
 INVITATION_CODE_INVESTIGADOR=<codigo-de-invitacion>
 ```
 
-Los valores de `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` se obtienen desde **Supabase → Project Settings → API**.
+Los valores de `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` se obtienen desde **Supabase → Project Settings → API**.
 
 El valor de `INVITATION_CODE_INVESTIGADOR` es un string arbitrario que el equipo define; los investigadores lo ingresan al registrarse para recibir acceso al panel.
 
@@ -161,7 +161,7 @@ cd SARA2
 python seed_supabase.py
 ```
 
-> **Requisito:** Python 3 con las librerías `supabase` y `python-dotenv` instaladas (`pip install supabase python-dotenv`). El script lee `NEXT_PUBLIC_SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` desde `.env.local`.
+> **Requisito:** Python 3 con las librerías `supabase` y `python-dotenv` instaladas (`pip install supabase python-dotenv`). El script lee `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` desde `.env.local`.
 
 ### 5. Configurar Google OAuth en Supabase
 

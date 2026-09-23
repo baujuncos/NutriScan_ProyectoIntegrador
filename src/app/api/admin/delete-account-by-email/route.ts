@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   // --- Protect with service role key ---
   const adminKey = request.headers.get('x-admin-key') ?? '';
   const serviceKey =
-    process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
     '';
 
   if (!adminKey || adminKey !== serviceKey) {

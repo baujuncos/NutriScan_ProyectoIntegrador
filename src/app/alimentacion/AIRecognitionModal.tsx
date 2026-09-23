@@ -17,8 +17,14 @@ import {
   recortarImagen,
   type EntradaReconocimiento,
 } from '@/lib/recorteFoto';
+import {
+  normalizarIngrediente,
+  type FoodDetectionResult,
+  type PreguntasPorIngrediente,
+} from '@/lib/geminiFoodPrompt';
 import VajillaSelector, { VajillaGuia } from './VajillaSelector';
 import CameraCapture from './CameraCapture';
+import { llamarReconocimiento, ReconocimientoError } from './reconocimientoApi';
 
 type Stage = 'vajilla' | 'diametro' | 'capture' | 'preview' | 'recognizing' | 'done' | 'otro';
 
@@ -48,6 +54,13 @@ export default function AIRecognitionModal({
   const anguloRef = useRef<LecturaAngulo>(evaluarAngulo(null));
   const imgSizeRef = useRef<{ w: number; h: number } | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  // NUT-154/156 — resultado del reconocimiento (o error) y estado del loop de
+  // preguntas aclaratorias, mantenido en memoria: el endpoint es stateless.
+  const [recognitionResult, setRecognitionResult] = useState<FoodDetectionResult | null>(null);
+  const [recognitionError, setRecognitionError] = useState<string | null>(null);
+  const [preguntasPorIngrediente, setPreguntasPorIngrediente] = useState<PreguntasPorIngrediente>({});
+  const [respuestaDraft, setRespuestaDraft] = useState<Record<string, string>>({});
+  const [refiningIngredient, setRefiningIngredient] = useState<string | null>(null);
 
   const setImage = (url: string | null) => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
@@ -75,6 +88,11 @@ export default function AIRecognitionModal({
     capturedFileRef.current = null;
     anguloRef.current = evaluarAngulo(null);
     imgSizeRef.current = null;
+    setRecognitionResult(null);
+    setRecognitionError(null);
+    setPreguntasPorIngrediente({});
+    setRespuestaDraft({});
+    setRefiningIngredient(null);
     resetEncuadre();
   };
 
@@ -145,8 +163,10 @@ export default function AIRecognitionModal({
 
   const handleRecognize = async () => {
     const file = capturedFileRef.current;
-    if (!vajillaTipo || !file) return;
+    if (!vajillaTipo || vajillaTipo === 'otro' || diametroCm == null || !file) return;
     setStage('recognizing');
+    setRecognitionResult(null);
+    setRecognitionError(null);
 
     // NUT-165: recortar la foto según el encuadre manual (zoom/pan) antes del
     // reconocimiento. Con zoom=1 y pan=0,0 el recorte es la imagen completa.
@@ -165,6 +185,9 @@ export default function AIRecognitionModal({
       });
       imagen = await recortarImagen(file, recorte);
     }
+    // Recordar la foto ya recortada: hace falta reenviarla si el usuario
+    // responde una pregunta aclaratoria (NUT-154/156).
+    capturedFileRef.current = imagen;
 
     const angulo = anguloRef.current;
     const entrada: EntradaReconocimiento = {
@@ -173,15 +196,61 @@ export default function AIRecognitionModal({
       encuadre: { zoom: Number(zoom.toFixed(2)), panX: Math.round(pan.x), panY: Math.round(pan.y) },
       angulo: { beta: angulo.beta, estado: angulo.estado, dentroDeRango: angulo.dentroDeRango },
     };
-    console.debug('[NUT-161] entrada de reconocimiento', {
-      vajilla: entrada.vajilla,
-      encuadre: entrada.encuadre,
-      angulo: entrada.angulo,
-      bytes: entrada.imagen.size,
-    });
-    // TODO NUT-12: acá va la llamada real a Gemini con `entrada`.
 
-    setTimeout(() => setStage('done'), 1200);
+    try {
+      const result = await llamarReconocimiento({
+        imagen: entrada.imagen,
+        vajilla: { tipo: vajillaTipo, diametroCm },
+        angulo: entrada.angulo,
+        preguntasPorIngrediente,
+      });
+      setRecognitionResult(result);
+    } catch (err) {
+      setRecognitionError(
+        err instanceof ReconocimientoError
+          ? err.message
+          : 'No pudimos completar el reconocimiento. Probá de nuevo.',
+      );
+    }
+    setStage('done');
+  };
+
+  const handleAnswerQuestion = async (ingredient: string) => {
+    const file = capturedFileRef.current;
+    const respuesta = respuestaDraft[ingredient]?.trim();
+    if (!vajillaTipo || vajillaTipo === 'otro' || diametroCm == null || !file || !recognitionResult || !respuesta) {
+      return;
+    }
+    const clave = normalizarIngrediente(ingredient);
+    const siguientesPreguntas: PreguntasPorIngrediente = {
+      ...preguntasPorIngrediente,
+      [clave]: (preguntasPorIngrediente[clave] ?? 0) + 1,
+    };
+    setRefiningIngredient(ingredient);
+    setRecognitionError(null);
+    try {
+      const result = await llamarReconocimiento({
+        imagen: file,
+        vajilla: { tipo: vajillaTipo, diametroCm },
+        angulo: {
+          beta: anguloRef.current.beta,
+          estado: anguloRef.current.estado,
+          dentroDeRango: anguloRef.current.dentroDeRango,
+        },
+        preguntasPorIngrediente: siguientesPreguntas,
+        refinamiento: { previousDetection: recognitionResult, respuestaUsuario: { ingredient, respuesta } },
+      });
+      setPreguntasPorIngrediente(siguientesPreguntas);
+      setRecognitionResult(result);
+      setRespuestaDraft((prev) => ({ ...prev, [ingredient]: '' }));
+    } catch (err) {
+      setRecognitionError(
+        err instanceof ReconocimientoError
+          ? err.message
+          : 'No pudimos completar el reconocimiento. Probá de nuevo.',
+      );
+    }
+    setRefiningIngredient(null);
   };
 
   const chipVajilla =
@@ -369,14 +438,67 @@ export default function AIRecognitionModal({
               </p>
             )}
 
-            {stage === 'done' && (
+            {stage === 'done' && recognitionError && (
               <p
-                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
                 aria-live="polite"
               >
-                🚧 Funcionalidad en desarrollo. Vamos a usar tu {getVajillaInfo(vajillaTipo).label.toLowerCase()}
-                {diametroCm ? ` de ${diametroCm} cm` : ''} como referencia de escala para estimar el peso.
+                {recognitionError}
               </p>
+            )}
+
+            {stage === 'done' && recognitionResult && (
+              <div className="space-y-3" aria-live="polite">
+                <ul className="space-y-2">
+                  {recognitionResult.detectedIngredients.map((item) => (
+                    <li
+                      key={item.ingredient}
+                      className="rounded-xl border border-gray-100 bg-white px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{item.ingredient}</p>
+                          <p className="text-xs text-gray-400">
+                            {item.type} · {Math.round(item.confidence * 100)}% de confianza
+                          </p>
+                        </div>
+                        <span className="text-sm font-semibold text-purple-700">
+                          {Math.round(item.estimatedWeightGrams)} g
+                        </span>
+                      </div>
+                      {item.questionForUser && (
+                        <div className="mt-2 space-y-1.5 rounded-lg bg-amber-50 px-3 py-2">
+                          <p className="text-xs text-amber-700">{item.questionForUser}</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={respuestaDraft[item.ingredient] ?? ''}
+                              onChange={(e) =>
+                                setRespuestaDraft((prev) => ({ ...prev, [item.ingredient]: e.target.value }))
+                              }
+                              placeholder="Tu respuesta"
+                              className="flex-1 rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              loading={refiningIngredient === item.ingredient}
+                              disabled={!respuestaDraft[item.ingredient]?.trim() || refiningIngredient !== null}
+                              onClick={() => void handleAnswerQuestion(item.ingredient)}
+                            >
+                              Responder
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-right text-sm font-semibold text-gray-700">
+                  Total estimado: {Math.round(recognitionResult.totalEstimatedWeightGrams)} g
+                </p>
+              </div>
             )}
 
             <div className="flex gap-2">
@@ -388,7 +510,11 @@ export default function AIRecognitionModal({
                 disabled={stage === 'recognizing'}
                 onClick={() => void handleRecognize()}
               >
-                {stage === 'recognizing' ? 'Reconociendo...' : 'Reconocer alimentos'}
+                {stage === 'recognizing'
+                  ? 'Reconociendo...'
+                  : stage === 'done' && recognitionError
+                    ? 'Reintentar'
+                    : 'Reconocer alimentos'}
               </Button>
               <Button
                 type="button"

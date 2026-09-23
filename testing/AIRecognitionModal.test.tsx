@@ -120,13 +120,7 @@ describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
     expect(screen.getByRole('button', { name: 'Reencuadrar' })).toBeInTheDocument();
   });
 
-  it('el flujo de un plato arma la EntradaReconocimiento (vajilla + encuadre + ángulo)', async () => {
-    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-    mockGetUserMedia(() =>
-      Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }),
-    );
-    const { user } = renderModal();
-
+  async function llevarACapturaYSubirFoto(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByText('Plato playo'));
     await user.click(screen.getByRole('button', { name: 'Continuar' }));
     await user.click(await screen.findByText('Importar de galería'));
@@ -134,19 +128,119 @@ describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
     const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
     const input = document.querySelector('input[type="file"]:not([capture])') as HTMLInputElement;
     await user.upload(input, file);
+  }
 
+  it('un reconocimiento exitoso llama a /api/food-recognition con un FormData y muestra los ingredientes detectados (NUT-154/156)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        detectedIngredients: [
+          {
+            ingredient: 'milanesa de pollo',
+            type: 'proteína animal',
+            confidence: 0.82,
+            estimatedWeightGrams: 150,
+            questionForUser: null,
+          },
+        ],
+        totalEstimatedWeightGrams: 150,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llevarACapturaYSubirFoto(user);
     await user.click(await screen.findByRole('button', { name: 'Reconocer alimentos' }));
 
-    await waitFor(() =>
-      expect(debugSpy).toHaveBeenCalledWith(
-        '[NUT-161] entrada de reconocimiento',
-        expect.objectContaining({
-          vajilla: expect.objectContaining({ tipo: 'plato_playo', diametroCm: 26, calibracionPorFoto: true }),
-          encuadre: expect.objectContaining({ zoom: 1, panX: 0, panY: 0 }),
-          angulo: expect.objectContaining({ estado: 'desconocido', dentroDeRango: true }),
-        }),
-      ),
-    );
-    debugSpy.mockRestore();
+    expect(await screen.findByText('milanesa de pollo')).toBeInTheDocument();
+    expect(screen.getByText('150 g')).toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/food-recognition');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(JSON.parse(init.body.get('vajilla') as string)).toEqual({
+      tipo: 'plato_playo',
+      diametroCm: 26,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('si Gemini devuelve una pregunta aclaratoria, responderla dispara una segunda llamada con previousDetection + respuestaUsuario', async () => {
+    const primeraRespuesta = {
+      ok: true,
+      detectedIngredients: [
+        {
+          ingredient: 'empanada',
+          type: 'alimento compuesto',
+          confidence: 0.6,
+          estimatedWeightGrams: 90,
+          questionForUser: '¿De qué relleno es la empanada?',
+        },
+      ],
+      totalEstimatedWeightGrams: 90,
+    };
+    const segundaRespuesta = {
+      ok: true,
+      detectedIngredients: [{ ...primeraRespuesta.detectedIngredients[0], questionForUser: null }],
+      totalEstimatedWeightGrams: 90,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => primeraRespuesta })
+      .mockResolvedValueOnce({ ok: true, json: async () => segundaRespuesta });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llevarACapturaYSubirFoto(user);
+    await user.click(await screen.findByRole('button', { name: 'Reconocer alimentos' }));
+
+    expect(await screen.findByText('¿De qué relleno es la empanada?')).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText('Tu respuesta'), 'De carne');
+    await user.click(screen.getByRole('button', { name: 'Responder' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, secondInit] = fetchMock.mock.calls[1];
+    // `recognitionResult` sólo guarda detectedIngredients/totalEstimatedWeightGrams
+    // (el `ok` del sobre de la respuesta HTTP no viaja en el estado del modal).
+    expect(JSON.parse(secondInit.body.get('previousDetection') as string)).toEqual({
+      detectedIngredients: primeraRespuesta.detectedIngredients,
+      totalEstimatedWeightGrams: primeraRespuesta.totalEstimatedWeightGrams,
+    });
+    expect(JSON.parse(secondInit.body.get('respuestaUsuario') as string)).toEqual({
+      ingredient: 'empanada',
+      respuesta: 'De carne',
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('si la llamada al endpoint falla, muestra el mensaje de error y permite reintentar', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        error: 'GEMINI_TIMEOUT',
+        message: 'El reconocimiento tardó demasiado. Probá de nuevo.',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llevarACapturaYSubirFoto(user);
+    await user.click(await screen.findByRole('button', { name: 'Reconocer alimentos' }));
+
+    expect(
+      await screen.findByText('El reconocimiento tardó demasiado. Probá de nuevo.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeEnabled();
+
+    vi.unstubAllGlobals();
   });
 });

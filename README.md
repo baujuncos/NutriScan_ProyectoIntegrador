@@ -124,11 +124,15 @@ NEXT_PUBLIC_SUPABASE_URL=https://<tu-proyecto>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<tu-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<tu-service-role-key>
 INVITATION_CODE_INVESTIGADOR=<codigo-de-invitacion>
+GEMINI_API_KEY=<tu-api-key-de-gemini>
+GEMINI_MODEL=gemini-3.6-flash
 ```
 
 Los valores de `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` se obtienen desde **Supabase → Project Settings → API**.
 
 El valor de `INVITATION_CODE_INVESTIGADOR` es un string arbitrario que el equipo define; los investigadores lo ingresan al registrarse para recibir acceso al panel.
+
+El valor de `GEMINI_API_KEY` se obtiene desde **Google AI Studio → Get API key** (lo usa el endpoint de reconocimiento de alimentos por IA, épica NUT-12). `GEMINI_MODEL` es opcional — si no se define, el servidor usa `gemini-3.6-flash` por defecto (definido en `src/lib/geminiClient.ts`); si Google vuelve a deprecar el modelo, se puede pisar sin tocar código seteando esta variable.
 
 ### 3. Configurar la base de datos en Supabase
 

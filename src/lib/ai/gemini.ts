@@ -62,11 +62,17 @@ export interface LlmCallStat {
   thoughtsTokens: number;
 }
 
+export interface LlmAttemptLog extends LlmCallStat {
+  attempt: number;
+  /** Mensaje de error de Gemini truncado (ej. qué cuota se agotó). Solo para logs del servidor. */
+  detail?: string;
+}
+
 export interface LlmCallOptions {
   timeoutMs?: number;
   retryDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
-  log?: (stat: LlmCallStat & { attempt: number }) => void;
+  log?: (stat: LlmAttemptLog) => void;
   /** Se llama con el resumen de cada llamada (para el script de pruebas). */
   onStat?: (stat: LlmCallStat) => void;
 }
@@ -130,9 +136,15 @@ export function getGeminiTransport(): LlmTransport {
   return cachedTransport;
 }
 
-type AttemptFailure = { retryable: boolean; error: AiError; outcome: string };
+type AttemptFailure = { retryable: boolean; error: AiError; outcome: string; detail?: string };
 
 function classifyThrown(err: unknown, timedOut: boolean): AttemptFailure {
+  const failure = classifyThrownCode(err, timedOut);
+  const detail = err instanceof Error ? err.message.replace(/\s+/g, ' ').slice(0, 300) : undefined;
+  return detail && !timedOut ? { ...failure, detail } : failure;
+}
+
+function classifyThrownCode(err: unknown, timedOut: boolean): AttemptFailure {
   if (timedOut) {
     return { retryable: true, outcome: 'timeout', error: new AiError('AI_UNAVAILABLE', 'Timeout de Gemini.') };
   }
@@ -150,7 +162,7 @@ function classifyThrown(err: unknown, timedOut: boolean): AttemptFailure {
   return { retryable: true, outcome: 'network_error', error: new AiError('AI_UNAVAILABLE', 'Error de red con Gemini.') };
 }
 
-function defaultLog(stat: LlmCallStat & { attempt: number }) {
+function defaultLog(stat: LlmAttemptLog) {
   console.info(`[gemini] ${JSON.stringify(stat)}`);
 }
 
@@ -254,6 +266,7 @@ export async function callLlmJson<T>(
       promptTokens: raw?.usage.promptTokens ?? 0,
       outputTokens: raw?.usage.outputTokens ?? 0,
       thoughtsTokens: raw?.usage.thoughtsTokens ?? 0,
+      ...(failure?.detail ? { detail: failure.detail } : {}),
     });
 
     if (!failure && parsed !== null) {

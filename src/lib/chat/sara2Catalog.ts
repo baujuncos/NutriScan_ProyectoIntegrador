@@ -121,17 +121,25 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 
 let cache: { rows: Sara2Food[]; loadedAt: number } | null = null;
 
+const UNDEFINED_COLUMN = '42703';
+
+async function fetchPage(supabase: SupabaseClient, from: number, filterBySource: boolean) {
+  let query = supabase.from('alimentos').select(SELECT).not('kcal_100g', 'is', null);
+  if (filterBySource) query = query.eq('fuente', 'SARA2');
+  return query.order('id_alimento').range(from, from + PAGE_SIZE - 1);
+}
+
 async function loadSara2(supabase: SupabaseClient): Promise<Sara2Food[]> {
   if (cache && Date.now() - cache.loadedAt < CACHE_TTL_MS) return cache.rows;
   const rows: Sara2Food[] = [];
+  let filterBySource = true;
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from('alimentos')
-      .select(SELECT)
-      .eq('fuente', 'SARA2')
-      .not('kcal_100g', 'is', null)
-      .order('id_alimento')
-      .range(from, from + PAGE_SIZE - 1);
+    let { data, error } = await fetchPage(supabase, from, filterBySource);
+    if (error?.code === UNDEFINED_COLUMN && filterBySource) {
+      // Base sin la migración 009 (ANMAT): no existe `fuente` y todo el catálogo es SARA2.
+      filterBySource = false;
+      ({ data, error } = await fetchPage(supabase, from, filterBySource));
+    }
     if (error) throw error;
     for (const r of data ?? []) {
       rows.push({

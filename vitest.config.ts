@@ -9,6 +9,10 @@ const alias = {
 export default defineConfig({
   resolve: { alias },
   test: {
+    // Vercel corre `npm run build` con NODE_ENV=production; sin esto, React
+    // carga su bundle de producción (sin `React.act`) y los tests de RTL
+    // fallan con "React.act is not a function".
+    env: { NODE_ENV: 'test' },
     projects: [
       {
         // Lógica de negocio pura — sin DOM, sin red.

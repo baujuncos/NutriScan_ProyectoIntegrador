@@ -108,6 +108,18 @@ export default function BarcodeScannerModal({
           (decodedText) => handleDecoded(decodedText),
           () => {},
         );
+        if (cancelado) {
+          // Nos pidieron cancelar mientras start() todavía estaba pendiente:
+          // el stop() que disparó el cleanup de abajo ya corrió y falló
+          // (html5-qrcode rechaza stop() hasta que start() resuelve), así que
+          // la cámara quedó realmente encendida recién ahora. Apagarla de nuevo.
+          try {
+            await scanner.stop();
+          } catch {
+            // Ya estaba detenida
+          }
+          scanner.clear();
+        }
       } catch (err) {
         if (cancelado) return;
         const name = err instanceof DOMException ? err.name : '';
@@ -283,7 +295,11 @@ export default function BarcodeScannerModal({
         )}
 
         {stage === 'portion' && producto?.encontrado && (
-          <form action={addScannedItemAction} className="space-y-4">
+          <form
+            action={addScannedItemAction}
+            onSubmit={handleClose}
+            className="space-y-4"
+          >
             <input type="hidden" name="fecha" value={fecha} />
             <input type="hidden" name="tipo_ingesta" value={tipoIngesta} />
             <input type="hidden" name="tipo_item" value="solido" />

@@ -56,10 +56,17 @@ function mockPointerCoarse(coarse: boolean) {
 function renderModal(props: Partial<React.ComponentProps<typeof BarcodeScannerModal>> = {}) {
   const onClose = vi.fn();
   const user = userEvent.setup();
-  render(
+  const { rerender } = render(
     <BarcodeScannerModal open onClose={onClose} fecha="2026-09-21" tipoIngesta="almuerzo" {...props} />,
   );
-  return { onClose, user };
+  // `onClose` es un mock: no cambia `open` solo. Un test que necesite simular
+  // lo que hace AlimentacionClient en producción (bajar `open` a false cuando
+  // se llama onClose) puede pasar rerenderWithOpen(false).
+  const rerenderWithOpen = (open: boolean) =>
+    rerender(
+      <BarcodeScannerModal open={open} onClose={onClose} fecha="2026-09-21" tipoIngesta="almuerzo" {...props} />,
+    );
+  return { onClose, user, rerenderWithOpen };
 }
 
 async function simularEscaneo() {
@@ -111,6 +118,41 @@ describe('BarcodeScannerModal — captura', () => {
     await waitFor(() => expect(mockStop).toHaveBeenCalled());
     expect(obtenerProductoPorEAN).toHaveBeenCalledWith('7790040000100');
     expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+  });
+
+  it('si el modal se cierra mientras start() todavía está pendiente, igual detiene la cámara cuando termina de arrancar', async () => {
+    // Reproduce el estado real de html5-qrcode: stop() rechaza si se llama
+    // antes de que start() haya resuelto ("Cannot stop, scanner is not
+    // running"). El primer stop() (disparado por el cierre del modal) cae en
+    // esa ventana y falla; solo un segundo intento, después de que start()
+    // resuelva, puede apagar la cámara de verdad.
+    let resolveStart!: () => void;
+    mockStart.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStart = () => resolve(null);
+        }),
+    );
+    mockStop
+      .mockImplementationOnce(() => Promise.reject(new Error('Cannot stop, scanner is not running.')))
+      .mockImplementationOnce(() => Promise.resolve(undefined));
+
+    const { user, rerenderWithOpen } = renderModal();
+    await waitFor(() => expect(mockStart).toHaveBeenCalled());
+
+    // Igual que en producción: cerrar dispara handleClose (detenerCamara()
+    // directo, que acá falla) y el padre baja `open` a false, lo que además
+    // dispara el cleanup del efecto de escaneo.
+    await user.click(screen.getByLabelText('Cerrar'));
+    rerenderWithOpen(false);
+    await waitFor(() => expect(mockStop).toHaveBeenCalledTimes(1));
+
+    // Ahora start() resuelve "tarde": la cámara recién queda realmente viva acá.
+    await act(async () => {
+      resolveStart();
+    });
+
+    await waitFor(() => expect(mockStop).toHaveBeenCalledTimes(2));
   });
 });
 
@@ -171,6 +213,16 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
     expect(formData.get('tipo_ingesta')).toBe('almuerzo');
     expect(formData.get('ean')).toBe('7790040000100');
     expect(formData.get('cantidad')).toBe('45');
+  });
+
+  it('al elegir una porción, cierra el modal (no se queda esperando sobre la pantalla de porción)', async () => {
+    const { user, onClose } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
+
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('"Volver" desde la pantalla de porción regresa a la confirmación', async () => {

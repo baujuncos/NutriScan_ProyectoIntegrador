@@ -24,6 +24,7 @@ vi.mock('@/app/alimentacion/actions', () => ({
 
 vi.mock('@/app/alimentacion/AIRecognitionModal', () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/ChatFoodModal',      () => ({ default: () => null }));
+vi.mock('@/app/alimentacion/BarcodeScannerModal', () => ({ default: () => null }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures

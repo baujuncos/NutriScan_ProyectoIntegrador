@@ -21,6 +21,7 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import AIRecognitionModal from './AIRecognitionModal';
 import ChatFoodModal from './ChatFoodModal';
+import BarcodeScannerModal from './BarcodeScannerModal';
 import type { FoodChatResult } from '@/lib/chatFood';
 
 type ItemRow = {
@@ -97,6 +98,7 @@ export default function AlimentacionClient({
   const [showManualModal, setShowManualModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [searchResults, setSearchResults] = useState<AlimentoOption[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [denominacionModal, setDenominacionModal] = useState<AlimentoOption | null>(null);
@@ -290,6 +292,20 @@ export default function AlimentacionClient({
           <span aria-hidden="true">💬</span>
           <span className="hidden sm:inline">Registrar por chat</span>
         </button>
+
+        {/* Barcode scanner button */}
+        <button
+          type="button"
+          onClick={() => setShowBarcodeModal(true)}
+          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
+          style={{
+            backgroundImage: 'linear-gradient(135deg, #f97316 0%, #f59e0b 100%)',
+            boxShadow: '0 8px 20px rgba(249,115,22,0.35)',
+          }}
+        >
+          <span aria-hidden="true">📷</span>
+          <span className="hidden sm:inline">Escanear código</span>
+        </button>
       </div>
       )}
 
@@ -406,6 +422,14 @@ export default function AlimentacionClient({
           setShowChatModal(false);
           setTimeout(() => searchInputRef.current?.focus(), 0);
         }}
+      />
+
+      {/* Barcode scanner modal */}
+      <BarcodeScannerModal
+        open={showBarcodeModal}
+        onClose={() => setShowBarcodeModal(false)}
+        fecha={fecha}
+        tipoIngesta={tipoIngesta}
       />
 
       {/* Add form (shown when food is selected) */}

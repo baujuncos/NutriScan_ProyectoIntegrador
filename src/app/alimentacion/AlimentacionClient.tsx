@@ -35,6 +35,8 @@ type ItemRow = {
   grasas_g: number | string;
   carbs_g: number | string;
   alimentos: { nombre: string; categoria: string | null } | Array<{ nombre: string; categoria: string | null }> | null;
+  id_alimento_barcode?: number | null;
+  alimentos_barcode?: { nombre: string; marca: string | null } | Array<{ nombre: string; marca: string | null }> | null;
 };
 
 type IngestaRow = {
@@ -54,6 +56,10 @@ function toNum(v: number | string | null | undefined): number {
 }
 
 function getAlimentoNombre(item: ItemRow): string {
+  if (item.id_alimento_barcode != null) {
+    const ab = Array.isArray(item.alimentos_barcode) ? item.alimentos_barcode[0] : item.alimentos_barcode;
+    return ab?.nombre ?? `Alimento #${item.id_alimento_barcode}`;
+  }
   if (item.id_alimento == null) return item.nombre_manual ?? 'Alimento sin nombre';
   if (Array.isArray(item.alimentos)) return item.alimentos[0]?.nombre ?? `Alimento #${item.id_alimento}`;
   return (item.alimentos as { nombre: string } | null)?.nombre ?? `Alimento #${item.id_alimento}`;

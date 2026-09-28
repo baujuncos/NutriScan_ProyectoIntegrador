@@ -22,6 +22,8 @@ type ItemRow = {
   grasas_g: number | string;
   carbs_g: number | string;
   alimentos: { nombre: string; categoria: string | null } | Array<{ nombre: string; categoria: string | null }> | null;
+  id_alimento_barcode: number | null;
+  alimentos_barcode: { nombre: string; marca: string | null } | Array<{ nombre: string; marca: string | null }> | null;
 };
 
 type IngestaRow = {
@@ -68,7 +70,7 @@ export default async function AlimentacionPage({
       id_ingesta, tipo, fecha,
       kcal_total, proteinas_total_g, grasas_total_g, carbs_total_g,
       items(id_item, id_alimento, nombre_manual, tipo_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g,
-        alimentos(nombre, categoria))
+        id_alimento_barcode, alimentos(nombre, categoria), alimentos_barcode(nombre, marca))
     `)
     .eq('id_usuario', user.id)
     .eq('fecha', fecha);

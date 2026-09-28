@@ -43,6 +43,7 @@ export async function obtenerProductoPorEAN(ean: string): Promise<ProductoOFF>;
 - `GET https://world.openfoodfacts.org/api/v2/product/${ean}.json`, con `AbortSignal.timeout(8000)` (nativo — sin wrapper propio de fetch).
 - `status === 0` (o `product` ausente) → `{ encontrado: false, ean }`.
 - Error de red/timeout → mismo resultado `{ encontrado: false, ean }` (se trata igual que "no encontrado" en la UI; no se distingue error de red de producto inexistente, para mantener la UI simple).
+- **Fallback por datos nutricionales inválidos:** si en la respuesta cruda de OFF los cuatro campos (`nutriments['energy-kcal_100g']`, `proteins_100g`, `fat_100g`, `carbohydrates_100g`) están **los cuatro** ausentes/`null` (antes de aplicar cualquier default), el producto se trata igual que "no encontrado" → `{ encontrado: false, ean }`. Esto evita que un producto con ficha vacía en OFF llegue a la pantalla de confirmación mostrando "0 kcal" como si fuera un dato real, y evita persistir basura en `alimentos_barcode` (el server action reutiliza esta misma función para su re-consulta, así que el filtro aplica también ahí). Si falta *alguno mas no todos* los cuatro campos, esos campos individuales sí caen a `0` y el producto se muestra normalmente — el fallback es solo para el caso de "no hay ninguna info nutricional real".
 - `porcion` sale de `product.serving_quantity` (numérico, gramos) si está presente y es un número > 0; si no, `100`.
 - Es una función pura, sin `'use client'` ni `'use server'`: se importa tanto desde el componente (preview inmediata al escanear) como desde el server action (re-consulta de confianza antes de persistir — ver §5).
 
@@ -263,7 +264,7 @@ Errores de red/timeout de OFF en el server action se tratan igual que "no encont
 
 ## 7. Testing
 
-- `testing/openFoodFacts.test.ts` (proyecto `node` de vitest, mock de `global.fetch`): producto encontrado con y sin `serving_quantity`/`categoria`/`marca`, `status: 0`, timeout/error de red.
+- `testing/openFoodFacts.test.ts` (proyecto `node` de vitest, mock de `global.fetch`): producto encontrado con y sin `serving_quantity`/`categoria`/`marca`, `status: 0`, timeout/error de red, producto encontrado con los 4 macros nulos (→ `encontrado: false`), producto con solo *algunos* macros nulos (→ `encontrado: true` con esos campos en `0`).
 - `testing/BarcodeScannerModal.test.tsx` (proyecto `jsdom`, mock del módulo `html5-qrcode` — no hay cámara real en jsdom): flujo completo simulando que `Html5Qrcode` "detecta" un EAN, confirmar producto, elegir porción, verificar `onConfirmarAlimento` con el payload correcto; rama "No, es otro"; rama "no encontrado".
 - Sin test de integración contra Supabase real ni contra la API de OFF real (sigue la convención del repo: mocks en los tests, sin llamadas de red).
 

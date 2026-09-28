@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { todayAR, daysAgoAR } from '@/lib/date';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
@@ -260,7 +261,13 @@ export async function addScannedItemAction(formData: FormData) {
 
   if (!user) redirect('/login');
 
-  const { data: alimentoBarcode, error: upsertError } = await supabase
+  // El upsert va por el cliente admin (service role), no por `supabase`: la
+  // tabla es de lectura pública y no tiene policy de insert/update para
+  // usuarios autenticados, justamente para que la única vía de escritura sea
+  // este server action (después de re-consultar OFF arriba), no un usuario
+  // llamando a PostgREST directamente con la anon key.
+  const admin = createAdminClient();
+  const { data: alimentoBarcode, error: upsertError } = await admin
     .from('alimentos_barcode')
     .upsert(
       {

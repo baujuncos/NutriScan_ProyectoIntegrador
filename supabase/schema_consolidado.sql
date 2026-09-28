@@ -773,16 +773,14 @@ create policy "alimentos_barcode: read"
   on public.alimentos_barcode for select
   using (true);
 
-create policy "alimentos_barcode: authenticated upsert"
-  on public.alimentos_barcode for insert
-  to authenticated
-  with check (true);
-
-create policy "alimentos_barcode: authenticated update"
-  on public.alimentos_barcode for update
-  to authenticated
-  using (true)
-  with check (true);
+-- Sin políticas de insert/update para 'authenticated': el catálogo se
+-- autoalimenta solo a través de addScannedItemAction, que usa el cliente
+-- admin (service role) del lado del servidor después de re-consultar Open
+-- Food Facts. Una policy "with check (true)" para insert/update dejaría que
+-- cualquier usuario autenticado reescriba nombre/macros de cualquier
+-- producto llamando a PostgREST directamente con la anon key, sin pasar
+-- por el server action ni por OFF — el service role bypassea RLS a
+-- propósito para ser el único camino de escritura.
 
 create or replace function public.calculate_item_nutrients()
 returns trigger as $$

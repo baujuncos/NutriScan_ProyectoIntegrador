@@ -726,3 +726,116 @@ BEGIN
   RETURN new;
 END;
 $$ LANGUAGE plpgsql;
+
+
+-- ============================================================
+-- 010 — Escaneo de código de barras (Open Food Facts)
+-- ============================================================
+
+create table if not exists public.alimentos_barcode (
+  id_alimento_barcode bigserial primary key,
+  codigo_ean       text not null unique check (codigo_ean ~ '^[0-9]{13}$'),
+  nombre           text not null,
+  categoria        text,
+  marca            text,
+  porcion          numeric(10,2) not null default 100,
+  kcal_100g        numeric(10,2),
+  proteinas_100g   numeric(10,2),
+  grasas_100g      numeric(10,2),
+  carbs_100g       numeric(10,2),
+  imagen_url       text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create trigger alimentos_barcode_updated_at
+  before update on public.alimentos_barcode
+  for each row execute function public.handle_updated_at();
+
+alter table public.items
+  add column if not exists id_alimento_barcode bigint references public.alimentos_barcode(id_alimento_barcode);
+
+create index if not exists idx_items_alimento_barcode on public.items(id_alimento_barcode);
+
+alter table public.items
+  drop constraint if exists items_alimento_or_manual_check;
+
+alter table public.items
+  add constraint items_alimento_or_manual_check
+  check (
+    num_nonnulls(id_alimento, nombre_manual, id_alimento_barcode) >= 1
+    and num_nonnulls(id_alimento, id_alimento_barcode) <= 1
+  ) not valid;
+
+alter table public.alimentos_barcode enable row level security;
+
+create policy "alimentos_barcode: read"
+  on public.alimentos_barcode for select
+  using (true);
+
+create policy "alimentos_barcode: authenticated upsert"
+  on public.alimentos_barcode for insert
+  to authenticated
+  with check (true);
+
+create policy "alimentos_barcode: authenticated update"
+  on public.alimentos_barcode for update
+  to authenticated
+  using (true)
+  with check (true);
+
+create or replace function public.calculate_item_nutrients()
+returns trigger as $$
+declare
+  kcal_100 numeric(10,2);
+  prot_100 numeric(10,2);
+  fat_100 numeric(10,2);
+  carb_100 numeric(10,2);
+begin
+  if new.id_alimento_barcode is not null then
+    select coalesce(kcal_100g, 0), coalesce(proteinas_100g, 0), coalesce(grasas_100g, 0), coalesce(carbs_100g, 0)
+    into kcal_100, prot_100, fat_100, carb_100
+    from public.alimentos_barcode
+    where id_alimento_barcode = new.id_alimento_barcode;
+
+    if not found then
+      raise exception 'Alimento (barcode) no encontrado para id_alimento_barcode=%', new.id_alimento_barcode;
+    end if;
+
+    new.kcal = round((kcal_100 * new.cantidad) / 100, 2);
+    new.proteinas_g = round((prot_100 * new.cantidad) / 100, 2);
+    new.grasas_g = round((fat_100 * new.cantidad) / 100, 2);
+    new.carbs_g = round((carb_100 * new.cantidad) / 100, 2);
+    return new;
+  end if;
+
+  if new.id_alimento is null then
+    new.kcal = 0;
+    new.proteinas_g = 0;
+    new.grasas_g = 0;
+    new.carbs_g = 0;
+    return new;
+  end if;
+
+  select coalesce(a.kcal_100g, 0), coalesce(a.proteinas_100g, 0), coalesce(a.grasas_100g, 0), coalesce(a.carbs_100g, 0)
+  into kcal_100, prot_100, fat_100, carb_100
+  from public.alimentos a
+  where a.id_alimento = new.id_alimento;
+
+  if not found then
+    raise exception 'Alimento no encontrado para id_alimento=%', new.id_alimento;
+  end if;
+
+  new.kcal = round((kcal_100 * new.cantidad) / 100, 2);
+  new.proteinas_g = round((prot_100 * new.cantidad) / 100, 2);
+  new.grasas_g = round((fat_100 * new.cantidad) / 100, 2);
+  new.carbs_g = round((carb_100 * new.cantidad) / 100, 2);
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists items_calculate_nutrients on public.items;
+create trigger items_calculate_nutrients
+  before insert or update of id_alimento, id_alimento_barcode, cantidad
+  on public.items
+  for each row execute function public.calculate_item_nutrients();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { evaluarAngulo, type LecturaAngulo } from '@/lib/anguloDispositivo';
 
 /**
@@ -94,7 +94,10 @@ export function useDeviceAngle(activo: boolean): {
       .catch(() => setSoporte('denegado'));
   }, []);
 
-  useEffect(() => {
+  // Layout effect (no `useEffect`): se engancha en el mismo commit que el cambio
+  // a `mode === 'live'`, así no se puede perder el primer evento de orientación
+  // por la demora de un passive effect.
+  useLayoutEffect(() => {
     if (!activo) return;
 
     // `soporte` sale del lazy init (`detectarSoporte`) o de `solicitarPermiso`.

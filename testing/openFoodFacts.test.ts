@@ -139,11 +139,12 @@ describe('obtenerProductoPorEAN', () => {
     }
   });
 
-  it('normaliza a 0 cuando los macros vienen como string en vez de number', async () => {
+  it('parsea los macros y la porción cuando OFF los manda como string en vez de number', async () => {
     mockFetchOnce({
       status: 1,
       product: {
         product_name: 'Producto con macros mal tipados',
+        serving_quantity: '45',
         nutriments: {
           'energy-kcal_100g': '450',
           proteins_100g: '5',
@@ -155,7 +156,28 @@ describe('obtenerProductoPorEAN', () => {
     const result = await obtenerProductoPorEAN('7790040000550');
     expect(result.encontrado).toBe(true);
     if (result.encontrado) {
-      expect(result.nutrientes100g).toEqual({ kcal: 0, proteinas: 0, grasas: 0, carbs: 0 });
+      expect(result.nutrientes100g).toEqual({ kcal: 450, proteinas: 5, grasas: 20, carbs: 60 });
+      expect(result.porcion).toBe(45);
+    }
+  });
+
+  it('trata un macro como ausente (no lo confunde con 0) cuando el string no es numérico', async () => {
+    mockFetchOnce({
+      status: 1,
+      product: {
+        product_name: 'Producto con un macro corrupto',
+        nutriments: {
+          'energy-kcal_100g': 'no disponible',
+          proteins_100g: 5,
+          fat_100g: 20,
+          carbohydrates_100g: 60,
+        },
+      },
+    });
+    const result = await obtenerProductoPorEAN('7790040000560');
+    expect(result.encontrado).toBe(true);
+    if (result.encontrado) {
+      expect(result.nutrientes100g).toEqual({ kcal: 0, proteinas: 5, grasas: 20, carbs: 60 });
     }
   });
 

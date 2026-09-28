@@ -23,12 +23,20 @@ export type ProductoOFF = ProductoEncontrado | ProductoNoEncontrado;
 
 const OFF_TIMEOUT_MS = 8000;
 
-function numeroOCero(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+// OFF a veces manda los números como string (ej. "450" en vez de 450).
+// Parsearlos evita que un macro real se pierda como si estuviese ausente.
+function aNumero(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 function numeroPositivoONulo(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  const n = aNumero(value);
+  return n != null && n > 0 ? n : null;
 }
 
 function primeraCategoria(value: unknown): string {
@@ -50,13 +58,13 @@ export async function obtenerProductoPorEAN(ean: string): Promise<ProductoOFF> {
     const product = data.product;
     const n = product.nutriments ?? {};
 
-    const kcalRaw = n['energy-kcal_100g'];
-    const proteinasRaw = n['proteins_100g'];
-    const grasasRaw = n['fat_100g'];
-    const carbsRaw = n['carbohydrates_100g'];
+    const kcalNum = aNumero(n['energy-kcal_100g']);
+    const proteinasNum = aNumero(n['proteins_100g']);
+    const grasasNum = aNumero(n['fat_100g']);
+    const carbsNum = aNumero(n['carbohydrates_100g']);
 
     const todosAusentes =
-      kcalRaw == null && proteinasRaw == null && grasasRaw == null && carbsRaw == null;
+      kcalNum === null && proteinasNum === null && grasasNum === null && carbsNum === null;
     if (todosAusentes) return { encontrado: false, ean };
 
     return {
@@ -70,10 +78,10 @@ export async function obtenerProductoPorEAN(ean: string): Promise<ProductoOFF> {
       marca: typeof product.brands === 'string' && product.brands.trim() ? product.brands.trim() : null,
       porcion: numeroPositivoONulo(product.serving_quantity) ?? 100,
       nutrientes100g: {
-        kcal: numeroOCero(kcalRaw),
-        proteinas: numeroOCero(proteinasRaw),
-        grasas: numeroOCero(grasasRaw),
-        carbs: numeroOCero(carbsRaw),
+        kcal: kcalNum ?? 0,
+        proteinas: proteinasNum ?? 0,
+        grasas: grasasNum ?? 0,
+        carbs: carbsNum ?? 0,
       },
       imagenUrl: typeof product.image_url === 'string' && product.image_url ? product.image_url : null,
     };

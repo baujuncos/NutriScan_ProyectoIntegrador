@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
+import { createSupabaseFromMock } from './supabaseMock';
+import {
+  FIXTURE_DOBLE_AMBIGUEDAD,
+  FIXTURE_EXCESO_PREGUNTAS,
+  FIXTURE_SIN_BBOX,
+} from './fixtures/deteccion';
 
 const { generateContentMock, getGenerativeModelMock } = vi.hoisted(() => ({
   generateContentMock: vi.fn(),
@@ -18,9 +24,10 @@ const { sharpMock, resizeMock, jpegMock, toBufferMock } = vi.hoisted(() => ({
 vi.mock('sharp', () => ({ default: sharpMock }));
 
 const { getUserMock } = vi.hoisted(() => ({ getUserMock: vi.fn() }));
+const supabaseFromMock = createSupabaseFromMock();
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { getUser: getUserMock } }),
+  createClient: async () => ({ auth: { getUser: getUserMock }, from: supabaseFromMock.from }),
 }));
 
 vi.mock('@google/generative-ai', () => {
@@ -62,7 +69,8 @@ const VALID_RESULT = {
       type: 'proteína animal',
       confidence: 0.82,
       estimatedWeightGrams: 150,
-      questionForUser: null,
+      questions: [],
+      boundingBox: null,
     },
   ],
   totalEstimatedWeightGrams: 150,
@@ -80,23 +88,8 @@ function makeForm(overrides: Record<string, string | undefined> = {}) {
   const fd = new FormData();
   const image = new File([new Uint8Array([1, 2, 3])], 'foto.jpg', { type: 'image/jpeg' });
   fd.set('image', overrides.image === undefined ? image : (overrides.image as unknown as File));
-  fd.set(
-    'vajilla',
-    overrides.vajilla ?? JSON.stringify({ tipo: 'plato_playo', diametroCm: 26 }),
-  );
-  fd.set(
-    'angulo',
-    overrides.angulo ?? JSON.stringify({ beta: 56, estado: 'ok', dentroDeRango: true }),
-  );
-  if (overrides.preguntasPorIngrediente !== undefined) {
-    fd.set('preguntasPorIngrediente', overrides.preguntasPorIngrediente);
-  }
-  if (overrides.previousDetection !== undefined) {
-    fd.set('previousDetection', overrides.previousDetection);
-  }
-  if (overrides.respuestaUsuario !== undefined) {
-    fd.set('respuestaUsuario', overrides.respuestaUsuario);
-  }
+  fd.set('vajilla', overrides.vajilla ?? JSON.stringify({ tipo: 'plato_playo', diametroCm: 26 }));
+  fd.set('angulo', overrides.angulo ?? JSON.stringify({ beta: 56, estado: 'ok', dentroDeRango: true }));
   return fd;
 }
 
@@ -118,6 +111,12 @@ beforeEach(() => {
   jpegMock.mockReturnValue({ toBuffer: toBufferMock });
   resizeMock.mockReturnValue({ jpeg: jpegMock });
   sharpMock.mockReturnValue({ rotate: () => ({ resize: resizeMock }) });
+
+  // Por defecto, persistencia exitosa — los tests que prueban fallos de
+  // persistencia lo pisan explícitamente después de este reset.
+  supabaseFromMock.reset();
+  supabaseFromMock.mockTable('detecciones_ia', { data: { id_deteccion: 1 }, error: null });
+  supabaseFromMock.mockTable('detecciones_ia_items', { data: null, error: null });
 });
 
 afterEach(() => {
@@ -125,30 +124,141 @@ afterEach(() => {
 });
 
 describe('POST /api/food-recognition — éxito', () => {
-  it('reconoce en una sola llamada a Gemini y devuelve 200', async () => {
+  it('reconoce en una sola llamada a Gemini, persiste la predicción y devuelve 200', async () => {
     generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
 
     const res = await POST(makeRequest(makeForm()));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ ok: true, ...VALID_RESULT });
+    expect(body.ok).toBe(true);
+    expect(body.predictionId).toBe('1');
+    expect(body.totalEstimatedWeightGrams).toBe(150);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      ingredient: 'milanesa de pollo',
+      type: 'proteína animal',
+      confidence: 0.82,
+      estimatedWeightGrams: 150,
+      questions: [],
+      boundingBox: null,
+    });
+    expect(typeof body.items[0].id).toBe('string');
     expect(generateContentMock).toHaveBeenCalledTimes(1);
   });
 
-  it('pasa intacta una pregunta aclaratoria no nula', async () => {
-    const conPregunta = {
-      detectedIngredients: [
-        { ...VALID_RESULT.detectedIngredients[0], questionForUser: '¿Frito o al horno?' },
-      ],
-      totalEstimatedWeightGrams: 150,
-    };
-    generateContentMock.mockResolvedValueOnce(jsonResponse(conPregunta));
+  it('pasa intactas las preguntas con sus opciones', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(FIXTURE_DOBLE_AMBIGUEDAD));
 
     const res = await POST(makeRequest(makeForm()));
     const body = await res.json();
 
-    expect(body.detectedIngredients[0].questionForUser).toBe('¿Frito o al horno?');
+    expect(res.status).toBe(200);
+    expect(body.items[0].questions).toEqual([
+      {
+        question: '¿De qué relleno es la empanada?',
+        kind: 'identity',
+        options: ['Carne', 'Pollo', 'Jamón y queso', 'Verdura'],
+      },
+    ]);
+    expect(body.items[1].questions).toEqual([
+      { question: '¿Está frita o al horno?', kind: 'attribute', options: ['Frita', 'Al horno'] },
+    ]);
+  });
+});
+
+describe('POST /api/food-recognition — persistencia de la predicción (NUT-172)', () => {
+  it('inserta en detecciones_ia y luego en detecciones_ia_items, en ese orden', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    await POST(makeRequest(makeForm()));
+
+    expect(supabaseFromMock.tablasLlamadas()).toEqual(['detecciones_ia', 'detecciones_ia_items']);
+  });
+
+  it('trunca a 3 preguntas por ítem antes de persistir, no sólo antes de responder', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(FIXTURE_EXCESO_PREGUNTAS));
+
+    await POST(makeRequest(makeForm()));
+
+    const itemsInsert = supabaseFromMock
+      .insertsLlamados()
+      .find((i) => i.tabla === 'detecciones_ia_items');
+    const payload = itemsInsert?.payload as Array<{ questions: unknown[] }>;
+    expect(payload[0].questions).toHaveLength(3);
+  });
+
+  it('convierte el bbox de Gemini a fracción 0-1 tanto en la respuesta como en lo persistido', async () => {
+    const conBbox = {
+      detectedIngredients: [{ ...VALID_RESULT.detectedIngredients[0], boundingBox: { ymin: 100, xmin: 200, ymax: 600, xmax: 800 } }],
+      totalEstimatedWeightGrams: 150,
+    };
+    generateContentMock.mockResolvedValueOnce(jsonResponse(conBbox));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(body.items[0].boundingBox).toEqual({ x: 0.2, y: 0.1, width: 0.6, height: 0.5 });
+
+    const itemsInsert = supabaseFromMock
+      .insertsLlamados()
+      .find((i) => i.tabla === 'detecciones_ia_items');
+    const payload = itemsInsert?.payload as Array<Record<string, unknown>>;
+    expect(payload[0]).toMatchObject({ bbox_x: 0.2, bbox_y: 0.1, bbox_width: 0.6, bbox_height: 0.5 });
+  });
+
+  it('con boundingBox null de Gemini, persiste las columnas bbox_* en null', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(FIXTURE_SIN_BBOX));
+
+    await POST(makeRequest(makeForm()));
+
+    const itemsInsert = supabaseFromMock
+      .insertsLlamados()
+      .find((i) => i.tabla === 'detecciones_ia_items');
+    const payload = itemsInsert?.payload as Array<Record<string, unknown>>;
+    expect(payload[0]).toMatchObject({ bbox_x: null, bbox_y: null, bbox_width: null, bbox_height: null });
+  });
+
+  it('con dos ítems ambiguos a la vez, cada uno conserva sus propias preguntas al persistir', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(FIXTURE_DOBLE_AMBIGUEDAD));
+
+    await POST(makeRequest(makeForm()));
+
+    const itemsInsert = supabaseFromMock
+      .insertsLlamados()
+      .find((i) => i.tabla === 'detecciones_ia_items');
+    const payload = itemsInsert?.payload as Array<{ ingredient: string; questions: unknown[] }>;
+    expect(payload).toHaveLength(2);
+    expect(payload[0].ingredient).toBe('Empanada');
+    expect(payload[0].questions).toHaveLength(1);
+    expect(payload[1].ingredient).toBe('Milanesa');
+    expect(payload[1].questions).toHaveLength(1);
+  });
+
+  it('si falla el insert de detecciones_ia responde 502 PERSISTENCE_ERROR sin insertar items', async () => {
+    supabaseFromMock.reset();
+    supabaseFromMock.mockTable('detecciones_ia', { data: null, error: { message: 'boom' } });
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.error).toBe('PERSISTENCE_ERROR');
+    expect(supabaseFromMock.tablasLlamadas()).not.toContain('detecciones_ia_items');
+  });
+
+  it('si falla el insert de detecciones_ia_items responde 502 PERSISTENCE_ERROR', async () => {
+    supabaseFromMock.reset();
+    supabaseFromMock.mockTable('detecciones_ia', { data: { id_deteccion: 1 }, error: null });
+    supabaseFromMock.mockTable('detecciones_ia_items', { data: null, error: { message: 'boom' } });
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.error).toBe('PERSISTENCE_ERROR');
   });
 });
 
@@ -173,7 +283,7 @@ describe('POST /api/food-recognition — JSON malformado', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ ok: true, ...VALID_RESULT });
+    expect(body.predictionId).toBe('1');
     expect(generateContentMock).toHaveBeenCalledTimes(2);
   });
 });
@@ -184,10 +294,8 @@ describe('POST /api/food-recognition — timeout y rate limit', () => {
     generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
 
     const res = await POST(makeRequest(makeForm()));
-    const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ ok: true, ...VALID_RESULT });
     expect(generateContentMock).toHaveBeenCalledTimes(2);
   });
 
@@ -240,10 +348,8 @@ describe('POST /api/food-recognition — modelo saturado (503) y fallback', () =
     generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
 
     const res = await POST(makeRequest(makeForm()));
-    const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ ok: true, ...VALID_RESULT });
     expect(generateContentMock).toHaveBeenCalledTimes(2);
     const primario = getGenerativeModelMock.mock.calls[0][0].model;
     const respaldo = getGenerativeModelMock.mock.calls[1][0].model;
@@ -300,22 +406,6 @@ describe('POST /api/food-recognition — compresión de imagen', () => {
   });
 });
 
-describe('POST /api/food-recognition — límite de preguntas por alimento', () => {
-  it('con un ingrediente en el límite, el prompt indica que no se le puede volver a preguntar', async () => {
-    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
-
-    await POST(
-      makeRequest(
-        makeForm({ preguntasPorIngrediente: JSON.stringify({ 'milanesa de pollo': 3 }) }),
-      ),
-    );
-
-    const modelParams = getGenerativeModelMock.mock.calls[0][0];
-    expect(modelParams.systemInstruction).toContain('milanesa de pollo');
-    expect(modelParams.systemInstruction).toContain('ya alcanzaron el máximo de preguntas permitidas');
-  });
-});
-
 describe('POST /api/food-recognition — validación de entrada', () => {
   it('sin imagen devuelve 400 IMAGE_REQUIRED y no llama a Gemini', async () => {
     const fd = makeForm();
@@ -347,21 +437,6 @@ describe('POST /api/food-recognition — validación de entrada', () => {
     expect(res.status).toBe(400);
     expect(body.error).toBe('INVALID');
   });
-
-  it('respuestaUsuario sin previousDetection es rechazada con 400 INVALID', async () => {
-    const res = await POST(
-      makeRequest(
-        makeForm({
-          respuestaUsuario: JSON.stringify({ ingredient: 'milanesa', respuesta: 'de pollo' }),
-        }),
-      ),
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
-    expect(generateContentMock).not.toHaveBeenCalled();
-  });
 });
 
 describe('POST /api/food-recognition — ángulo sin lectura de giroscopio', () => {
@@ -380,22 +455,15 @@ describe('POST /api/food-recognition — ángulo sin lectura de giroscopio', () 
   });
 });
 
-describe('POST /api/food-recognition — refinamiento tras pregunta aclaratoria', () => {
-  it('arma 3 turnos user/model/user cuando viene previousDetection + respuestaUsuario', async () => {
+describe('POST /api/food-recognition — arma un único turno por llamada, siempre', () => {
+  it('el contents enviado a Gemini siempre tiene un solo turno "user"', async () => {
     generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
 
-    await POST(
-      makeRequest(
-        makeForm({
-          previousDetection: JSON.stringify(VALID_RESULT),
-          respuestaUsuario: JSON.stringify({ ingredient: 'milanesa de pollo', respuesta: 'al horno' }),
-        }),
-      ),
-    );
+    await POST(makeRequest(makeForm()));
 
     const { contents } = generateContentMock.mock.calls[0][0];
-    expect(contents).toHaveLength(3);
-    expect(contents.map((c: { role: string }) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(contents).toHaveLength(1);
+    expect(contents[0].role).toBe('user');
   });
 });
 

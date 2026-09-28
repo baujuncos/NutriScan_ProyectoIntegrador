@@ -1,9 +1,11 @@
 /**
- * NUT-154 + NUT-156 — Llamada desde el cliente al endpoint combinado de
- * reconocimiento de alimentos + estimación de peso (épica NUT-12).
+ * NUT-154/156/166 — Llamada desde el cliente al endpoint combinado de
+ * reconocimiento de alimentos + estimación de peso (épica NUT-12/NUT-119).
+ * Una sola llamada por foto, sin refinamiento: las preguntas aclaratorias se
+ * responden del lado del cliente (sesión 2), no disparan otra llamada.
  */
 import type { EstadoAngulo } from '@/lib/anguloDispositivo';
-import type { FoodDetectionResult, PreguntasPorIngrediente } from '@/lib/geminiFoodPrompt';
+import type { DetectionResponse, SaveRequest } from '@/lib/deteccion';
 import type { VajillaTipo } from '@/lib/vajilla';
 
 export class ReconocimientoError extends Error {
@@ -21,25 +23,15 @@ export interface LlamarReconocimientoParams {
   /** El endpoint sólo acepta platos con diámetro confirmado (nunca 'otro'). */
   vajilla: { tipo: Exclude<VajillaTipo, 'otro'>; diametroCm: number };
   angulo: { beta: number | null; estado: EstadoAngulo; dentroDeRango: boolean };
-  preguntasPorIngrediente: PreguntasPorIngrediente;
-  refinamiento?: {
-    previousDetection: FoodDetectionResult;
-    respuestaUsuario: { ingredient: string; respuesta: string };
-  };
 }
 
 export async function llamarReconocimiento(
   params: LlamarReconocimientoParams,
-): Promise<FoodDetectionResult> {
+): Promise<DetectionResponse> {
   const fd = new FormData();
   fd.set('image', params.imagen);
   fd.set('vajilla', JSON.stringify(params.vajilla));
   fd.set('angulo', JSON.stringify(params.angulo));
-  fd.set('preguntasPorIngrediente', JSON.stringify(params.preguntasPorIngrediente));
-  if (params.refinamiento) {
-    fd.set('previousDetection', JSON.stringify(params.refinamiento.previousDetection));
-    fd.set('respuestaUsuario', JSON.stringify(params.refinamiento.respuestaUsuario));
-  }
 
   const res = await fetch('/api/food-recognition', { method: 'POST', body: fd });
   const json = await res.json().catch(() => null);
@@ -54,7 +46,31 @@ export async function llamarReconocimiento(
   }
 
   return {
-    detectedIngredients: json.detectedIngredients,
+    predictionId: json.predictionId,
+    items: json.items,
     totalEstimatedWeightGrams: json.totalEstimatedWeightGrams,
   };
+}
+
+/**
+ * NUT-172 — Envía las correcciones del usuario sobre una predicción (épica
+ * NUT-119). Nunca escribe en el diario real del lado del backend; ver el TODO
+ * en `src/app/api/food-recognition/save/route.ts`.
+ */
+export async function guardarCorrecciones(saveRequest: SaveRequest): Promise<{ savedId: string }> {
+  const res = await fetch('/api/food-recognition/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(saveRequest),
+  });
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok || !json?.ok) {
+    throw new ReconocimientoError(
+      typeof json?.error === 'string' ? json.error : 'SAVE_ERROR',
+      typeof json?.message === 'string' ? json.message : 'No pudimos guardar los cambios. Probá de nuevo.',
+    );
+  }
+
+  return { savedId: String(json.savedId) };
 }

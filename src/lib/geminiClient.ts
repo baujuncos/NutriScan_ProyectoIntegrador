@@ -15,12 +15,10 @@ import {
 } from '@google/generative-ai';
 import { z } from 'zod';
 import {
-  construirMensajeRespuestaUsuario,
   construirSystemPrompt,
   FOOD_DETECTION_RESPONSE_SCHEMA,
   type ContextoCaptura,
-  type FoodDetectionResult,
-  type PreguntasPorIngrediente,
+  type GeminiFoodDetectionResult,
 } from './geminiFoodPrompt';
 
 export class GeminiConfigError extends Error {}
@@ -55,39 +53,63 @@ const INSTRUCCION_RETRY_JSON =
 const NOTA_ANGULO_APROXIMADO =
   '\n\nNota: no se pudo leer el ángulo real de captura del dispositivo; el ángulo indicado arriba es un valor asumido por defecto, no una medición. Tené esto en cuenta al asignar confianza a la estimación de peso.';
 
-const detectedIngredientSchema = z.object({
+const geminiClarifyingQuestionSchema = z.object({
+  question: z.string(),
+  kind: z.string(),
+  options: z.array(z.string()),
+});
+
+const geminiBoundingBoxSchema = z.object({
+  ymin: z.number(),
+  xmin: z.number(),
+  ymax: z.number(),
+  xmax: z.number(),
+});
+
+const geminiDetectedIngredientSchema = z.object({
   ingredient: z.string(),
   type: z.string(),
   confidence: z.number(),
   estimatedWeightGrams: z.number(),
-  questionForUser: z.string().nullable(),
+  questions: z.array(geminiClarifyingQuestionSchema),
+  boundingBox: geminiBoundingBoxSchema.nullable(),
 });
 
-const foodDetectionResultSchema = z.object({
-  detectedIngredients: z.array(detectedIngredientSchema),
+// Sólo valida la FORMA (para detectar JSON malformado/truncado). Nunca
+// límites de cantidad (ej. "máximo 3 preguntas") — eso es truncado
+// defensivo en `deteccionPostproceso.ts`, no motivo para rechazar y
+// reintentar una respuesta que en el fondo es JSON válido.
+const geminiFoodDetectionResultSchema = z.object({
+  detectedIngredients: z.array(geminiDetectedIngredientSchema),
   totalEstimatedWeightGrams: z.number(),
 });
 
 export interface ReconocerAlimentosParams {
   contexto: ContextoCaptura;
-  preguntasHechas: PreguntasPorIngrediente;
   imagen: { base64: string; mimeType: string };
   /** `true` cuando no había lectura de giroscopio y se usó un ángulo por defecto. */
   anguloAproximado: boolean;
-  refinamiento?: {
-    previousDetection: FoodDetectionResult;
-    respuestaUsuario: { ingredient: string; respuesta: string };
-  };
 }
 
-function parseFoodDetectionResult(text: string): FoodDetectionResult | null {
+export interface ReconocerAlimentosResultado {
+  resultado: GeminiFoodDetectionResult;
+  /** Modelo que efectivamente respondió (principal o de respaldo) — se persiste junto a la predicción. */
+  modeloUsado: string;
+}
+
+interface LlamadaGemini {
+  text: string;
+  modelo: string;
+}
+
+function parseGeminiFoodDetectionResult(text: string): GeminiFoodDetectionResult | null {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
     return null;
   }
-  const parsed = foodDetectionResultSchema.safeParse(json);
+  const parsed = geminiFoodDetectionResultSchema.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
 
@@ -98,32 +120,13 @@ function buildContents(params: ReconocerAlimentosParams): Content[] {
   const instruccionInicial = {
     text: 'Identificá los alimentos de esta foto según las instrucciones.',
   };
-
-  if (!params.refinamiento) {
-    return [{ role: 'user', parts: [imagePart, instruccionInicial] }];
-  }
-
-  return [
-    { role: 'user', parts: [imagePart, instruccionInicial] },
-    { role: 'model', parts: [{ text: JSON.stringify(params.refinamiento.previousDetection) }] },
-    {
-      role: 'user',
-      parts: [
-        {
-          text: construirMensajeRespuestaUsuario(
-            params.refinamiento.respuestaUsuario.ingredient,
-            params.refinamiento.respuestaUsuario.respuesta,
-          ),
-        },
-      ],
-    },
-  ];
+  return [{ role: 'user', parts: [imagePart, instruccionInicial] }];
 }
 
 /** Identifica y estima el peso de todos los alimentos de una foto en una sola llamada a Gemini. */
 export async function reconocerAlimentos(
   params: ReconocerAlimentosParams,
-): Promise<FoodDetectionResult> {
+): Promise<ReconocerAlimentosResultado> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new GeminiConfigError('GEMINI_API_KEY no está configurada.');
@@ -132,7 +135,7 @@ export async function reconocerAlimentos(
   const fallbackModelName = process.env.GEMINI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL;
 
   const contexto: ContextoCaptura = params.contexto;
-  let systemInstruction = construirSystemPrompt(contexto, params.preguntasHechas);
+  let systemInstruction = construirSystemPrompt(contexto);
   if (params.anguloAproximado) {
     systemInstruction += NOTA_ANGULO_APROXIMADO;
   }
@@ -145,7 +148,7 @@ export async function reconocerAlimentos(
   // nunca exceda `MAX_TOTAL_MS` sin importar cuántos intentos hagan falta.
   const deadlineAt = Date.now() + MAX_TOTAL_MS;
 
-  async function callGemini(instruction: string, model: string): Promise<string> {
+  async function callGemini(instruction: string, model: string): Promise<LlamadaGemini> {
     const remaining = deadlineAt - Date.now();
     if (remaining <= 0) {
       throw new GeminiTimeoutError('El reconocimiento tardó demasiado. Probá de nuevo.');
@@ -165,7 +168,7 @@ export async function reconocerAlimentos(
         { contents },
         { timeout: Math.min(TIMEOUT_MS, remaining) },
       );
-      return result.response.text();
+      return { text: result.response.text(), modelo: model };
     } catch (err) {
       if (err instanceof GoogleGenerativeAIAbortError) {
         throw new GeminiTimeoutError('El reconocimiento tardó demasiado. Probá de nuevo.');
@@ -189,7 +192,7 @@ export async function reconocerAlimentos(
   // con GEMINI_UNAVAILABLE: nada de rotar por más modelos ni reintentos
   // adicionales, para no multiplicar latencia ni gastar cuota en vano.
   // 429 (cuota) no entra en este camino: no se resuelve reintentando.
-  async function callWithFallback(instruction: string): Promise<string> {
+  async function callWithFallback(instruction: string): Promise<LlamadaGemini> {
     try {
       return await callGemini(instruction, modelName);
     } catch (err) {
@@ -210,13 +213,13 @@ export async function reconocerAlimentos(
     }
   }
 
-  const firstText = await callWithFallback(systemInstruction);
-  const firstParsed = parseFoodDetectionResult(firstText);
-  if (firstParsed) return firstParsed;
+  const first = await callWithFallback(systemInstruction);
+  const firstParsed = parseGeminiFoodDetectionResult(first.text);
+  if (firstParsed) return { resultado: firstParsed, modeloUsado: first.modelo };
 
-  const retryText = await callWithFallback(systemInstruction + INSTRUCCION_RETRY_JSON);
-  const retryParsed = parseFoodDetectionResult(retryText);
-  if (retryParsed) return retryParsed;
+  const retry = await callWithFallback(systemInstruction + INSTRUCCION_RETRY_JSON);
+  const retryParsed = parseGeminiFoodDetectionResult(retry.text);
+  if (retryParsed) return { resultado: retryParsed, modeloUsado: retry.modelo };
 
   throw new GeminiInvalidResponseError('Gemini no devolvió un JSON válido tras reintentar.');
 }

@@ -17,6 +17,13 @@ function mockCamaraOk() {
   });
 }
 
+function mockCamaraFalla() {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError')) },
+    configurable: true,
+  });
+}
+
 type OrientacionKind = 'android' | 'ios' | 'ninguno';
 
 function setDeviceOrientation(kind: OrientacionKind, requestPermission?: () => Promise<'granted' | 'denied'>) {
@@ -108,5 +115,40 @@ describe('CameraCapture — feedback de ángulo (NUT-163)', () => {
 
     expect(await screen.findByText(/No pudimos leer el ángulo del celular/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Capturar foto/ })).toBeEnabled();
+  });
+});
+
+describe('CameraCapture — badge "Guía de ángulo" y fuente de captura (sesión 2 NUT-169)', () => {
+  it('muestra el badge "Guía de ángulo" sobre la vista en vivo', async () => {
+    render(<CameraCapture guiaTipo="plato_playo" onCapture={vi.fn()} />);
+    await esperarCamaraLista();
+    expect(screen.getByText('Guía de ángulo')).toBeInTheDocument();
+  });
+
+  it('subir desde el input de captura nativa (fallback sin cámara en vivo) llama a onCapture con source "camera"', async () => {
+    mockCamaraFalla();
+    const onCapture = vi.fn();
+    render(<CameraCapture guiaTipo="plato_playo" onCapture={onCapture} />);
+    await screen.findByText('Tomar foto');
+
+    const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
+    const input = document.querySelector('input[type="file"][capture]') as HTMLInputElement;
+    await userEvent.upload(input, file);
+
+    expect(onCapture).toHaveBeenCalledTimes(1);
+    expect(onCapture.mock.calls[0][2]).toBe('camera');
+  });
+
+  it('subir desde "Importar de galería" llama a onCapture con source "gallery"', async () => {
+    const onCapture = vi.fn();
+    render(<CameraCapture guiaTipo="plato_playo" onCapture={onCapture} />);
+    await esperarCamaraLista();
+
+    const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
+    const input = document.querySelector('input[type="file"]:not([capture])') as HTMLInputElement;
+    await userEvent.upload(input, file);
+
+    expect(onCapture).toHaveBeenCalledTimes(1);
+    expect(onCapture.mock.calls[0][2]).toBe('gallery');
   });
 });

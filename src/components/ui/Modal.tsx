@@ -7,9 +7,13 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** Muestra una flecha "atrás" a la izquierda del título (hoja secundaria dentro del mismo modal). */
+  onBack?: () => void;
+  /** Ícono opcional antes del título (reemplaza a poner un emoji dentro del string de `title`). */
+  icon?: React.ReactNode;
 }
 
-export default function Modal({ open, onClose, title, children }: ModalProps) {
+export default function Modal({ open, onClose, title, children, onBack, icon }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -39,7 +43,26 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Volver"
+                className="text-gray-400 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+            )}
+            {icon && (
+              <span className="text-violet-600" aria-hidden="true">
+                {icon}
+              </span>
+            )}
+            <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+          </div>
           <button
             type="button"
             onClick={onClose}

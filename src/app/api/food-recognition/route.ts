@@ -1,10 +1,14 @@
 /**
- * NUT-154 + NUT-156 — Endpoint combinado de reconocimiento de alimentos +
- * estimación de peso vía Gemini (épica NUT-12). Ver NUT-155 para el prompt.
+ * NUT-154/156/167/168/172 — Endpoint combinado de reconocimiento de
+ * alimentos + estimación de peso vía Gemini (épica NUT-12/NUT-119). Persiste
+ * la predicción original (`detecciones_ia`/`detecciones_ia_items`) para el
+ * loop de mejora continua. Ver NUT-155/166 para el prompt.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ELEVACION_OBJETIVO_DEG } from '@/lib/anguloDispositivo';
+import { PROMPT_VERSION, type DetectionResponse } from '@/lib/deteccion';
+import { postprocesarDeteccion } from '@/lib/deteccionPostproceso';
 import {
   GeminiConfigError,
   GeminiInvalidResponseError,
@@ -13,20 +17,17 @@ import {
   GeminiUnavailableError,
   reconocerAlimentos,
 } from '@/lib/geminiClient';
-import type { ContextoCaptura, FoodDetectionResult, PreguntasPorIngrediente } from '@/lib/geminiFoodPrompt';
+import type { ContextoCaptura } from '@/lib/geminiFoodPrompt';
 import { comprimirImagenParaGemini, ImagenInvalidaError } from '@/lib/geminiImagePrep';
+import { errorResponse } from '@/lib/httpErrors';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 // Cubre el presupuesto interno de reintentos de Gemini (25s, ver MAX_TOTAL_MS
-// en geminiClient.ts) más margen para la compresión de imagen y la red.
+// en geminiClient.ts) más margen para la compresión de imagen, la persistencia y la red.
 export const maxDuration = 30;
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-
-function errorResponse(status: number, error: string, message: string, field?: string) {
-  return NextResponse.json({ error, message, ...(field ? { field } : {}) }, { status });
-}
 
 // Deliberadamente sin 'otro': ese tipo de vajilla ya desvía a carga manual
 // antes de llegar a este endpoint (ver AIRecognitionModal.tsx, stage 'otro').
@@ -39,26 +40,6 @@ const anguloSchema = z.object({
   beta: z.number().nullable(),
   estado: z.enum(['ok', 'muy_cenital', 'muy_rasante', 'desconocido']),
   dentroDeRango: z.boolean(),
-});
-
-const preguntasSchema = z.record(z.string(), z.number().int().min(0));
-
-const respuestaUsuarioSchema = z.object({
-  ingredient: z.string().min(1),
-  respuesta: z.string().min(1),
-});
-
-const detectedIngredientSchema = z.object({
-  ingredient: z.string(),
-  type: z.string(),
-  confidence: z.number(),
-  estimatedWeightGrams: z.number(),
-  questionForUser: z.string().nullable(),
-});
-
-const previousDetectionSchema = z.object({
-  detectedIngredients: z.array(detectedIngredientSchema),
-  totalEstimatedWeightGrams: z.number(),
 });
 
 type ParseResult<T> = { ok: true; data: T } | { ok: false; response: NextResponse };
@@ -130,48 +111,6 @@ export async function POST(req: NextRequest) {
   const anguloResult = parseJsonField(anguloSchema, form.get('angulo'), 'angulo');
   if (!anguloResult.ok) return anguloResult.response;
 
-  const preguntasRaw = form.get('preguntasPorIngrediente') ?? '{}';
-  const preguntasResult = parseJsonField(preguntasSchema, preguntasRaw, 'preguntasPorIngrediente');
-  if (!preguntasResult.ok) return preguntasResult.response;
-
-  const previousDetectionRaw = form.get('previousDetection');
-  const respuestaUsuarioRaw = form.get('respuestaUsuario');
-  if (Boolean(previousDetectionRaw) !== Boolean(respuestaUsuarioRaw)) {
-    return errorResponse(
-      400,
-      'INVALID',
-      'previousDetection y respuestaUsuario deben enviarse juntos.',
-    );
-  }
-
-  let refinamiento:
-    | {
-        previousDetection: FoodDetectionResult;
-        respuestaUsuario: { ingredient: string; respuesta: string };
-      }
-    | undefined;
-
-  if (previousDetectionRaw && respuestaUsuarioRaw) {
-    const previousDetectionResult = parseJsonField(
-      previousDetectionSchema,
-      previousDetectionRaw,
-      'previousDetection',
-    );
-    if (!previousDetectionResult.ok) return previousDetectionResult.response;
-
-    const respuestaUsuarioResult = parseJsonField(
-      respuestaUsuarioSchema,
-      respuestaUsuarioRaw,
-      'respuestaUsuario',
-    );
-    if (!respuestaUsuarioResult.ok) return respuestaUsuarioResult.response;
-
-    refinamiento = {
-      previousDetection: previousDetectionResult.data,
-      respuestaUsuario: respuestaUsuarioResult.data,
-    };
-  }
-
   const { tipo, diametroCm } = vajillaResult.data;
   const { beta } = anguloResult.data;
   const anguloAproximado = beta == null;
@@ -191,14 +130,58 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await reconocerAlimentos({
-      contexto,
-      preguntasHechas: preguntasResult.data as PreguntasPorIngrediente,
-      imagen,
-      anguloAproximado,
-      refinamiento,
-    });
-    return NextResponse.json({ ok: true, ...result }, { status: 200 });
+    const { resultado, modeloUsado } = await reconocerAlimentos({ contexto, imagen, anguloAproximado });
+    const { items, totalEstimatedWeightGrams } = postprocesarDeteccion(resultado);
+
+    const { data: deteccionRow, error: insertDeteccionError } = await supabase
+      .from('detecciones_ia')
+      .insert({
+        id_usuario: user.id,
+        prompt_version: PROMPT_VERSION,
+        modelo: modeloUsado,
+        vajilla_tipo: tipo,
+        vajilla_diametro_cm: diametroCm,
+        angulo_captura_grados: anguloCapturaGrados,
+        angulo_aproximado: anguloAproximado,
+        imagen_url: null, // NUT-119: no se guarda la foto (participantes de investigación)
+        total_estimated_weight_grams: totalEstimatedWeightGrams,
+      })
+      .select('id_deteccion')
+      .single();
+
+    if (insertDeteccionError || !deteccionRow) {
+      console.error('No se pudo persistir la detección:', insertDeteccionError);
+      return errorResponse(502, 'PERSISTENCE_ERROR', 'No pudimos guardar el resultado. Probá de nuevo.');
+    }
+
+    if (items.length > 0) {
+      const { error: insertItemsError } = await supabase.from('detecciones_ia_items').insert(
+        items.map((item) => ({
+          id_deteccion: deteccionRow.id_deteccion,
+          item_uuid: item.id,
+          ingredient: item.ingredient,
+          tipo: item.type,
+          confidence: item.confidence,
+          estimated_weight_grams: item.estimatedWeightGrams,
+          questions: item.questions,
+          bbox_x: item.boundingBox?.x ?? null,
+          bbox_y: item.boundingBox?.y ?? null,
+          bbox_width: item.boundingBox?.width ?? null,
+          bbox_height: item.boundingBox?.height ?? null,
+        })),
+      );
+      if (insertItemsError) {
+        console.error('No se pudieron persistir los items de la detección:', insertItemsError);
+        return errorResponse(502, 'PERSISTENCE_ERROR', 'No pudimos guardar el resultado. Probá de nuevo.');
+      }
+    }
+
+    const response: DetectionResponse = {
+      predictionId: String(deteccionRow.id_deteccion),
+      items,
+      totalEstimatedWeightGrams,
+    };
+    return NextResponse.json({ ok: true, ...response }, { status: 200 });
   } catch (err) {
     if (err instanceof GeminiConfigError) {
       console.error('GEMINI_API_KEY no configurada:', err);

@@ -392,6 +392,8 @@ export default function AlimentacionClient({
           setShowAIModal(false);
           setTimeout(() => searchInputRef.current?.focus(), 0);
         }}
+        mealType={tipoIngesta}
+        mealLabel={MEAL_LABEL[tipoIngesta]}
       />
 
       {/* Chat food registration modal (NUT-187) */}

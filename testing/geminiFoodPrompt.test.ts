@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { SchemaType } from '@google/generative-ai';
+import { construirSystemPrompt, FOOD_DETECTION_RESPONSE_SCHEMA } from '@/lib/geminiFoodPrompt';
 import {
-  construirMensajeRespuestaUsuario,
-  construirSystemPrompt,
-  FOOD_DETECTION_RESPONSE_SCHEMA,
-  MAX_PREGUNTAS_POR_ALIMENTO,
-  normalizarIngrediente,
-  type ContextoCaptura,
-} from '@/lib/geminiFoodPrompt';
+  MAX_OPTIONS_PER_QUESTION,
+  MAX_QUESTIONS_PER_ITEM,
+  MIN_OPTIONS_PER_QUESTION,
+} from '@/lib/deteccion';
+import type { ContextoCaptura } from '@/lib/geminiFoodPrompt';
 
 const contexto: ContextoCaptura = {
   tipoVajilla: 'plato_playo',
@@ -15,7 +14,7 @@ const contexto: ContextoCaptura = {
   anguloCapturaGrados: 34,
 };
 
-describe('construirSystemPrompt (NUT-155)', () => {
+describe('construirSystemPrompt (NUT-155/NUT-166)', () => {
   it('interpola tipo de vajilla, diámetro y ángulo de captura', () => {
     const prompt = construirSystemPrompt(contexto);
     expect(prompt).toContain('Tipo de vajilla: plato_playo');
@@ -23,34 +22,26 @@ describe('construirSystemPrompt (NUT-155)', () => {
     expect(prompt).toContain('Ángulo de captura: 34°');
   });
 
-  it('incluye la frase de ingredientes agotados cuando alguno llegó al máximo', () => {
-    const prompt = construirSystemPrompt(contexto, { milanesa: MAX_PREGUNTAS_POR_ALIMENTO });
-    expect(prompt).toContain('milanesa');
-    expect(prompt).toContain('ya alcanzaron el máximo de preguntas permitidas');
-  });
-
-  it('no incluye la frase de ingredientes agotados si ninguno llegó al límite', () => {
-    const prompt = construirSystemPrompt(contexto, { milanesa: MAX_PREGUNTAS_POR_ALIMENTO - 1 });
-    expect(prompt).not.toContain('ya alcanzaron el máximo de preguntas permitidas');
-  });
-
   it('menciona el límite de preguntas por alimento', () => {
     const prompt = construirSystemPrompt(contexto);
-    expect(prompt).toContain(`${MAX_PREGUNTAS_POR_ALIMENTO} preguntas aclaratorias`);
+    expect(prompt).toContain(`${MAX_QUESTIONS_PER_ITEM} preguntas`);
   });
-});
 
-describe('construirMensajeRespuestaUsuario', () => {
-  it('incluye el ingrediente y la respuesta textual del usuario', () => {
-    const mensaje = construirMensajeRespuestaUsuario('milanesa', 'de pollo');
-    expect(mensaje).toContain('milanesa');
-    expect(mensaje).toContain('de pollo');
+  it('distingue kind identity de attribute', () => {
+    const prompt = construirSystemPrompt(contexto);
+    expect(prompt).toContain('"identity"');
+    expect(prompt).toContain('"attribute"');
   });
-});
 
-describe('normalizarIngrediente', () => {
-  it('trimea y pasa a minúsculas', () => {
-    expect(normalizarIngrediente('  Milanesa de Pollo  ')).toBe('milanesa de pollo');
+  it('pide ordenar las preguntas por impacto nutricional', () => {
+    const prompt = construirSystemPrompt(contexto);
+    expect(prompt).toContain('impacto nutricional');
+  });
+
+  it('pide bounding box por alimento en la escala nativa de Gemini (0-1000)', () => {
+    const prompt = construirSystemPrompt(contexto);
+    expect(prompt).toContain('ymin');
+    expect(prompt).toContain('xmax');
   });
 });
 
@@ -63,7 +54,13 @@ describe('FOOD_DETECTION_RESPONSE_SCHEMA', () => {
     required: string[];
     properties: {
       detectedIngredients: {
-        items: { required: string[] };
+        items: {
+          required: string[];
+          properties: {
+            questions: { maxItems: number; items: { properties: { options: { minItems: number; maxItems: number } } } };
+            boundingBox: { nullable: boolean; required: string[] };
+          };
+        };
       };
     };
   };
@@ -73,13 +70,28 @@ describe('FOOD_DETECTION_RESPONSE_SCHEMA', () => {
     expect(schema.required).toEqual(['detectedIngredients', 'totalEstimatedWeightGrams']);
   });
 
-  it('cada ingrediente detectado requiere exactamente los 5 campos documentados', () => {
+  it('cada ingrediente detectado requiere ingredient/type/confidence/estimatedWeightGrams/questions/boundingBox', () => {
     expect(schema.properties.detectedIngredients.items.required).toEqual([
       'ingredient',
       'type',
       'confidence',
       'estimatedWeightGrams',
-      'questionForUser',
+      'questions',
+      'boundingBox',
     ]);
+  });
+
+  it('define preguntas con máximo 3 y opciones entre 2 y 4', () => {
+    const questionsSchema = schema.properties.detectedIngredients.items.properties.questions;
+    expect(questionsSchema.maxItems).toBe(MAX_QUESTIONS_PER_ITEM);
+    const optionsSchema = questionsSchema.items.properties.options;
+    expect(optionsSchema.minItems).toBe(MIN_OPTIONS_PER_QUESTION);
+    expect(optionsSchema.maxItems).toBe(MAX_OPTIONS_PER_QUESTION);
+  });
+
+  it('define boundingBox como objeto nullable con ymin/xmin/ymax/xmax', () => {
+    const bboxSchema = schema.properties.detectedIngredients.items.properties.boundingBox;
+    expect(bboxSchema.nullable).toBe(true);
+    expect(bboxSchema.required).toEqual(['ymin', 'xmin', 'ymax', 'xmax']);
   });
 });

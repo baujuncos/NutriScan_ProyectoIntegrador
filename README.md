@@ -1,6 +1,6 @@
 # NutriScan
 
-**NutriScan** es un MVP de salud y nutrición deportiva desarrollado como proyecto académico para la Universidad Católica de Córdoba (UCC). Permite a deportistas universitarios y usuarios particulares registrar su alimentación diaria, visualizar sus macronutrientes y calorías en tiempo real, y completar un perfil físico personalizado basado en la ecuación científica de Harris-Benedict. Los datos recolectados son accesibles para investigadores a través de un panel analítico dedicado.
+**NutriScan** es una app de salud y nutrición deportiva desarrollado como proyecto académico para la Universidad Católica de Córdoba (UCC). Permite a deportistas universitarios y usuarios particulares registrar su alimentación diaria, visualizar sus macronutrientes y calorías en tiempo real, y completar un perfil físico personalizado basado en la ecuación científica de Harris-Benedict. Los datos recolectados son accesibles para investigadores a través de un panel analítico dedicado.
 
 ---
 
@@ -125,14 +125,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<tu-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<tu-service-role-key>
 INVITATION_CODE_INVESTIGADOR=<codigo-de-invitacion>
 GEMINI_API_KEY=<tu-api-key-de-gemini>
-GEMINI_MODEL=gemini-3.6-flash
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
 Los valores de `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` se obtienen desde **Supabase → Project Settings → API**.
 
 El valor de `INVITATION_CODE_INVESTIGADOR` es un string arbitrario que el equipo define; los investigadores lo ingresan al registrarse para recibir acceso al panel.
 
-El valor de `GEMINI_API_KEY` se obtiene desde **Google AI Studio → Get API key** (lo usa el endpoint de reconocimiento de alimentos por IA, épica NUT-12). `GEMINI_MODEL` es opcional — si no se define, el servidor usa `gemini-3.6-flash` por defecto (definido en `src/lib/geminiClient.ts`); si Google vuelve a deprecar el modelo, se puede pisar sin tocar código seteando esta variable.
+El valor de `GEMINI_API_KEY` se obtiene desde **Google AI Studio → Get API key** (lo usa el endpoint de reconocimiento de alimentos por IA, épica NUT-12). `GEMINI_MODEL` es opcional — si no se define, el servidor usa `gemini-3.5-flash` por defecto (definido en `src/lib/geminiClient.ts`); si Google vuelve a deprecar el modelo, se puede pisar sin tocar código seteando esta variable.
 
 ### 3. Configurar la base de datos en Supabase
 

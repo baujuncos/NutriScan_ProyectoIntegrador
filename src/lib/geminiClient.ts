@@ -11,6 +11,7 @@ import {
   GoogleGenerativeAIAbortError,
   GoogleGenerativeAIFetchError,
   type Content,
+  type GenerationConfig,
 } from '@google/generative-ai';
 import { z } from 'zod';
 import {
@@ -27,9 +28,26 @@ export class GeminiTimeoutError extends Error {}
 export class GeminiRateLimitError extends Error {}
 export class GeminiInvalidResponseError extends Error {}
 export class GeminiError extends Error {}
+export class GeminiUnavailableError extends Error {}
 
-const DEFAULT_MODEL = 'gemini-3.6-flash';
-const TIMEOUT_MS = 20_000;
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.6-flash';
+// Techo por intento individual, pero acotado además por el presupuesto total
+// (ver `MAX_TOTAL_MS`): con fallback + reintento por JSON malformado puede
+// haber hasta 4 llamadas en el peor caso, y no deben sumar más que eso.
+const TIMEOUT_MS = 15_000;
+const MAX_TOTAL_MS = 25_000;
+// Backoff antes de probar el modelo de respaldo. Con un único reintento
+// (2 intentos en total) el backoff "exponencial" es este único delay fijo.
+const BACKOFF_MS = 1_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function esFallaTransitoria(err: unknown): boolean {
+  return err instanceof GeminiUnavailableError || err instanceof GeminiTimeoutError;
+}
 
 const INSTRUCCION_RETRY_JSON =
   '\n\nIMPORTANTE: tu respuesta anterior no cumplió el formato JSON requerido. Respondé EXCLUSIVAMENTE con un JSON válido que cumpla el schema, sin texto adicional, sin markdown y sin truncar la respuesta.';
@@ -111,6 +129,7 @@ export async function reconocerAlimentos(
     throw new GeminiConfigError('GEMINI_API_KEY no está configurada.');
   }
   const modelName = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const fallbackModelName = process.env.GEMINI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL;
 
   const contexto: ContextoCaptura = params.contexto;
   let systemInstruction = construirSystemPrompt(contexto, params.preguntasHechas);
@@ -121,17 +140,31 @@ export async function reconocerAlimentos(
   const contents = buildContents(params);
   const genAI = new GoogleGenerativeAI(apiKey);
 
-  async function callGemini(instruction: string): Promise<string> {
-    const model = genAI.getGenerativeModel({
-      model: modelName,
+  // Presupuesto de tiempo compartido por TODAS las llamadas de esta invocación
+  // (principal + fallback + reintento por JSON malformado), para que el total
+  // nunca exceda `MAX_TOTAL_MS` sin importar cuántos intentos hagan falta.
+  const deadlineAt = Date.now() + MAX_TOTAL_MS;
+
+  async function callGemini(instruction: string, model: string): Promise<string> {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) {
+      throw new GeminiTimeoutError('El reconocimiento tardó demasiado. Probá de nuevo.');
+    }
+    const generativeModel = genAI.getGenerativeModel({
+      model,
       systemInstruction: instruction,
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: FOOD_DETECTION_RESPONSE_SCHEMA,
-      },
+        // Sin esto los modelos 3.x "piensan" ~900 tokens y tardan 35s+; el SDK reenvía el campo tal cual.
+        thinkingConfig: { thinkingLevel: 'minimal' },
+      } as GenerationConfig,
     });
     try {
-      const result = await model.generateContent({ contents }, { timeout: TIMEOUT_MS });
+      const result = await generativeModel.generateContent(
+        { contents },
+        { timeout: Math.min(TIMEOUT_MS, remaining) },
+      );
       return result.response.text();
     } catch (err) {
       if (err instanceof GoogleGenerativeAIAbortError) {
@@ -142,15 +175,46 @@ export async function reconocerAlimentos(
           'Estamos con mucha demanda ahora mismo. Esperá un momento y volvé a intentar.',
         );
       }
+      if (err instanceof GoogleGenerativeAIFetchError && err.status === 503) {
+        throw new GeminiUnavailableError('El modelo de Gemini está saturado en este momento.');
+      }
       throw new GeminiError(err instanceof Error ? err.message : 'Error llamando a Gemini.');
     }
   }
 
-  const firstText = await callGemini(systemInstruction);
+  // Un modelo principal + un único fallback, máximo 2 intentos. Ante 503
+  // (saturado) o timeout del principal —no siempre viene un 503 explícito—
+  // se espera un backoff corto y se prueba una sola vez con el modelo de
+  // respaldo. Si ese segundo intento también falla por lo mismo, se corta ahí
+  // con GEMINI_UNAVAILABLE: nada de rotar por más modelos ni reintentos
+  // adicionales, para no multiplicar latencia ni gastar cuota en vano.
+  // 429 (cuota) no entra en este camino: no se resuelve reintentando.
+  async function callWithFallback(instruction: string): Promise<string> {
+    try {
+      return await callGemini(instruction, modelName);
+    } catch (err) {
+      if (!esFallaTransitoria(err) || fallbackModelName === modelName) {
+        throw err;
+      }
+      await delay(BACKOFF_MS);
+      try {
+        return await callGemini(instruction, fallbackModelName);
+      } catch (fallbackErr) {
+        if (esFallaTransitoria(fallbackErr)) {
+          throw new GeminiUnavailableError(
+            'El servicio de reconocimiento está saturado. Probá de nuevo en unos segundos.',
+          );
+        }
+        throw fallbackErr;
+      }
+    }
+  }
+
+  const firstText = await callWithFallback(systemInstruction);
   const firstParsed = parseFoodDetectionResult(firstText);
   if (firstParsed) return firstParsed;
 
-  const retryText = await callGemini(systemInstruction + INSTRUCCION_RETRY_JSON);
+  const retryText = await callWithFallback(systemInstruction + INSTRUCCION_RETRY_JSON);
   const retryParsed = parseFoodDetectionResult(retryText);
   if (retryParsed) return retryParsed;
 

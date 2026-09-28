@@ -10,11 +10,17 @@ import {
   GeminiInvalidResponseError,
   GeminiRateLimitError,
   GeminiTimeoutError,
+  GeminiUnavailableError,
   reconocerAlimentos,
 } from '@/lib/geminiClient';
 import type { ContextoCaptura, FoodDetectionResult, PreguntasPorIngrediente } from '@/lib/geminiFoodPrompt';
+import { comprimirImagenParaGemini, ImagenInvalidaError } from '@/lib/geminiImagePrep';
+import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
+// Cubre el presupuesto interno de reintentos de Gemini (25s, ver MAX_TOTAL_MS
+// en geminiClient.ts) más margen para la compresión de imagen y la red.
+export const maxDuration = 30;
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
@@ -90,6 +96,16 @@ function parseJsonField<T>(
 }
 
 export async function POST(req: NextRequest) {
+  // Requiere sesión: sin esto, cualquiera podría pegarle al endpoint sin
+  // loguearse y gastar la cuota de Gemini (que además ahora es facturada).
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return errorResponse(401, 'UNAUTHENTICATED', 'Necesitás iniciar sesión para usar el reconocimiento por IA.');
+  }
+
   let form: FormData;
   try {
     form = await req.formData();
@@ -163,14 +179,22 @@ export async function POST(req: NextRequest) {
 
   const contexto: ContextoCaptura = { tipoVajilla: tipo, diametroCm, anguloCapturaGrados };
 
-  const base64 = Buffer.from(await imageEntry.arrayBuffer()).toString('base64');
-  const mimeType = imageEntry.type || 'image/jpeg';
+  let imagen: { base64: string; mimeType: string };
+  try {
+    const buffer = Buffer.from(await imageEntry.arrayBuffer());
+    imagen = await comprimirImagenParaGemini(buffer);
+  } catch (err) {
+    if (err instanceof ImagenInvalidaError) {
+      return errorResponse(400, 'IMAGE_INVALID_TYPE', err.message);
+    }
+    throw err;
+  }
 
   try {
     const result = await reconocerAlimentos({
       contexto,
       preguntasHechas: preguntasResult.data as PreguntasPorIngrediente,
-      imagen: { base64, mimeType },
+      imagen,
       anguloAproximado,
       refinamiento,
     });
@@ -185,6 +209,13 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof GeminiRateLimitError) {
       return errorResponse(502, 'GEMINI_RATE_LIMIT', err.message);
+    }
+    if (err instanceof GeminiUnavailableError) {
+      return errorResponse(
+        502,
+        'GEMINI_UNAVAILABLE',
+        'El servicio de reconocimiento está saturado. Probá de nuevo en unos segundos.',
+      );
     }
     if (err instanceof GeminiInvalidResponseError) {
       return errorResponse(

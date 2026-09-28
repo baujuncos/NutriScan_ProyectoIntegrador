@@ -6,6 +6,23 @@ const { generateContentMock, getGenerativeModelMock } = vi.hoisted(() => ({
   getGenerativeModelMock: vi.fn(),
 }));
 
+// La compresión de imagen (sharp) es procesamiento local, pero se mockea igual
+// para no depender de un JPEG real en el fixture y mantener los tests rápidos.
+const { sharpMock, resizeMock, jpegMock, toBufferMock } = vi.hoisted(() => ({
+  sharpMock: vi.fn(),
+  resizeMock: vi.fn(),
+  jpegMock: vi.fn(),
+  toBufferMock: vi.fn(),
+}));
+
+vi.mock('sharp', () => ({ default: sharpMock }));
+
+const { getUserMock } = vi.hoisted(() => ({ getUserMock: vi.fn() }));
+
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({ auth: { getUser: getUserMock } }),
+}));
+
 vi.mock('@google/generative-ai', () => {
   class GoogleGenerativeAIAbortError extends Error {}
   class GoogleGenerativeAIFetchError extends Error {
@@ -89,9 +106,18 @@ function makeRequest(form: FormData): NextRequest {
 
 beforeEach(() => {
   vi.stubEnv('GEMINI_API_KEY', 'test-key');
+  getUserMock.mockReset().mockResolvedValue({ data: { user: { id: 'user-1', email: 'test@example.com' } } });
   getGenerativeModelMock.mockReset();
   getGenerativeModelMock.mockImplementation(() => ({ generateContent: generateContentMock }));
   generateContentMock.mockReset();
+
+  sharpMock.mockReset();
+  resizeMock.mockReset();
+  jpegMock.mockReset();
+  toBufferMock.mockReset().mockResolvedValue(Buffer.from('fake-compressed-jpeg'));
+  jpegMock.mockReturnValue({ toBuffer: toBufferMock });
+  resizeMock.mockReturnValue({ jpeg: jpegMock });
+  sharpMock.mockReturnValue({ rotate: () => ({ resize: resizeMock }) });
 });
 
 afterEach(() => {
@@ -153,18 +179,30 @@ describe('POST /api/food-recognition — JSON malformado', () => {
 });
 
 describe('POST /api/food-recognition — timeout y rate limit', () => {
-  it('mapea un abort a 502 GEMINI_TIMEOUT sin reintentar', async () => {
+  it('si el modelo principal da timeout, espera el backoff y reintenta con el de respaldo (200)', async () => {
     generateContentMock.mockRejectedValueOnce(new GoogleGenerativeAIAbortError('aborted'));
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ ok: true, ...VALID_RESULT });
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('si ambos modelos dan timeout, corta ahí con 502 GEMINI_UNAVAILABLE (sin más reintentos)', async () => {
+    generateContentMock.mockRejectedValue(new GoogleGenerativeAIAbortError('aborted'));
 
     const res = await POST(makeRequest(makeForm()));
     const body = await res.json();
 
     expect(res.status).toBe(502);
-    expect(body.error).toBe('GEMINI_TIMEOUT');
-    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(body.error).toBe('GEMINI_UNAVAILABLE');
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
   });
 
-  it('mapea un 429 a 502 GEMINI_RATE_LIMIT sin reintentar', async () => {
+  it('mapea un 429 a 502 GEMINI_RATE_LIMIT sin reintentar (la cuota no se arregla probando otro modelo)', async () => {
     generateContentMock.mockRejectedValueOnce(new GoogleGenerativeAIFetchError('rate limited', 429));
 
     const res = await POST(makeRequest(makeForm()));
@@ -173,6 +211,92 @@ describe('POST /api/food-recognition — timeout y rate limit', () => {
     expect(res.status).toBe(502);
     expect(body.error).toBe('GEMINI_RATE_LIMIT');
     expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('espera ~1s de backoff antes de intentar el modelo de respaldo', async () => {
+    vi.useFakeTimers();
+    generateContentMock.mockRejectedValueOnce(new GoogleGenerativeAIFetchError('high demand', 503));
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    const promise = POST(makeRequest(makeForm()));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const res = await promise;
+
+    expect(res.status).toBe(200);
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+});
+
+describe('POST /api/food-recognition — modelo saturado (503) y fallback', () => {
+  it('ante un 503 del modelo principal reintenta con el modelo de respaldo y responde 200', async () => {
+    generateContentMock.mockRejectedValueOnce(new GoogleGenerativeAIFetchError('high demand', 503));
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ ok: true, ...VALID_RESULT });
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    const primario = getGenerativeModelMock.mock.calls[0][0].model;
+    const respaldo = getGenerativeModelMock.mock.calls[1][0].model;
+    expect(respaldo).not.toBe(primario);
+  });
+
+  it('si ambos modelos devuelven 503 responde 502 GEMINI_UNAVAILABLE', async () => {
+    generateContentMock.mockRejectedValue(new GoogleGenerativeAIFetchError('high demand', 503));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.error).toBe('GEMINI_UNAVAILABLE');
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('pide thinking mínimo para mantener la latencia baja', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    await POST(makeRequest(makeForm()));
+
+    const { generationConfig } = getGenerativeModelMock.mock.calls[0][0];
+    expect(generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+  });
+});
+
+describe('POST /api/food-recognition — compresión de imagen', () => {
+  it('redimensiona a ≤1024px y comprime a JPEG calidad 78 antes de llamar a Gemini', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+
+    await POST(makeRequest(makeForm()));
+
+    expect(resizeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }),
+    );
+    expect(jpegMock).toHaveBeenCalledWith(expect.objectContaining({ quality: 78 }));
+
+    const { contents } = generateContentMock.mock.calls[0][0];
+    const { inlineData } = contents[0].parts[0];
+    expect(inlineData.mimeType).toBe('image/jpeg');
+    expect(inlineData.data).toBe(Buffer.from('fake-compressed-jpeg').toString('base64'));
+  });
+
+  it('si la imagen no se puede procesar, responde 400 IMAGE_INVALID_TYPE sin llamar a Gemini', async () => {
+    toBufferMock.mockReset().mockRejectedValue(new Error('formato no soportado'));
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe('IMAGE_INVALID_TYPE');
+    expect(generateContentMock).not.toHaveBeenCalled();
   });
 });
 
@@ -272,6 +396,20 @@ describe('POST /api/food-recognition — refinamiento tras pregunta aclaratoria'
     const { contents } = generateContentMock.mock.calls[0][0];
     expect(contents).toHaveLength(3);
     expect(contents.map((c: { role: string }) => c.role)).toEqual(['user', 'model', 'user']);
+  });
+});
+
+describe('POST /api/food-recognition — autenticación', () => {
+  it('sin sesión responde 401 UNAUTHENTICATED y no llama a Gemini', async () => {
+    getUserMock.mockResolvedValue({ data: { user: null } });
+
+    const res = await POST(makeRequest(makeForm()));
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toBe('UNAUTHENTICATED');
+    expect(generateContentMock).not.toHaveBeenCalled();
+    expect(sharpMock).not.toHaveBeenCalled();
   });
 });
 

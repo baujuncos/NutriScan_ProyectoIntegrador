@@ -113,3 +113,73 @@ describe('BarcodeScannerModal — captura', () => {
     expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
   });
 });
+
+describe('BarcodeScannerModal — confirmación y porción', () => {
+  it('"No, es otro" pasa a la pantalla de descarte sugiriendo otro método', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: 'No, es otro' }));
+
+    expect(
+      await screen.findByText(/te sugerimos usar otro método de registro/i),
+    ).toBeInTheDocument();
+  });
+
+  it('si el producto no se encuentra (o sin datos nutricionales), va directo a la pantalla de descarte', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ encontrado: false, ean: '0000000000000' });
+    renderModal();
+    await simularEscaneo();
+
+    expect(
+      await screen.findByText(/no pudimos encontrar datos nutricionales confiables/i),
+    ).toBeInTheDocument();
+  });
+
+  it('"Escanear otro código" vuelve a la pantalla inicial', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ encontrado: false, ean: '0000000000000' });
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText(/no pudimos encontrar datos nutricionales confiables/i);
+
+    await user.click(screen.getByRole('button', { name: 'Escanear otro código' }));
+
+    expect(screen.getByRole('button', { name: 'Usar cámara' })).toBeInTheDocument();
+  });
+
+  it('los botones de porción muestran los gramos calculados según la porción del producto', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    expect(screen.getByRole('button', { name: /1\/4 de porción/ })).toHaveTextContent('11 g'); // 45 * 0.25 ≈ 11
+    expect(screen.getByRole('button', { name: /^1 porción/ })).toHaveTextContent('45 g');
+    expect(screen.getByRole('button', { name: /2 porciones/ })).toHaveTextContent('90 g');
+  });
+
+  it('al elegir una porción, llama a addScannedItemAction con fecha/tipo_ingesta/ean/cantidad correctos', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('fecha')).toBe('2026-09-21');
+    expect(formData.get('tipo_ingesta')).toBe('almuerzo');
+    expect(formData.get('ean')).toBe('7790040000100');
+    expect(formData.get('cantidad')).toBe('45');
+  });
+
+  it('"Volver" desde la pantalla de porción regresa a la confirmación', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+
+    expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+  });
+});

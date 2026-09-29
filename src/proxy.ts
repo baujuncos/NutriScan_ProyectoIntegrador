@@ -42,7 +42,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  if (user && isPublicRoute && pathname !== '/auth/callback') {
+  if (user && isPublicRoute && pathname !== '/auth/callback' && !pathname.startsWith('/api/')) {
     // Fetch profile to decide where to redirect
     const { data: profile } = await supabase
       .from('profiles')

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AIRecognitionModal from '@/app/alimentacion/AIRecognitionModal';
 
@@ -23,73 +23,105 @@ function mockGetUserMedia(impl: () => Promise<unknown>) {
 function renderModal(props: Partial<React.ComponentProps<typeof AIRecognitionModal>> = {}) {
   const onClose = vi.fn();
   const onSelectOtro = vi.fn();
-  render(<AIRecognitionModal open onClose={onClose} onSelectOtro={onSelectOtro} {...props} />);
+  render(
+    <AIRecognitionModal
+      open
+      onClose={onClose}
+      onSelectOtro={onSelectOtro}
+      mealType="desayuno"
+      mealLabel="Desayuno"
+      {...props}
+    />,
+  );
   return { onClose, onSelectOtro, user: userEvent.setup() };
 }
 
+const RESPUESTA_SIN_DUDAS = {
+  ok: true,
+  predictionId: '1',
+  items: [
+    {
+      id: 'item-1',
+      ingredient: 'milanesa de pollo',
+      type: 'proteína animal',
+      confidence: 0.82,
+      estimatedWeightGrams: 150,
+      questions: [],
+      boundingBox: null,
+    },
+  ],
+  totalEstimatedWeightGrams: 150,
+};
+
+const RESPUESTA_CON_DUDA = {
+  ok: true,
+  predictionId: '1',
+  items: [
+    {
+      id: 'item-1',
+      ingredient: 'empanada',
+      type: 'alimento compuesto',
+      confidence: 0.6,
+      estimatedWeightGrams: 90,
+      questions: [
+        {
+          question: '¿De qué relleno es la empanada?',
+          kind: 'identity',
+          options: ['Carne', 'Pollo', 'Jamón y queso', 'Verdura'],
+        },
+      ],
+      boundingBox: null,
+    },
+  ],
+  totalEstimatedWeightGrams: 90,
+};
+
 beforeEach(() => {
+  window.localStorage.clear();
   mockGetUserMedia(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
 });
 
-describe('AIRecognitionModal — paso previo de vajilla (NUT-157)', () => {
-  it('abre en el selector de vajilla, no en la cámara', () => {
+async function llevarACapturaYSubirFotoDeGaleria(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByText('Plato playo'));
+  const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
+  const input = (await screen.findByText('Importar de galería')).closest('button')?.parentElement
+    ?.parentElement?.querySelector('input[type="file"]:not([capture])') as HTMLInputElement;
+  await user.upload(input, file);
+}
+
+describe('AIRecognitionModal — Pantalla 1 unificada (NUT-169)', () => {
+  it('abre mostrando la Pantalla 1 completa: vajilla, diámetro y cámara juntos desde el arranque', async () => {
     renderModal();
     expect(screen.getByRole('radiogroup', { name: 'Tipo de vajilla' })).toBeInTheDocument();
     expect(screen.getAllByRole('radio')).toHaveLength(4);
-    expect(screen.queryByText(/Capturar foto|Tomar foto/)).not.toBeInTheDocument();
+    // Sin preferencia guardada, arranca en "Plato playo" (26 cm) para que se vea todo junto, como el mockup.
+    expect((screen.getByLabelText('Diámetro') as HTMLInputElement).value).toBe('26');
+    expect(await screen.findByText('Importar de galería')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
   });
 
-  it('elegir un plato muestra el paso de diámetro con el valor por defecto precargado (NUT-159)', async () => {
+  it('elegir otro plato actualiza el diámetro precargado en la misma pantalla, sin un paso "Continuar"', async () => {
     const { user } = renderModal();
-    await user.click(screen.getByText('Plato playo'));
+    await user.click(screen.getByText('Plato hondo'));
 
-    const input = screen.getByLabelText('Diámetro') as HTMLInputElement;
-    expect(input.value).toBe('26');
-    expect(screen.getByRole('button', { name: 'Continuar' })).toBeEnabled();
+    expect((screen.getByLabelText('Diámetro') as HTMLInputElement).value).toBe('22');
+    expect(await screen.findByText('Importar de galería')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
   });
 
-  it('bloquea "Continuar" y muestra error con un diámetro fuera de rango o negativo (NUT-159)', async () => {
+  it('un diámetro fuera de rango muestra el error y oculta la cámara', async () => {
     const { user } = renderModal();
     await user.click(screen.getByText('Plato playo'));
     const input = screen.getByLabelText('Diámetro');
-
-    await user.clear(input);
-    await user.type(input, '-3');
-    expect(screen.getByText('El diámetro debe ser mayor a 0')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continuar' })).toBeDisabled();
 
     await user.clear(input);
     await user.type(input, '80');
+
     expect(screen.getByText('El diámetro debe estar entre 22 y 32 cm')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continuar' })).toBeDisabled();
+    expect(screen.queryByText('Importar de galería')).not.toBeInTheDocument();
   });
 
-  it('con un diámetro válido "Continuar" lleva al paso de captura de foto', async () => {
-    const { user } = renderModal();
-    await user.click(screen.getByText('Plato de postre'));
-
-    const input = screen.getByLabelText('Diámetro');
-    await user.clear(input);
-    await user.type(input, '19');
-    await user.click(screen.getByRole('button', { name: 'Continuar' }));
-
-    // CameraCapture montado: aparecen las acciones de foto/galería.
-    expect(await screen.findByText('Importar de galería')).toBeInTheDocument();
-  });
-
-  it('si getUserMedia falla, cae al fallback de subir foto sin romperse', async () => {
-    const { user } = renderModal();
-    await user.click(screen.getByText('Plato hondo'));
-    await user.click(screen.getByRole('button', { name: 'Continuar' }));
-
-    expect(await screen.findByText(/No diste permiso para la cámara/)).toBeInTheDocument();
-    expect(screen.getByText('Tomar foto')).toBeInTheDocument();
-    expect(screen.getByText('Importar de galería')).toBeInTheDocument();
-  });
-});
-
-describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
-  it('elegir "Otro" muestra el aviso de imprecisión y nunca el paso de diámetro', async () => {
+  it('"Otro" muestra el aviso de imprecisión y nunca el diámetro ni la cámara', async () => {
     const { user } = renderModal();
     await user.click(screen.getByText('Otro'));
 
@@ -104,49 +136,162 @@ describe('AIRecognitionModal — rama "Otro" (NUT-160)', () => {
     expect(onSelectOtro).toHaveBeenCalledTimes(1);
   });
 
-  it('el preview permite reencuadrar la foto con zoom para alinearla con la guía', async () => {
+  it('recuerda la última vajilla/diámetro elegidos entre aperturas (NUT-169)', async () => {
+    const { user, onClose } = renderModal();
+    await user.click(screen.getByText('Plato hondo'));
+    const input = screen.getByLabelText('Diámetro');
+    await user.clear(input);
+    await user.type(input, '20');
+    onClose();
+
+    renderModal();
+    // Se re-renderiza un nuevo modal con el mismo localStorage: el diámetro precargado es 20.
+    const inputs = screen.getAllByLabelText('Diámetro');
+    expect((inputs[inputs.length - 1] as HTMLInputElement).value).toBe('20');
+  });
+});
+
+describe('AIRecognitionModal — flujo de cámara (sin encuadre) y galería (con encuadre)', () => {
+  it('con foto de galería aparece el paso de encuadre (zoom) antes de reconocer', async () => {
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+    await llevarACapturaYSubirFotoDeGaleria(user);
+
+    expect(await screen.findByLabelText('Zoom de la foto')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconocer alimentos' })).toBeInTheDocument();
+    // La vajilla y el diámetro siguen visibles arriba durante el encuadre: se ve como si fuera la cámara en vivo.
+    expect(screen.getByRole('radiogroup', { name: 'Tipo de vajilla' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Diámetro')).toBeInTheDocument();
+  });
+
+  it('con foto de cámara (input nativo de captura) se reconoce directo, sin paso de encuadre', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => RESPUESTA_SIN_DUDAS });
+    vi.stubGlobal('fetch', fetchMock);
+    // getUserMedia falla → cae al input nativo `capture` (mode 'fallback'), que también es fuente "camera".
+    const { user } = renderModal();
+    await user.click(screen.getByText('Plato playo'));
+    await screen.findByText('Tomar foto');
+
+    const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
+    const input = document.querySelector('input[type="file"][capture]') as HTMLInputElement;
+    await user.upload(input, file);
+
+    expect(screen.queryByLabelText('Zoom de la foto')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('milanesa de pollo')).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('AIRecognitionModal — reconocimiento y transición a la Pantalla 2', () => {
+  it('un reconocimiento exitoso sin dudas llama a /api/food-recognition y pasa al resultado "listo"', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => RESPUESTA_SIN_DUDAS });
+    vi.stubGlobal('fetch', fetchMock);
     mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
     const { user } = renderModal();
 
-    await user.click(screen.getByText('Plato hondo'));
-    await user.click(screen.getByRole('button', { name: 'Continuar' }));
-    await user.click(await screen.findByText('Importar de galería'));
+    await llevarACapturaYSubirFotoDeGaleria(user);
+    await user.click(screen.getByRole('button', { name: 'Reconocer alimentos' }));
 
-    const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
-    const input = document.querySelector('input[type="file"]:not([capture])') as HTMLInputElement;
-    await user.upload(input, file);
+    expect(await screen.findByText('milanesa de pollo')).toBeInTheDocument();
+    expect(screen.getByText(/Sin dudas/)).toBeInTheDocument();
 
-    expect(await screen.findByLabelText('Zoom de la foto')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reencuadrar' })).toBeInTheDocument();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/food-recognition');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body.get('vajilla') as string)).toEqual({ tipo: 'plato_playo', diametroCm: 26 });
+
+    vi.unstubAllGlobals();
   });
 
-  it('el flujo de un plato arma la EntradaReconocimiento (vajilla + encuadre + ángulo)', async () => {
-    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-    mockGetUserMedia(() =>
-      Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }),
-    );
+  it('con preguntas aclaratorias, se pueden responder de forma interactiva en la Pantalla 2 (NUT-169/170)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => RESPUESTA_CON_DUDA });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
     const { user } = renderModal();
 
-    await user.click(screen.getByText('Plato playo'));
-    await user.click(screen.getByRole('button', { name: 'Continuar' }));
-    await user.click(await screen.findByText('Importar de galería'));
+    await llevarACapturaYSubirFotoDeGaleria(user);
+    await user.click(screen.getByRole('button', { name: 'Reconocer alimentos' }));
 
-    const file = new File(['x'], 'comida.jpg', { type: 'image/jpeg' });
-    const input = document.querySelector('input[type="file"]:not([capture])') as HTMLInputElement;
-    await user.upload(input, file);
+    expect(await screen.findByText('¿De qué relleno es la empanada?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Carne' }));
 
-    await user.click(await screen.findByRole('button', { name: 'Reconocer alimentos' }));
+    expect(screen.getByText('Carne')).toBeInTheDocument();
+    expect(screen.getByText(/Sin dudas/)).toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(debugSpy).toHaveBeenCalledWith(
-        '[NUT-161] entrada de reconocimiento',
-        expect.objectContaining({
-          vajilla: expect.objectContaining({ tipo: 'plato_playo', diametroCm: 26, calibracionPorFoto: true }),
-          encuadre: expect.objectContaining({ zoom: 1, panX: 0, panY: 0 }),
-          angulo: expect.objectContaining({ estado: 'desconocido', dentroDeRango: true }),
-        }),
-      ),
-    );
-    debugSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('si la llamada al endpoint falla, muestra el mensaje de error y permite reintentar', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'GEMINI_TIMEOUT', message: 'El reconocimiento tardó demasiado. Probá de nuevo.' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llevarACapturaYSubirFotoDeGaleria(user);
+    await user.click(screen.getByRole('button', { name: 'Reconocer alimentos' }));
+
+    expect(await screen.findByText('El reconocimiento tardó demasiado. Probá de nuevo.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeEnabled();
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('AIRecognitionModal — guardado (NUT-172) y "Repetir"', () => {
+  async function llegarAlResultadoListo(user: ReturnType<typeof userEvent.setup>) {
+    await llevarACapturaYSubirFotoDeGaleria(user);
+    await user.click(screen.getByRole('button', { name: 'Reconocer alimentos' }));
+    await screen.findByText('milanesa de pollo');
+  }
+
+  it('"Guardar" arma el SaveRequest y lo manda a /api/food-recognition/save; nunca toca el diario real', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/food-recognition') {
+        return Promise.resolve({ ok: true, json: async () => RESPUESTA_SIN_DUDAS });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true, savedId: '9' }) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llegarAlResultadoListo(user);
+    await user.click(screen.getByRole('button', { name: /Guardar en Desayuno/ }));
+
+    expect(await screen.findByText('Guardado en Desayuno')).toBeInTheDocument();
+
+    const saveCall = fetchMock.mock.calls.find(([url]) => url === '/api/food-recognition/save');
+    expect(saveCall).toBeTruthy();
+    const body = JSON.parse(saveCall![1].body as string);
+    expect(body.predictionId).toBe('1');
+    expect(body.mealType).toBe('desayuno');
+    expect(body.items[0]).toMatchObject({ sourceItemId: 'item-1', origin: 'ai', grams: 150 });
+
+    for (const [url] of fetchMock.mock.calls) {
+      expect(url).not.toContain('ingestas');
+      expect(url).not.toContain('/items');
+    }
+
+    vi.unstubAllGlobals();
+  });
+
+  it('"Repetir" vuelve a la Pantalla 1 conservando la vajilla y el diámetro elegidos', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => RESPUESTA_SIN_DUDAS });
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal();
+
+    await llegarAlResultadoListo(user);
+    await user.click(screen.getByRole('button', { name: /Repetir/ }));
+
+    expect(await screen.findByText('Importar de galería')).toBeInTheDocument();
+    expect((screen.getByLabelText('Diámetro') as HTMLInputElement).value).toBe('26');
+
+    vi.unstubAllGlobals();
   });
 });

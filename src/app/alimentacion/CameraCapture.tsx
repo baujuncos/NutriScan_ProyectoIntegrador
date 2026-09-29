@@ -6,6 +6,7 @@ import { mensajeAngulo, type LecturaAngulo } from '@/lib/anguloDispositivo';
 import { getVajillaInfo, type VajillaTipo } from '@/lib/vajilla';
 import { VajillaGuia } from './VajillaSelector';
 import { useDeviceAngle } from './useDeviceAngle';
+import { IconCamera, IconImage } from './icons';
 
 type Mode = 'loading' | 'live' | 'fallback';
 
@@ -17,12 +18,15 @@ type Mode = 'loading' | 'live' | 'fallback';
  * `getUserMedia` no está disponible (contexto inseguro, navegador viejo) o
  * falla (permiso denegado, sin cámara). "Importar de galería" siempre disponible.
  */
+export type FuenteCaptura = 'camera' | 'gallery';
+
 export default function CameraCapture({
   guiaTipo,
   onCapture,
 }: {
   guiaTipo: VajillaTipo;
-  onCapture: (file: File, angulo: LecturaAngulo) => void;
+  /** `source: 'camera'` reconoce directo (sin encuadre); `'gallery'` pasa por el paso de encuadre. */
+  onCapture: (file: File, angulo: LecturaAngulo, source: FuenteCaptura) => void;
 }) {
   const supportsCamera =
     typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getUserMedia === 'function';
@@ -97,10 +101,10 @@ export default function CameraCapture({
     };
   }, [stream, mode]);
 
-  const handleFile = (file: File | undefined) => {
+  const handleFile = (file: File | undefined, source: FuenteCaptura) => {
     if (!file) return;
     stopStream();
-    onCapture(file, lectura);
+    onCapture(file, lectura, source);
   };
 
   const handleShutter = () => {
@@ -116,7 +120,7 @@ export default function CameraCapture({
       (blob) => {
         if (!blob) return;
         stopStream();
-        onCapture(new File([blob], `comida-${Date.now()}.jpg`, { type: 'image/jpeg' }), lectura);
+        onCapture(new File([blob], `comida-${Date.now()}.jpg`, { type: 'image/jpeg' }), lectura, 'camera');
       },
       'image/jpeg',
       0.92,
@@ -155,6 +159,13 @@ export default function CameraCapture({
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <VajillaGuia tipo={guiaTipo} variant="overlay" alerta={anguloAlerta} className="h-full w-full" />
             </div>
+            <span className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+              <span
+                aria-hidden="true"
+                className={`h-2 w-2 rounded-full ${lectura.estado === 'ok' ? 'bg-emerald-400' : 'bg-gray-300'}`}
+              />
+              Guía de ángulo
+            </span>
             <p
               className={`pointer-events-none absolute bottom-2 left-0 right-0 px-3 text-center text-xs font-medium drop-shadow ${ayuda.clase}`}
               aria-live="polite"
@@ -197,7 +208,7 @@ export default function CameraCapture({
       <div className="grid grid-cols-2 gap-3">
         {mode === 'live' ? (
           <Button type="button" variant="primary" className="flex-col gap-1.5 py-4" onClick={handleShutter}>
-            <span className="text-xl" aria-hidden="true">📸</span>
+            <IconCamera className="h-5 w-5" />
             <span>Capturar foto</span>
           </Button>
         ) : (
@@ -208,7 +219,7 @@ export default function CameraCapture({
             disabled={mode === 'loading'}
             onClick={() => captureInputRef.current?.click()}
           >
-            <span className="text-xl" aria-hidden="true">📷</span>
+            <IconCamera className="h-5 w-5" />
             <span>Tomar foto</span>
           </Button>
         )}
@@ -218,7 +229,7 @@ export default function CameraCapture({
           className="flex-col gap-1.5 py-4"
           onClick={() => galleryInputRef.current?.click()}
         >
-          <span className="text-xl" aria-hidden="true">🖼️</span>
+          <IconImage className="h-5 w-5" />
           <span>Importar de galería</span>
         </Button>
       </div>
@@ -229,14 +240,14 @@ export default function CameraCapture({
         accept="image/*"
         capture="environment"
         className="hidden"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => handleFile(e.target.files?.[0], 'camera')}
       />
       <input
         ref={galleryInputRef}
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => handleFile(e.target.files?.[0])}
+        onChange={(e) => handleFile(e.target.files?.[0], 'gallery')}
       />
     </div>
   );

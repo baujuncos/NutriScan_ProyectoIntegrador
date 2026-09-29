@@ -101,7 +101,7 @@ export default function VajillaSelector({
   onSelect: (tipo: VajillaTipo) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Tipo de vajilla" className="grid grid-cols-2 gap-3">
+    <div role="radiogroup" aria-label="Tipo de vajilla" className="grid grid-cols-4 gap-2">
       {VAJILLA_TIPOS.map((tipo) => {
         const info = getVajillaInfo(tipo);
         const selected = value === tipo;
@@ -112,7 +112,7 @@ export default function VajillaSelector({
             role="radio"
             aria-checked={selected}
             onClick={() => onSelect(tipo)}
-            className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition-colors focus:outline-none focus-visible:ring-2 ${
+            className={`flex flex-col items-center gap-1 rounded-xl border p-2 text-center transition-colors focus:outline-none focus-visible:ring-2 ${
               selected ? 'border-transparent' : 'border-gray-200 hover:border-gray-300'
             }`}
             style={{
@@ -122,10 +122,9 @@ export default function VajillaSelector({
             }}
           >
             <span style={{ color: selected ? ACCENT : '#cbd5e1' }}>
-              <VajillaGuia tipo={tipo} className="h-14 w-14" />
+              <VajillaGuia tipo={tipo} className="h-9 w-9" />
             </span>
-            <span className="text-sm font-semibold text-gray-900">{info.label}</span>
-            <span className="text-[11px] leading-tight text-gray-400">{info.descripcion}</span>
+            <span className="text-[11px] font-semibold leading-tight text-gray-900">{info.label}</span>
           </button>
         );
       })}

@@ -7,6 +7,24 @@ import {
   MIN_AGE,
   MAX_AGE,
 } from '@/lib/dates';
+import { todayAR } from '@/lib/date';
+
+// `validateFechaNacimiento` compara contra `todayAR()` (fecha en horario de
+// Argentina), no contra `new Date()` de la máquina que corre el test. Cerca
+// del cambio de día (00:00–03:00 UTC), la fecha local del runner (p. ej. un
+// build de Vercel en UTC) puede ir un día adelantada respecto de Argentina,
+// dando una edad "off by one" y tests flaky. Estos helpers construyen las
+// fechas de prueba a partir de `todayAR()` para quedar siempre alineados con
+// la misma referencia que usa la función bajo test.
+function hoyAR(): { year: number; month: number; day: number } {
+  const [year, month, day] = todayAR().split('-').map(Number);
+  return { year, month, day };
+}
+
+function fechaHaceAnios(anios: number): string {
+  const { year, month, day } = hoyAR();
+  return `${year - anios}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // parseDateLocal — parsea string ISO YYYY-MM-DD sin depender de la zona horaria
@@ -88,11 +106,7 @@ describe('ageOn', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('validateFechaNacimiento', () => {
   it('devuelve null para una fecha válida de adulto (25 años)', () => {
-    const today = new Date();
-    const year = today.getFullYear() - 25;
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    expect(validateFechaNacimiento(`${year}-${month}-${day}`)).toBeNull();
+    expect(validateFechaNacimiento(fechaHaceAnios(25))).toBeNull();
   });
 
   it('rechaza fecha futura con mensaje apropiado', () => {
@@ -108,21 +122,13 @@ describe('validateFechaNacimiento', () => {
   });
 
   it(`rechaza menor de ${MIN_AGE} años con mensaje apropiado`, () => {
-    const today = new Date();
-    const year = today.getFullYear() - (MIN_AGE - 1);
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    const error = validateFechaNacimiento(`${year}-${month}-${day}`);
+    const error = validateFechaNacimiento(fechaHaceAnios(MIN_AGE - 1));
     expect(error).not.toBeNull();
     expect(error).toMatch(new RegExp(`${MIN_AGE}`));
   });
 
   it(`rechaza mayor de ${MAX_AGE} años con mensaje apropiado`, () => {
-    const today = new Date();
-    const year = today.getFullYear() - (MAX_AGE + 1);
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    const error = validateFechaNacimiento(`${year}-${month}-${day}`);
+    const error = validateFechaNacimiento(fechaHaceAnios(MAX_AGE + 1));
     expect(error).not.toBeNull();
     expect(error).toMatch(new RegExp(`${MAX_AGE}`));
   });

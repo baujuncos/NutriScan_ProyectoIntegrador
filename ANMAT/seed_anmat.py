@@ -6,7 +6,7 @@ en la misma tabla; este script no toca filas de SARA2).
 
 Uso:
     cd ANMAT
-    NEXT_PUBLIC_SUPABASE_URL=<url> SUPABASE_SERVICE_ROLE_KEY=<key> python seed_anmat.py
+    SUPABASE_URL=<url> SUPABASE_SERVICE_ROLE_KEY=<key> python seed_anmat.py
 
 ID offset: 1_000_000 + id_alimento_anmat para evitar colisiones con IDs de SARA2.
 
@@ -22,11 +22,11 @@ from supabase import create_client, Client
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env.local'))
 
-SUPABASE_URL = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-SUPABASE_KEY = os.getenv('NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY')
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise ValueError("Faltan variables: NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+    raise ValueError("Faltan variables: SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 

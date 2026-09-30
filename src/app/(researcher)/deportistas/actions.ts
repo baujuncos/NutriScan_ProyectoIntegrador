@@ -47,6 +47,7 @@ type RawItemRow = {
   carbs_g: number;
   nombre_manual: string | null;
   alimentos: { nombre: string } | null;
+  alimentos_barcode: { nombre: string } | null;
 };
 type RawIngestaWithItems = {
   id_ingesta: number;
@@ -104,7 +105,7 @@ export async function generateExcelAction(
       .select('user_id, respuestas, completed_at')
       .in('user_id', userIds),
     supabase.from('ingestas')
-      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre))')
+      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))')
       .in('id_usuario', userIds).order('fecha', { ascending: true }),
     supabase.from('hidratacion')
       .select('id_usuario, fecha, ml_total')
@@ -393,7 +394,7 @@ export async function generateExcelAction(
               for (const item of ing.items) {
                 writeRow(
                   fecha, tipoLabel,
-                  item.alimentos?.nombre ?? item.nombre_manual ?? 'Alimento desconocido',
+                  item.alimentos_barcode?.nombre ?? item.alimentos?.nombre ?? item.nombre_manual ?? 'Alimento desconocido',
                   Number(item.cantidad) || 0,
                   Number(item.kcal) || 0,
                   Number(item.proteinas_g) || 0,
@@ -694,7 +695,7 @@ export async function getAthleteDetailAction(
       .lte('fecha', week.today),
     supabase
       .from('ingestas')
-      .select(`id_ingesta, tipo, fecha, kcal_total, items(id_item, cantidad, kcal, nombre_manual, alimentos(nombre))`)
+      .select(`id_ingesta, tipo, fecha, kcal_total, items(id_item, cantidad, kcal, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))`)
       .eq('id_usuario', athleteId)
       .in('fecha', [todayStr, yesterdayStr])
       .order('fecha', { ascending: false })
@@ -739,7 +740,7 @@ export async function getAthleteDetailAction(
     tipo: string;
     fecha: string;
     kcal_total: number;
-    items: { id_item: number; cantidad: number; kcal: number; nombre_manual: string | null; alimentos: { nombre: string } | null }[];
+    items: { id_item: number; cantidad: number; kcal: number; nombre_manual: string | null; alimentos: { nombre: string } | null; alimentos_barcode: { nombre: string } | null }[];
   };
 
   const recentIngestas: IngestaDetail[] = ((recentIngeRes.data ?? []) as unknown as RawIngesta[]).map((ing) => ({
@@ -748,7 +749,7 @@ export async function getAthleteDetailAction(
     fecha: ing.fecha,
     kcal_total: Number(ing.kcal_total) || 0,
     items: (ing.items ?? []).map((it) => ({
-      nombre: it.alimentos?.nombre ?? it.nombre_manual ?? 'Alimento desconocido',
+      nombre: it.alimentos_barcode?.nombre ?? it.alimentos?.nombre ?? it.nombre_manual ?? 'Alimento desconocido',
       cantidad: Number(it.cantidad) || 0,
       kcal: Number(it.kcal) || 0,
     })),

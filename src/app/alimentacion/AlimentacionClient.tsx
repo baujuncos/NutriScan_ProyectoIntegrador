@@ -21,6 +21,7 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import AIRecognitionModal from './AIRecognitionModal';
 import ChatFoodModal from './ChatFoodModal';
+import BarcodeScannerModal from './BarcodeScannerModal';
 import type { FoodChatResult } from '@/lib/chatFood';
 
 type ItemRow = {
@@ -34,6 +35,8 @@ type ItemRow = {
   grasas_g: number | string;
   carbs_g: number | string;
   alimentos: { nombre: string; categoria: string | null } | Array<{ nombre: string; categoria: string | null }> | null;
+  id_alimento_barcode?: number | null;
+  alimentos_barcode?: { nombre: string; marca: string | null } | Array<{ nombre: string; marca: string | null }> | null;
 };
 
 type IngestaRow = {
@@ -53,6 +56,10 @@ function toNum(v: number | string | null | undefined): number {
 }
 
 function getAlimentoNombre(item: ItemRow): string {
+  if (item.id_alimento_barcode != null) {
+    const ab = Array.isArray(item.alimentos_barcode) ? item.alimentos_barcode[0] : item.alimentos_barcode;
+    return ab?.nombre ?? `Alimento #${item.id_alimento_barcode}`;
+  }
   if (item.id_alimento == null) return item.nombre_manual ?? 'Alimento sin nombre';
   if (Array.isArray(item.alimentos)) return item.alimentos[0]?.nombre ?? `Alimento #${item.id_alimento}`;
   return (item.alimentos as { nombre: string } | null)?.nombre ?? `Alimento #${item.id_alimento}`;
@@ -97,6 +104,7 @@ export default function AlimentacionClient({
   const [showManualModal, setShowManualModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [searchResults, setSearchResults] = useState<AlimentoOption[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [denominacionModal, setDenominacionModal] = useState<AlimentoOption | null>(null);
@@ -290,6 +298,20 @@ export default function AlimentacionClient({
           <span aria-hidden="true">💬</span>
           <span className="hidden sm:inline">Registrar por chat</span>
         </button>
+
+        {/* Barcode scanner button */}
+        <button
+          type="button"
+          onClick={() => setShowBarcodeModal(true)}
+          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
+          style={{
+            backgroundImage: 'linear-gradient(135deg, #f97316 0%, #f59e0b 100%)',
+            boxShadow: '0 8px 20px rgba(249,115,22,0.35)',
+          }}
+        >
+          <span aria-hidden="true">📷</span>
+          <span className="hidden sm:inline">Escanear código</span>
+        </button>
       </div>
       )}
 
@@ -408,6 +430,14 @@ export default function AlimentacionClient({
           setShowChatModal(false);
           setTimeout(() => searchInputRef.current?.focus(), 0);
         }}
+      />
+
+      {/* Barcode scanner modal */}
+      <BarcodeScannerModal
+        open={showBarcodeModal}
+        onClose={() => setShowBarcodeModal(false)}
+        fecha={fecha}
+        tipoIngesta={tipoIngesta}
       />
 
       {/* Add form (shown when food is selected) */}

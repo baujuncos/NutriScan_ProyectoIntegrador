@@ -3,8 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { todayAR, daysAgoAR } from '@/lib/date';
+import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
 
 export type AlimentoOption = {
   id_alimento: number;
@@ -60,6 +62,58 @@ function getStringField(formData: FormData, key: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+const EAN_REGEX = /^[0-9]{13}$/;
+
+type ItemSource =
+  | { kind: 'catalogo'; idAlimento: number }
+  | { kind: 'manual'; nombreManual: string }
+  | { kind: 'barcode'; idAlimentoBarcode: number };
+
+async function upsertIngestaAndInsertItem(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  params: {
+    userId: string;
+    fecha: string;
+    tipoIngesta: string;
+    tipoItem: string;
+    cantidad: number;
+    source: ItemSource;
+  },
+): Promise<boolean> {
+  const { userId, fecha, tipoIngesta, tipoItem, cantidad, source } = params;
+
+  const { error: upsertError } = await supabase.from('ingestas').upsert(
+    [{ id_usuario: userId, fecha, tipo: tipoIngesta }],
+    { onConflict: 'id_usuario,fecha,tipo' },
+  );
+  if (upsertError) return false;
+
+  const { data: ingesta, error: ingestaError } = await supabase
+    .from('ingestas')
+    .select('id_ingesta')
+    .eq('id_usuario', userId)
+    .eq('fecha', fecha)
+    .eq('tipo', tipoIngesta)
+    .single();
+  if (ingestaError || !ingesta) return false;
+
+  const itemFields =
+    source.kind === 'catalogo'
+      ? { id_alimento: source.idAlimento }
+      : source.kind === 'manual'
+        ? { id_alimento: null, nombre_manual: source.nombreManual }
+        : { id_alimento_barcode: source.idAlimentoBarcode };
+
+  const { error: insertError } = await supabase.from('items').insert({
+    id_ingesta: ingesta.id_ingesta,
+    tipo_item: tipoItem,
+    cantidad: toFixed2(cantidad),
+    ...itemFields,
+  });
+
+  return !insertError;
+}
+
 export async function addItemAction(formData: FormData) {
   const fecha = getStringField(formData, 'fecha');
   const tipoIngesta = getStringField(formData, 'tipo_ingesta');
@@ -103,41 +157,15 @@ export async function addItemAction(formData: FormData) {
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
 
-  const { error: upsertError } = await supabase.from('ingestas').upsert(
-    [
-      {
-        id_usuario: user.id,
-        fecha,
-        tipo: tipoIngesta,
-      },
-    ],
-    { onConflict: 'id_usuario,fecha,tipo' },
-  );
-
-  if (upsertError) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  }
-
-  const { data: ingesta, error: ingestaError } = await supabase
-    .from('ingestas')
-    .select('id_ingesta')
-    .eq('id_usuario', user.id)
-    .eq('fecha', fecha)
-    .eq('tipo', tipoIngesta)
-    .single();
-
-  if (ingestaError || !ingesta) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  }
-
-  const { error: insertError } = await supabase.from('items').insert({
-    id_ingesta: ingesta.id_ingesta,
-    id_alimento: idAlimento,
-    tipo_item: tipoItem,
-    cantidad: toFixed2(cantidad),
+  const ok = await upsertIngestaAndInsertItem(supabase, {
+    userId: user.id,
+    fecha,
+    tipoIngesta,
+    tipoItem,
+    cantidad,
+    source: { kind: 'catalogo', idAlimento },
   });
-
-  if (insertError) {
+  if (!ok) {
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
 
@@ -179,42 +207,99 @@ export async function addManualItemAction(formData: FormData) {
 
   if (!user) redirect('/login');
 
-  const { error: upsertError } = await supabase.from('ingestas').upsert(
-    [
-      {
-        id_usuario: user.id,
-        fecha,
-        tipo: tipoIngesta,
-      },
-    ],
-    { onConflict: 'id_usuario,fecha,tipo' },
-  );
-
-  if (upsertError) {
+  const ok = await upsertIngestaAndInsertItem(supabase, {
+    userId: user.id,
+    fecha,
+    tipoIngesta,
+    tipoItem,
+    cantidad,
+    source: { kind: 'manual', nombreManual },
+  });
+  if (!ok) {
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
 
-  const { data: ingesta, error: ingestaError } = await supabase
-    .from('ingestas')
-    .select('id_ingesta')
-    .eq('id_usuario', user.id)
-    .eq('fecha', fecha)
-    .eq('tipo', tipoIngesta)
+  revalidatePath('/alimentacion');
+  redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+}
+
+export async function addScannedItemAction(formData: FormData) {
+  const fecha = getStringField(formData, 'fecha');
+  const tipoIngesta = getStringField(formData, 'tipo_ingesta');
+  const tipoItem = getStringField(formData, 'tipo_item');
+  const ean = getStringField(formData, 'ean');
+  const cantidadRaw = getStringField(formData, 'cantidad');
+
+  if (!isValidDateInput(fecha)) redirect('/alimentacion');
+  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
+    redirect(`/alimentacion?fecha=${fecha}`);
+  }
+  if (!ITEM_TIPOS.includes(tipoItem as (typeof ITEM_TIPOS)[number])) {
+    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  }
+  if (!EAN_REGEX.test(ean)) {
+    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  }
+
+  const cantidad = Number.parseFloat(cantidadRaw);
+  if (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > MAX_CANTIDAD) {
+    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  }
+
+  // Re-consulta a Open Food Facts del lado del servidor: nunca confiamos en
+  // nombre/marca/macros que pueda mandar el cliente, solo en el EAN.
+  const producto = await obtenerProductoPorEAN(ean);
+  if (!producto.encontrado) {
+    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect('/login');
+
+  // El upsert va por el cliente admin (service role), no por `supabase`: la
+  // tabla es de lectura pública y no tiene policy de insert/update para
+  // usuarios autenticados, justamente para que la única vía de escritura sea
+  // este server action (después de re-consultar OFF arriba), no un usuario
+  // llamando a PostgREST directamente con la anon key.
+  const admin = createAdminClient();
+  const { data: alimentoBarcode, error: upsertError } = await admin
+    .from('alimentos_barcode')
+    .upsert(
+      {
+        codigo_ean: producto.ean,
+        nombre: producto.nombre,
+        categoria: producto.categoria,
+        marca: producto.marca,
+        porcion: producto.porcion,
+        kcal_100g: producto.nutrientes100g.kcal,
+        proteinas_100g: producto.nutrientes100g.proteinas,
+        grasas_100g: producto.nutrientes100g.grasas,
+        carbs_100g: producto.nutrientes100g.carbs,
+        imagen_url: producto.imagenUrl,
+      },
+      { onConflict: 'codigo_ean' },
+    )
+    .select('id_alimento_barcode')
     .single();
 
-  if (ingestaError || !ingesta) {
+  if (upsertError || !alimentoBarcode) {
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
 
-  const { error: insertError } = await supabase.from('items').insert({
-    id_ingesta: ingesta.id_ingesta,
-    id_alimento: null,
-    nombre_manual: nombreManual,
-    tipo_item: tipoItem,
-    cantidad: toFixed2(cantidad),
+  const ok = await upsertIngestaAndInsertItem(supabase, {
+    userId: user.id,
+    fecha,
+    tipoIngesta,
+    tipoItem,
+    cantidad,
+    source: { kind: 'barcode', idAlimentoBarcode: alimentoBarcode.id_alimento_barcode },
   });
-
-  if (insertError) {
+  if (!ok) {
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
 

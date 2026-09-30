@@ -24,6 +24,7 @@ vi.mock('@/app/alimentacion/actions', () => ({
 
 vi.mock('@/app/alimentacion/AIRecognitionModal', () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/ChatFoodModal',      () => ({ default: () => null }));
+vi.mock('@/app/alimentacion/BarcodeScannerModal', () => ({ default: () => null }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures
@@ -276,6 +277,45 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       const { user } = mount();
       await user.type(screen.getByRole('textbox'), 'xzxzxz');
       await screen.findByText(/No encontramos/, {}, { timeout: 1500 });
+    });
+  });
+
+  describe('ítems escaneados por código de barras (id_alimento_barcode)', () => {
+    it('muestra el nombre del producto de alimentos_barcode en vez de "Alimento sin nombre"', () => {
+      render(
+        <AlimentacionClient
+          ingesta={{
+            id_ingesta: 1,
+            tipo: 'almuerzo',
+            kcal_total: 202.5,
+            proteinas_total_g: 2.25,
+            grasas_total_g: 9,
+            carbs_total_g: 27,
+            items: [
+              {
+                id_item: 1,
+                id_alimento: null,
+                nombre_manual: null,
+                tipo_item: 'solido',
+                cantidad: 45,
+                kcal: 202.5,
+                proteinas_g: 2.25,
+                grasas_g: 9,
+                carbs_g: 27,
+                alimentos: null,
+                id_alimento_barcode: 10,
+                alimentos_barcode: { nombre: 'Alfajor Triple', marca: 'Havanna' },
+              },
+            ],
+          }}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={false}
+        />,
+      );
+
+      expect(screen.getByText('Alfajor Triple')).toBeInTheDocument();
+      expect(screen.queryByText('Alimento sin nombre')).not.toBeInTheDocument();
     });
   });
 });

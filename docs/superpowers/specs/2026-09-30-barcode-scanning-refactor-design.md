@@ -120,8 +120,8 @@ const BACK_TARGET: Partial<Record<Stage, Stage>> = {
 - Si `producto.porcionEtiqueta` existe, línea secundaria: *"Porción sugerida en envoltorio: {porcionEtiqueta}"*.
 - Si `producto.esSuplemento`, aviso inline: *"Detectamos que es un suplemento — se va a guardar en Suplementos."* (ver §5.5).
 - Nuevo botón/toggle **"Ampliar información del producto"**: expande un bloque inline (no un modal anidado) con:
-  - Badge de Nutri-Score (si `infoAmpliada.nutriscore` no es `null`), colores oficiales aproximados: a `#038141`, b `#85BB2F`, c `#FECB02`, d `#EE8100`, e `#E63E11`.
-  - Grupo NOVA (si no es `null`): número + descripción corta (`1`: "Sin procesar o mínimamente procesado", `2`: "Ingrediente culinario procesado", `3`: "Procesado", `4`: "Ultraprocesado").
+  - Badge de Nutri-Score (si `infoAmpliada.nutriscore` no es `null`), colores oficiales aproximados: a `#038141`, b `#85BB2F`, c `#FECB02`, d `#EE8100`, e `#E63E11`. Debajo del badge, una línea fija explicando qué es (no depende del valor, siempre el mismo texto): *"Nutri-Score: calificación de A a E del perfil nutricional general (calorías, azúcares, grasas saturadas, sodio, proteínas, fibra y frutas/verduras). A es el mejor perfil, E el peor."*
+  - Grupo NOVA (si no es `null`): número + descripción corta (`1`: "Sin procesar o mínimamente procesado", `2`: "Ingrediente culinario procesado", `3`: "Procesado", `4`: "Ultraprocesado"), y debajo una línea fija explicando el concepto: *"Grupo NOVA: mide qué tan procesado está el alimento, de 1 (natural o casi sin procesar) a 4 (ultraprocesado — con ingredientes y aditivos industriales)."*
   - Chips "Sin Gluten"/"Vegano"/"Vegetariano" — solo los que sean `true`.
   - Si ninguno de los tres bloques tiene datos, el toggle igual aparece pero el contenido dice "Open Food Facts no tiene esta información para este producto." (no se oculta el botón — sería inconsistente que a veces exista y a veces no).
 - `[Sí, es correcto]` ahora navega a `mode` (antes iba directo a la pantalla de porciones).

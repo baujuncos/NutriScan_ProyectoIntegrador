@@ -16,9 +16,7 @@ const DOMAIN_TABLES = [
 export async function POST(request: NextRequest) {
   // --- Protect with service role key ---
   const adminKey = request.headers.get('x-admin-key') ?? '';
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    '';
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
   if (!adminKey || adminKey !== serviceKey) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });

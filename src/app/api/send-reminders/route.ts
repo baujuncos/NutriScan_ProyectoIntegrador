@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
-// Configuración desde variables de entorno
+// Configuración desde variables de entorno. En Vercel esta ruta usa las
+// variables server-only sin prefijo (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY);
+// se hace fallback a NEXT_PUBLIC_SUPABASE_URL porque en local sólo esa está
+// definida en .env.local.
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
+  (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL)!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 

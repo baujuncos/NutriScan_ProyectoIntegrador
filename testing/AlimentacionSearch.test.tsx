@@ -412,6 +412,8 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     it('el toggle "Buscar" revela los 3 checkboxes, todos tildados por default', async () => {
       const { user } = mount();
       expect(screen.queryByRole('checkbox', { name: 'Nombre' })).not.toBeInTheDocument();
+      // Los filtros viven dentro del popover: hay que abrir la búsqueda primero.
+      await user.click(screen.getByRole('textbox'));
       await user.click(screen.getByRole('button', { name: /buscar/i }));
       expect(screen.getByRole('checkbox', { name: 'Nombre' })).toBeChecked();
       expect(screen.getByRole('checkbox', { name: 'Marca' })).toBeChecked();
@@ -421,6 +423,8 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     it('destildar un campo lo manda en false al server action', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([]);
       const { user } = mount();
+      // Los filtros viven dentro del popover: hay que abrir la búsqueda primero.
+      await user.click(screen.getByRole('textbox'));
       await user.click(screen.getByRole('button', { name: /buscar/i }));
       await user.click(screen.getByRole('checkbox', { name: 'Marca' }));
       await user.type(screen.getByRole('textbox'), 'ar');
@@ -429,6 +433,8 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
 
     it('desmarcar los 3 campos muestra un aviso de "elegí al menos un campo", no "sin resultados"', async () => {
       const { user } = mount();
+      // Los filtros viven dentro del popover: hay que abrir la búsqueda primero.
+      await user.click(screen.getByRole('textbox'));
       await user.click(screen.getByRole('button', { name: /buscar/i }));
       await user.click(screen.getByRole('checkbox', { name: 'Nombre' }));
       await user.click(screen.getByRole('checkbox', { name: 'Marca' }));
@@ -449,12 +455,87 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     it('"Quitar filtros" vuelve a tildar los 3 campos', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([]);
       const { user } = mount();
+      // Los filtros viven dentro del popover: hay que abrir la búsqueda primero.
+      await user.click(screen.getByRole('textbox'));
       await user.click(screen.getByRole('button', { name: /buscar/i }));
       await user.click(screen.getByRole('checkbox', { name: 'Marca' }));
       await user.type(screen.getByRole('textbox'), 'xyz');
       await screen.findByText(/no encontramos/i);
       await user.click(screen.getByRole('button', { name: 'Quitar filtros' }));
       expect(screen.getByRole('checkbox', { name: 'Marca' })).toBeChecked();
+    });
+  });
+
+  describe('popover de búsqueda (desktop) / pantalla completa (mobile)', () => {
+    it('al enfocar, muestra los filtros y el pie con los atajos de teclado', async () => {
+      const { user } = mount();
+      expect(screen.queryByRole('button', { name: /buscar/i })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('textbox'));
+      expect(screen.getByRole('button', { name: /buscar/i })).toBeInTheDocument();
+      expect(screen.getByText(/para navegar/i)).toBeInTheDocument();
+      expect(screen.getByText(/para elegir/i)).toBeInTheDocument();
+      expect(screen.getByText(/para cerrar/i)).toBeInTheDocument();
+    });
+
+    it('tocar un filtro dentro del popover no lo cierra', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByRole('button', { name: /buscar/i }));
+      await user.click(screen.getByRole('checkbox', { name: 'Marca' }));
+      await new Promise((r) => setTimeout(r, 200));
+      expect(screen.getByRole('checkbox', { name: 'Marca' })).not.toBeChecked();
+      expect(await screen.findByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).toBeInTheDocument();
+    });
+
+    it('"Listo" cierra la hoja de campos pero no la búsqueda', async () => {
+      const { user } = mount();
+      await user.click(screen.getByRole('textbox'));
+      await user.click(screen.getByRole('button', { name: /buscar/i }));
+      await user.click(screen.getByRole('button', { name: 'Listo' }));
+      expect(screen.queryByRole('checkbox', { name: 'Marca' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /buscar/i })).toBeInTheDocument();
+    });
+
+    it('Esc cierra el popover', async () => {
+      const { user } = mount();
+      await user.click(screen.getByRole('textbox'));
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('button', { name: /buscar/i })).not.toBeInTheDocument();
+    });
+
+    it('click en el scrim (afuera del popover) lo cierra', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByTestId('busqueda-scrim'));
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    });
+
+    it('"Cancelar" cierra la búsqueda a pantalla completa', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    });
+
+    it('el filtro de fuente deja solo los resultados de esa fuente', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO, A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ac', A_ANMAT_COMPLETO.nombre);
+      await user.click(screen.getByRole('button', { name: 'SARA2 (1)' }));
+      expect(screen.getAllByRole('option')).toHaveLength(1);
+      expect(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).toBeInTheDocument();
+    });
+
+    it('↓ + Enter elige el resultado resaltado', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO, A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ac', A_ANMAT_COMPLETO.nombre);
+      await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+      expect(screen.getByRole('textbox')).toHaveValue(A_SARA2_CON_CATEGORIA.nombre);
     });
   });
 

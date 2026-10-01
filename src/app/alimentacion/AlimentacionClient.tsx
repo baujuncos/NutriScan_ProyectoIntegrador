@@ -15,13 +15,14 @@ function formatFechaTitle(fecha: string): string {
   }).format(date);
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
-import { addItemAction, addManualItemAction, deleteItemAction, updateItemAction, searchAlimentosAction, type AlimentoOption } from './actions';
+import { addItemAction, addManualItemAction, deleteItemAction, updateItemAction, type AlimentoOption } from './actions';
 import { type IngestaTipo } from '@/lib/nutrition';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import AIRecognitionModal from './AIRecognitionModal';
 import ChatFoodModal from './ChatFoodModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import BusquedaAlimento, { type BusquedaAlimentoHandle } from './BusquedaAlimento';
 import type { FoodChatResult } from '@/lib/chatFood';
 
 type ItemRow = {
@@ -96,65 +97,24 @@ export default function AlimentacionClient({
   fecha: string;
   hideNutrition: boolean;
 }) {
-  const [query, setQuery] = useState('');
   const [selectedAlimento, setSelectedAlimento] = useState<AlimentoOption | null>(null);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [manualQuery, setManualQuery] = useState('');
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editingCantidad, setEditingCantidad] = useState('');
   const [showManualModal, setShowManualModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
-  const [searchResults, setSearchResults] = useState<AlimentoOption[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [denominacionModal, setDenominacionModal] = useState<AlimentoOption | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const searchHandleRef = useRef<BusquedaAlimentoHandle>(null);
 
   const accentColor = MEAL_COLOR[tipoIngesta];
   const label = MEAL_LABEL[tipoIngesta];
   const items = ingesta?.items ?? [];
   const canEdit = fecha >= daysAgoAR(7) && fecha <= todayAR();
 
-  // Live search with 300ms debounce — queries both nombre and denominacion server-side
-  useEffect(() => {
-    if (query.length < 2) {
-      setSearchResults([]);
-      setSearchLoading(false);
-      return;
-    }
-    setSearchLoading(true);
-    const t = setTimeout(async () => {
-      const data = await searchAlimentosAction(query, tipoIngesta);
-      setSearchResults(data);
-      setSearchLoading(false);
-    }, 300);
-    debounceRef.current = t;
-    return () => clearTimeout(t);
-  }, [query, tipoIngesta]);
-
-  const filtered = selectedAlimento ? [] : searchResults;
-
-  const handleSelectAlimento = (a: AlimentoOption) => {
-    setSelectedAlimento(a);
-    setQuery(a.nombre);
-    setShowDropdown(false);
-  };
-
-  const handleCancelSelection = () => {
-    setSelectedAlimento(null);
-    setQuery('');
-    setShowDropdown(false);
-  };
-
-  const handleOpenManualModal = () => {
-    setShowDropdown(false);
-    setShowManualModal(true);
-  };
-
   const handleCloseManualModal = () => {
     setShowManualModal(false);
-    setQuery('');
+    setManualQuery('');
   };
 
   const handleStartEdit = (item: ItemRow) => {
@@ -175,176 +135,20 @@ export default function AlimentacionClient({
         </div>
       )}
 
-      {/* Search + AI recognition button */}
-      {canEdit && (
-      <div className="flex items-start gap-2">
-        <div className="relative flex-1">
-          <div className="relative">
-            <svg
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400"
-              width="18" height="18"
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelectedAlimento(null);
-                setShowDropdown(true);
-                if (e.target.value.length < 2) setSearchResults([]);
-              }}
-              onFocus={() => setShowDropdown(true)}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-              placeholder={
-                tipoIngesta === 'suplemento'
-                  ? 'Buscar suplemento: proteína, creatina...'
-                  : 'Buscar en SARA2 y ANMAT: arroz, pollo, banana...'
-              }
-              className="w-full pl-10 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all"
-              style={{ ['--tw-ring-color' as string]: `${accentColor}40` }}
-            />
-          </div>
-
-          {/* Dropdown: loading */}
-          {showDropdown && searchLoading && query.length >= 2 && !selectedAlimento && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 p-3 text-center">
-              <span className="text-xs text-gray-400">Buscando...</span>
-            </div>
-          )}
-
-          {/* Dropdown results */}
-          {showDropdown && !searchLoading && filtered.length > 0 && !selectedAlimento && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 overflow-hidden max-h-64 overflow-y-auto">
-              {filtered.map((a) => (
-                <div
-                  key={a.id_alimento}
-                  onMouseDown={() => handleSelectAlimento(a)}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0 transition-colors cursor-pointer"
-                >
-                  <span className="font-medium text-gray-900 flex-1 min-w-0 truncate">{a.nombre}</span>
-                  {a.marca && (
-                    <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline truncate max-w-24">{a.marca}</span>
-                  )}
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
-                    a.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
-                  }`}>
-                    {a.fuente}
-                  </span>
-                  {(a.denominacion || a.categoria) && (
-                    <button
-                      type="button"
-                      aria-label="Ver detalle del alimento"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        setDenominacionModal(a);
-                      }}
-                      className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center hover:bg-blue-600 transition-colors"
-                    >
-                      ?
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Empty state: no matches found */}
-          {showDropdown && !searchLoading && query.length >= 2 && filtered.length === 0 && !selectedAlimento && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 p-4 text-center">
-              <p className="text-sm text-gray-500">No encontramos &quot;{query}&quot; en el catálogo.</p>
-              <button
-                type="button"
-                onMouseDown={handleOpenManualModal}
-                className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold hover:underline"
-                style={{ color: accentColor }}
-              >
-                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Cargar alimento manualmente
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* AI recognition button */}
-        <button
-          type="button"
-          onClick={() => setShowAIModal(true)}
-          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
-          style={{
-            backgroundImage: 'linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)',
-            boxShadow: '0 8px 20px rgba(168,85,247,0.35)',
-          }}
-        >
-          <span aria-hidden="true">✨</span>
-          <span className="hidden sm:inline">Reconocimiento por IA</span>
-        </button>
-
-        {/* Chat food registration button (NUT-187) */}
-        <button
-          type="button"
-          onClick={() => setShowChatModal(true)}
-          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
-          style={{
-            backgroundImage: 'linear-gradient(135deg, #0ea5e9 0%, #22c55e 100%)',
-            boxShadow: '0 8px 20px rgba(14,165,233,0.35)',
-          }}
-        >
-          <span aria-hidden="true">💬</span>
-          <span className="hidden sm:inline">Registrar por chat</span>
-        </button>
-
-        {/* Barcode scanner button */}
-        <button
-          type="button"
-          onClick={() => setShowBarcodeModal(true)}
-          className="flex-shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03] active:scale-[0.98]"
-          style={{
-            backgroundImage: 'linear-gradient(135deg, #f97316 0%, #f59e0b 100%)',
-            boxShadow: '0 8px 20px rgba(249,115,22,0.35)',
-          }}
-        >
-          <span aria-hidden="true">📷</span>
-          <span className="hidden sm:inline">Escanear código</span>
-        </button>
-      </div>
-      )}
-
-      {/* Denominacion modal */}
-      <Modal
-        open={denominacionModal !== null}
-        onClose={() => setDenominacionModal(null)}
-        title="Detalle del alimento"
-      >
-        <p className="text-sm font-semibold text-gray-900">{denominacionModal?.nombre}</p>
-        <dl className="mt-3 space-y-2 text-sm">
-          {([
-            ['Fuente', denominacionModal?.fuente],
-            ['Categoría', denominacionModal?.categoria],
-            ['Marca', denominacionModal?.marca],
-            ['Denominación', denominacionModal?.denominacion],
-          ] as const).map(([label, value]) =>
-            value ? (
-              <div key={label}>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-400">{label}</dt>
-                <dd className="text-gray-700 leading-relaxed">{value}</dd>
-              </div>
-            ) : null
-          )}
-        </dl>
-        <button
-          type="button"
-          onClick={() => setDenominacionModal(null)}
-          className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-colors"
-        >
-          Cerrar
-        </button>
-      </Modal>
+      {/* Búsqueda de alimentos */}
+      <BusquedaAlimento
+        ref={searchHandleRef}
+        tipoIngesta={tipoIngesta}
+        accentColor={accentColor}
+        canEdit={canEdit}
+        selectedAlimento={selectedAlimento}
+        onSelectAlimento={setSelectedAlimento}
+        onClearSelection={() => setSelectedAlimento(null)}
+        onOpenManual={(query) => { setManualQuery(query); setShowManualModal(true); }}
+        onOpenAI={() => setShowAIModal(true)}
+        onOpenChat={() => setShowChatModal(true)}
+        onOpenBarcode={() => setShowBarcodeModal(true)}
+      />
 
       {/* Manual food entry modal */}
       <Modal open={showManualModal} onClose={handleCloseManualModal} title="Cargar alimento manualmente">
@@ -359,7 +163,7 @@ export default function AlimentacionClient({
           <Input
             label="Nombre del alimento"
             name="nombre_manual"
-            defaultValue={query}
+            defaultValue={manualQuery}
             placeholder="Ej: Tarta casera de verduras"
             maxLength={120}
             required
@@ -412,7 +216,7 @@ export default function AlimentacionClient({
           // "Otro" (NUT-160): sin foto calibrada — cerrar el modal y llevar al
           // buscador de alimentos que ya está en la página.
           setShowAIModal(false);
-          setTimeout(() => searchInputRef.current?.focus(), 0);
+          setTimeout(() => searchHandleRef.current?.focus(), 0);
         }}
         mealType={tipoIngesta}
         mealLabel={MEAL_LABEL[tipoIngesta]}
@@ -428,7 +232,7 @@ export default function AlimentacionClient({
           // ahora cerramos el chat y enfocamos el buscador, como con "Otro".
           console.debug('[NUT-191] alimentos a integrar en el módulo de desglose', result.alimentos);
           setShowChatModal(false);
-          setTimeout(() => searchInputRef.current?.focus(), 0);
+          setTimeout(() => searchHandleRef.current?.focus(), 0);
         }}
       />
 
@@ -470,7 +274,7 @@ export default function AlimentacionClient({
             </div>
             <button
               type="button"
-              onClick={handleCancelSelection}
+              onClick={() => setSelectedAlimento(null)}
               className="text-gray-400 hover:text-gray-600 flex-shrink-0"
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

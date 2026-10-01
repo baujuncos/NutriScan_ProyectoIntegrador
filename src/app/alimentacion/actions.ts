@@ -40,7 +40,9 @@ export async function searchAlimentosAction(
   if (!user) return [];
 
   const isSuplemento = tipoIngesta === 'suplemento';
-  const promises: Array<Promise<{ data: AlimentoOption[] | null }>> = [];
+  // Los query builders de supabase-js son "thenables" (PromiseLike), no Promise
+  // real — no tienen .catch/.finally — por eso el array se tipa como PromiseLike.
+  const promises: Array<PromiseLike<{ data: AlimentoOption[] | null }>> = [];
 
   // Tier 1 (mayor relevancia): matches por nombre.
   if (campos.nombre) {

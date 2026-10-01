@@ -41,24 +41,24 @@ export default function BottomNav() {
       className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-50 lg:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="flex items-stretch h-16">
+      <div className="flex items-stretch h-[72px]">
         <Link
           href="/home"
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isHome ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isHome ? 'text-[#C2410C]' : 'text-gray-400'}`}
         >
           <HomeIcon active={isHome} />
           <span className="text-xs font-medium">Inicio</span>
         </Link>
         <Link
           href="/alimentacion"
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isComidas ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isComidas ? 'text-[#C2410C]' : 'text-gray-400'}`}
         >
           <ComidasIcon active={isComidas} />
           <span className="text-xs font-medium">Comidas</span>
         </Link>
         <Link
           href="/perfil"
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isPerfil ? 'text-blue-600' : 'text-gray-400'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors ${isPerfil ? 'text-[#C2410C]' : 'text-gray-400'}`}
         >
           <PerfilIcon active={isPerfil} />
           <span className="text-xs font-medium">Perfil</span>

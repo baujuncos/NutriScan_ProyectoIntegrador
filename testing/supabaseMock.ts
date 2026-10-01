@@ -41,16 +41,28 @@ export function createSupabaseFromMock() {
     // El query builder real de supabase-js es "thenable": awaitear
     // `supabase.from(t).insert(x)` sin `.select().single()` también debe
     // resolver, por eso la cadena expone `.then` además de los métodos.
-    const chain: Record<string, unknown> = {
-      insert: vi.fn((payload: unknown) => {
-        inserts.push({ tabla, payload });
-        return chain;
-      }),
-      select: vi.fn(() => chain),
-      eq: vi.fn(() => chain),
-      single: vi.fn(() => Promise.resolve(siguiente(tabla))),
-      then: (resolve: (v: TableResult) => void) => resolve(siguiente(tabla)),
-    };
+    let chain: Record<string, unknown>;
+    chain = new Proxy(
+      {
+        insert: vi.fn((payload: unknown) => {
+          inserts.push({ tabla, payload });
+          return chain;
+        }),
+        select: vi.fn(() => chain),
+        eq: vi.fn(() => chain),
+        single: vi.fn(() => Promise.resolve(siguiente(tabla))),
+        then: (resolve: (v: TableResult) => void) => resolve(siguiente(tabla)),
+      },
+      {
+        get(target, prop: string) {
+          if (prop in target) return (target as Record<string, unknown>)[prop];
+          // Passthrough encadenable para cualquier método de filtro de
+          // PostgREST (ilike, or, not, order, limit, in, etc.) que todavía no
+          // tiene un stub explícito arriba — siempre devuelve la misma cadena.
+          return vi.fn(() => chain);
+        },
+      },
+    );
     return chain;
   });
 

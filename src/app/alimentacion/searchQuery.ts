@@ -51,6 +51,21 @@ export function campoDeCoincidencia(
   return null;
 }
 
+/** Minúscula y sin tilde, carácter por carácter — preserva la longitud para que los índices sigan valiendo sobre el texto original. */
+const plegar = (s: string) =>
+  s.split('').map((c) => c.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()[0] ?? c).join('');
+
+/**
+ * Rango [inicio, fin) de la primera aparición de `q` en `texto`, ignorando
+ * mayúsculas y tildes ("mani" coincide con "Maní") — para el `<mark>` del
+ * resaltado en el dropdown. null si no hay coincidencia o `q` está vacía.
+ */
+export function rangoCoincidencia(texto: string, q: string): [number, number] | null {
+  if (!q) return null;
+  const i = plegar(texto).indexOf(plegar(q));
+  return i < 0 ? null : [i, i + q.length];
+}
+
 /** Dedupea una lista de ids (ya ordenada por fecha desc) y la corta en `limite`. */
 export function idsRecientesUnicos(idsEnOrdenDeFecha: number[], limite: number): number[] {
   const vistos = new Set<number>();

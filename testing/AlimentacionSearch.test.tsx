@@ -99,6 +99,13 @@ function mount() {
 }
 
 /**
+ * El nombre de un resultado puede venir partido en varios nodos por el
+ * `<mark>` del resaltado (`Ace` + `itunas...`), y `getByText(string)` solo
+ * mira los text nodes directos — se matchea por `textContent` completo.
+ */
+const porNombre = (nombre: string) => (_: string, el: Element | null) => el?.textContent === nombre;
+
+/**
  * Escribe en el buscador y espera a que el texto `esperado` aparezca.
  * Cubre el debounce de 300 ms + resolución del server action.
  */
@@ -108,7 +115,7 @@ async function buscar(
   esperado: string,
 ) {
   await user.type(screen.getByRole('textbox'), query);
-  await screen.findByText(esperado, {}, { timeout: 1500 });
+  await screen.findByText(porNombre(esperado), {}, { timeout: 1500 });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,7 +194,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
 
       // El modal se identifica por su título
       const modal = screen.getByRole('dialog');
-      expect(within(modal).getByText(A_ANMAT_COMPLETO.nombre)).toBeInTheDocument();
+      expect(within(modal).getByText(porNombre(A_ANMAT_COMPLETO.nombre))).toBeInTheDocument();
       expect(within(modal).getByText(A_ANMAT_COMPLETO.denominacion!)).toBeInTheDocument();
       expect(within(modal).getByText(A_ANMAT_COMPLETO.marca!)).toBeInTheDocument();
       expect(within(modal).getByText(A_ANMAT_COMPLETO.categoria!)).toBeInTheDocument();
@@ -226,7 +233,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
       await user.click(within(screen.getByRole('dialog')).getByText('Cerrar'));
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-      expect(screen.getByText(A_ANMAT_COMPLETO.nombre)).toBeInTheDocument();
+      expect(screen.getByText(porNombre(A_ANMAT_COMPLETO.nombre))).toBeInTheDocument();
     });
   });
 
@@ -274,8 +281,23 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO, A_SARA2_CON_CATEGORIA]);
       const { user } = mount();
       await buscar(user, 'ac', A_ANMAT_COMPLETO.nombre);
-      expect(screen.getByText(A_ANMAT_COMPLETO.nombre)).toBeInTheDocument();
-      expect(screen.getByText(A_SARA2_CON_CATEGORIA.nombre)).toBeInTheDocument();
+      expect(screen.getByText(porNombre(A_ANMAT_COMPLETO.nombre))).toBeInTheDocument();
+      expect(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).toBeInTheDocument();
+    });
+
+    it('resalta con <mark> la parte del nombre que coincide con la búsqueda', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
+      const { user } = mount();
+      await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
+      expect(screen.getByText('Ace', { selector: 'mark' })).toBeInTheDocument();
+    });
+
+    it('no resalta nada en "Recientes" (no hay búsqueda)', async () => {
+      vi.mocked(getAlimentosRecientesAction).mockResolvedValue([A_ANMAT_COMPLETO]);
+      const { user } = mount();
+      await user.click(screen.getByRole('textbox'));
+      await screen.findByText(A_ANMAT_COMPLETO.nombre);
+      expect(document.querySelector('mark')).toBeNull();
     });
 
     it('muestra "Buscando..." mientras se espera la respuesta', async () => {
@@ -396,7 +418,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await user.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }));
 
       expect(screen.getByRole('textbox')).toHaveValue('');
-      expect(screen.queryByText(A_SARA2_CON_CATEGORIA.nombre)).not.toBeInTheDocument();
+      expect(screen.queryByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).not.toBeInTheDocument();
     });
 
     it('una respuesta de búsqueda que resuelve después de limpiar no repuebla el dropdown', async () => {
@@ -421,7 +443,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       resolverBusqueda([A_SARA2_CON_CATEGORIA]);
 
       await new Promise((r) => setTimeout(r, 50));
-      expect(screen.queryByText(A_SARA2_CON_CATEGORIA.nombre)).not.toBeInTheDocument();
+      expect(screen.queryByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).not.toBeInTheDocument();
     });
   });
 
@@ -480,7 +502,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(getAlimentosRecientesAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
       const { user } = mount();
       await user.click(screen.getByRole('textbox'));
-      expect(await screen.findByText(A_SARA2_CON_CATEGORIA.nombre)).toBeInTheDocument();
+      expect(await screen.findByText(porNombre(A_SARA2_CON_CATEGORIA.nombre))).toBeInTheDocument();
       expect(screen.getByText('Recientes')).toBeInTheDocument();
     });
 
@@ -500,7 +522,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
       const { user } = mount();
       await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
-      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre)));
       await user.click(screen.getByRole('button', { name: '150 g' }));
       expect(screen.getByRole('button', { name: /agregar a/i })).toBeEnabled();
     });
@@ -509,14 +531,14 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA, A_ANMAT_CON_MARCA_SIN_DENOM]);
       const { user } = mount();
       await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
-      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre)));
       await user.click(screen.getByRole('button', { name: 'Personalizar' }));
       await user.clear(screen.getByPlaceholderText('Cantidad en gramos'));
       await user.type(screen.getByPlaceholderText('Cantidad en gramos'), '1200');
 
       await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
       await buscar(user, 'nu', A_ANMAT_CON_MARCA_SIN_DENOM.nombre);
-      await user.click(screen.getByText(A_ANMAT_CON_MARCA_SIN_DENOM.nombre));
+      await user.click(screen.getByText(porNombre(A_ANMAT_CON_MARCA_SIN_DENOM.nombre)));
 
       expect(screen.getByRole('button', { name: '50 g' })).toHaveClass('text-white');
     });
@@ -525,7 +547,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
       const { user } = mount();
       await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
-      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre)));
       await user.click(screen.getByRole('button', { name: 'Personalizar' }));
       await user.clear(screen.getByPlaceholderText('Cantidad en gramos'));
       expect(screen.getByRole('button', { name: /agregar a/i })).toBeDisabled();
@@ -536,7 +558,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([sinValores]);
       const { user } = mount();
       await buscar(user, 'prod', sinValores.nombre);
-      await user.click(screen.getByText(sinValores.nombre));
+      await user.click(screen.getByText(porNombre(sinValores.nombre)));
       expect(await screen.findByText(/no tiene valores nutricionales/i)).toBeInTheDocument();
     });
 
@@ -553,7 +575,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
         />,
       );
       await buscar(user, 'prod', sinValores.nombre);
-      await user.click(screen.getByText(sinValores.nombre));
+      await user.click(screen.getByText(porNombre(sinValores.nombre)));
       expect(screen.queryByText(/no tiene valores nutricionales/i)).not.toBeInTheDocument();
     });
 
@@ -561,7 +583,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
       const { user } = mount();
       await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
-      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByText(porNombre(A_SARA2_CON_CATEGORIA.nombre)));
       await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
       expect(screen.getByRole('textbox')).toHaveValue('');
     });

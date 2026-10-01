@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, campoDeCoincidencia, CAMPOS_DEFAULT } from '@/app/alimentacion/searchQuery';
+import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, campoDeCoincidencia, rangoCoincidencia, CAMPOS_DEFAULT } from '@/app/alimentacion/searchQuery';
 
 describe('buildMarcaDenominacionOr', () => {
   it('arma la clausula OR con marca y denominacion cuando ambos campos están tildados', () => {
@@ -58,6 +58,23 @@ describe('campoDeCoincidencia', () => {
 
   it('devuelve null si no matchea en ningún campo', () => {
     expect(campoDeCoincidencia({ nombre: 'Agua', marca: null, denominacion: null }, 'zzz')).toBeNull();
+  });
+});
+
+describe('rangoCoincidencia', () => {
+  it('devuelve [inicio, fin) ignorando mayúsculas', () => {
+    expect(rangoCoincidencia('Aceitunas verdes', 'ace')).toEqual([0, 3]);
+    expect(rangoCoincidencia('Aceitunas verdes', 'VER')).toEqual([10, 13]);
+  });
+
+  it('ignora tildes en ambos lados ("mani" resalta "Maní", "maní" resalta "Mani")', () => {
+    expect(rangoCoincidencia('Maní tostado', 'mani')).toEqual([0, 4]);
+    expect(rangoCoincidencia('Mani tostado', 'maní')).toEqual([0, 4]);
+  });
+
+  it('devuelve null sin coincidencia o con query vacía', () => {
+    expect(rangoCoincidencia('Agua', 'zzz')).toBeNull();
+    expect(rangoCoincidencia('Agua', '')).toBeNull();
   });
 });
 

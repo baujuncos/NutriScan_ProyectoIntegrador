@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { searchAlimentosAction, getAlimentosRecientesAction, type AlimentoOption } from './actions';
-import { CAMPOS_DEFAULT, campoDeCoincidencia, type CamposBusqueda } from './searchQuery';
+import { CAMPOS_DEFAULT, campoDeCoincidencia, rangoCoincidencia, type CamposBusqueda } from './searchQuery';
 import { type IngestaTipo } from '@/lib/nutrition';
 
 export type BusquedaAlimentoHandle = { focus: () => void; clear: () => void };
@@ -32,6 +32,7 @@ function FilaResultado({
   onVerDetalle: (a: AlimentoOption) => void;
 }) {
   const campoMatch = query.length >= 2 ? campoDeCoincidencia(a, query) : null;
+  const rango = query.length >= 2 ? rangoCoincidencia(a.nombre, query) : null;
   const activo = idx === activeIndex;
 
   return (
@@ -45,7 +46,15 @@ function FilaResultado({
       }`}
     >
       <div className="flex items-center gap-2">
-        <span className="font-medium text-gray-900 flex-1 min-w-0 truncate">{a.nombre}</span>
+        <span className="font-medium text-gray-900 flex-1 min-w-0 truncate" title={a.nombre}>
+          {rango ? (
+            <>
+              {a.nombre.slice(0, rango[0])}
+              <mark className="rounded-sm bg-[#FED7AA] text-inherit">{a.nombre.slice(rango[0], rango[1])}</mark>
+              {a.nombre.slice(rango[1])}
+            </>
+          ) : a.nombre}
+        </span>
         <span className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
           a.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
         }`}>

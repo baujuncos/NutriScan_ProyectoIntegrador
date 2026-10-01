@@ -92,8 +92,8 @@ describe('Orden de resultados — nombre-match antes que marca/denominacion-matc
     expect(merged[2].nombre).toBe('Suprema napolitana');
   });
 
-  it('el resultado final se limita a 80 elementos', () => {
-    const byNombre: AlimentoOption[] = Array.from({ length: 60 }, (_, i) => ({
+  it('el resultado final se limita a 150 elementos', () => {
+    const byNombre: AlimentoOption[] = Array.from({ length: 100 }, (_, i) => ({
       id_alimento: i + 1,
       nombre: `Alimento SARA2 ${i + 1}`,
       categoria: null,
@@ -101,7 +101,7 @@ describe('Orden de resultados — nombre-match antes que marca/denominacion-matc
       marca: null,
       denominacion: null,
     }));
-    const byOther: AlimentoOption[] = Array.from({ length: 40 }, (_, i) => ({
+    const byOther: AlimentoOption[] = Array.from({ length: 100 }, (_, i) => ({
       id_alimento: ANMAT_OFFSET + i + 1,
       nombre: `Alimento ANMAT ${i + 1}`,
       categoria: null,
@@ -110,10 +110,10 @@ describe('Orden de resultados — nombre-match antes que marca/denominacion-matc
       denominacion: null,
     }));
 
-    const merged = [...byNombre, ...byOther].slice(0, 80);
-    expect(merged).toHaveLength(80);
-    // Los primeros 60 son SARA2 (byNombre), los siguientes 20 son ANMAT (byOther truncado)
+    const merged = [...byNombre, ...byOther].slice(0, 150);
+    expect(merged).toHaveLength(150);
+    // Los primeros 100 son SARA2 (byNombre), los siguientes 50 son ANMAT (byOther truncado)
     expect(merged[0].fuente).toBe('SARA2');
-    expect(merged[60].fuente).toBe('ANMAT');
+    expect(merged[100].fuente).toBe('ANMAT');
   });
 });

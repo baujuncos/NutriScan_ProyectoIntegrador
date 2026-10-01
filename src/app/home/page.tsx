@@ -17,6 +17,7 @@ type ItemSnippet = {
   kcal: number | string;
   nombre_manual: string | null;
   alimentos: { nombre: string } | Array<{ nombre: string }> | null;
+  alimentos_barcode: { nombre: string } | Array<{ nombre: string }> | null;
 };
 
 type IngestaRow = {
@@ -42,6 +43,10 @@ function mealLabel(tipo: string): string {
 }
 
 function getAlimentoName(item: ItemSnippet): string | undefined {
+  const barcodeNombre = Array.isArray(item.alimentos_barcode)
+    ? item.alimentos_barcode[0]?.nombre
+    : item.alimentos_barcode?.nombre;
+  if (barcodeNombre) return barcodeNombre;
   if (Array.isArray(item.alimentos)) return item.alimentos[0]?.nombre ?? item.nombre_manual ?? undefined;
   return (item.alimentos as { nombre: string } | null)?.nombre ?? item.nombre_manual ?? undefined;
 }
@@ -74,7 +79,7 @@ export default async function HomePage() {
     .from('ingestas')
     .select(`
       id_ingesta, tipo, kcal_total, proteinas_total_g, grasas_total_g, carbs_total_g,
-      items(id_item, kcal, nombre_manual, alimentos(nombre))
+      items(id_item, kcal, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))
     `)
     .eq('id_usuario', user.id)
     .eq('fecha', today);

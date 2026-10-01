@@ -21,6 +21,13 @@ const PORCIONES = [
   { label: '2 porciones', fraccion: 2 },
 ] as const;
 
+const PAQUETE_FRACCIONES = [
+  { label: 'Entero (1 envase)', fraccion: 1 },
+  { label: 'Mitad (1/2)', fraccion: 0.5 },
+  { label: 'Un cuarto (1/4)', fraccion: 0.25 },
+  { label: 'Un quinto (1/5)', fraccion: 0.2 },
+] as const;
+
 const NUTRISCORE_COLORES: Record<'a' | 'b' | 'c' | 'd' | 'e', string> = {
   a: '#038141',
   b: '#85BB2F',
@@ -72,6 +79,7 @@ export default function BarcodeScannerModal({
 
   const [esDispositivoTactil, setEsDispositivoTactil] = useState(true);
   const [mostrarInfoAmpliada, setMostrarInfoAmpliada] = useState(false);
+  const [personalizarPaquete, setPersonalizarPaquete] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -132,6 +140,7 @@ export default function BarcodeScannerModal({
     imgSizeRef.current = null;
     resetEncuadre();
     setMostrarInfoAmpliada(false);
+    setPersonalizarPaquete(false);
   }, [setPendingImage]);
 
   const handleClose = useCallback(() => {
@@ -556,6 +565,7 @@ export default function BarcodeScannerModal({
               <button
                 type="button"
                 onClick={() => setStage('paquete')}
+                aria-label="Por Paquete Completo"
                 className="rounded-2xl border border-gray-200 p-4 text-left hover:border-orange-300 hover:bg-orange-50"
               >
                 <p className="font-semibold text-gray-900">Por Paquete Completo</p>
@@ -564,6 +574,7 @@ export default function BarcodeScannerModal({
               <button
                 type="button"
                 onClick={() => setStage('porcion')}
+                aria-label="Por Porción del Fabricante"
                 className="rounded-2xl border border-gray-200 p-4 text-left hover:border-orange-300 hover:bg-orange-50"
               >
                 <p className="font-semibold text-gray-900">Por Porción del Fabricante</p>
@@ -571,6 +582,65 @@ export default function BarcodeScannerModal({
               </button>
             </div>
           </div>
+        )}
+
+        {stage === 'paquete' && producto?.encontrado && (
+          <form action={addScannedItemAction} onSubmit={handleClose} className="space-y-4">
+            {renderVolver('mode')}
+            <input type="hidden" name="fecha" value={fecha} />
+            <input type="hidden" name="tipo_ingesta" value={tipoIngestaEfectivo} />
+            <input type="hidden" name="tipo_item" value="solido" />
+            <input type="hidden" name="ean" value={producto.ean} />
+            <p className="text-sm font-medium text-gray-700">
+              ¿Cuánto del envase de {producto.nombre} consumiste?
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {PAQUETE_FRACCIONES.map(({ label, fraccion }) => {
+                const gramos = producto.pesoNetoTotal != null ? Math.round(producto.pesoNetoTotal * fraccion) : null;
+                return (
+                  <button
+                    key={label}
+                    type="submit"
+                    name="cantidad"
+                    value={gramos ?? ''}
+                    disabled={gramos == null}
+                    className="rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 enabled:hover:border-orange-300 enabled:hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {label}
+                    <span className="block text-xs font-normal text-gray-400">{gramos != null ? `${gramos} g` : '— g'}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {producto.pesoNetoTotal == null && (
+              <p className="text-xs text-amber-600">
+                No pudimos leer el peso del envase — usá &quot;Personalizar&quot; para ingresar los gramos directamente.
+              </p>
+            )}
+            {!personalizarPaquete ? (
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPersonalizarPaquete(true)}>
+                Personalizar fracción/peso
+              </Button>
+            ) : (
+              <div className="space-y-2 rounded-xl border border-gray-200 p-3">
+                <label htmlFor="paquete-gramos-custom" className="text-xs font-medium text-gray-600">
+                  Gramos consumidos
+                </label>
+                <input
+                  id="paquete-gramos-custom"
+                  type="number"
+                  name="cantidad"
+                  min="1"
+                  step="any"
+                  placeholder="Ej: 45"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                />
+                <Button type="submit" variant="primary" className="w-full">
+                  Guardar
+                </Button>
+              </div>
+            )}
+          </form>
         )}
 
         {stage === 'portion' && producto?.encontrado && (

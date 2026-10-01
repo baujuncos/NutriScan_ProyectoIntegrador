@@ -118,6 +118,55 @@ describe('BarcodeScannerModal — captura', () => {
     expect(screen.getByRole('button', { name: 'Elegir de galería' })).toBeInTheDocument();
   });
 
+  it('al elegir un archivo, pasa a la pantalla de recorte en vez de decodificar directo', async () => {
+    mockPointerCoarse(false);
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    expect(mockScanFileV2).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Procesar código' })).toBeInTheDocument();
+  });
+
+  it('"Procesar código" decodifica la imagen y avanza a confirmar', async () => {
+    mockPointerCoarse(false);
+    mockScanFileV2.mockResolvedValue({ decodedText: '7790040000100' });
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    await user.click(await screen.findByRole('button', { name: 'Procesar código' }));
+
+    expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+    expect(obtenerProductoPorEAN).toHaveBeenCalledWith('7790040000100');
+  });
+
+  it('si no decodifica, muestra error y se queda en la pantalla de recorte', async () => {
+    mockPointerCoarse(false);
+    mockScanFileV2.mockRejectedValue(new Error('no barcode found'));
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    await user.click(await screen.findByRole('button', { name: 'Procesar código' }));
+
+    expect(await screen.findByText(/no pudimos leer un código ean-13/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Procesar código' })).toBeInTheDocument();
+  });
+
+  it('"← Volver" desde la pantalla de recorte regresa al origen', async () => {
+    mockPointerCoarse(false);
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+    await screen.findByRole('button', { name: 'Procesar código' });
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/arrastrá una imagen/i)).toBeInTheDocument();
+  });
+
   it('detiene la cámara (stop + clear) al cerrar el modal', async () => {
     const { user } = renderModal();
     await waitFor(() => expect(mockStart).toHaveBeenCalled());

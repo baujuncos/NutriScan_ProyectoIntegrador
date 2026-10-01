@@ -5,8 +5,9 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { obtenerProductoPorEAN, type ProductoOFF } from '@/lib/openFoodFacts';
 import { addScannedItemAction } from './actions';
+import { calcularRecorte, recortarImagen } from '@/lib/recorteFoto';
 
-type Stage = 'source' | 'fetching' | 'confirm' | 'portion' | 'discarded';
+type Stage = 'source' | 'cropping' | 'fetching' | 'confirm' | 'portion' | 'discarded';
 type CaptureTab = 'camara' | 'subir';
 
 const SCANNER_ELEMENT_ID = 'barcode-scanner-region';
@@ -45,6 +46,15 @@ export default function BarcodeScannerModal({
   const scannerRef = useRef<ScannerInstance | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFileUrl, setPendingFileUrl] = useState<string | null>(null);
+  const [zoomRecorte, setZoomRecorte] = useState(1);
+  const [panRecorte, setPanRecorte] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const imgSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const pendingFileUrlRef = useRef<string | null>(null);
+
   const [esDispositivoTactil, setEsDispositivoTactil] = useState(true);
 
   useEffect(() => {
@@ -66,11 +76,46 @@ export default function BarcodeScannerModal({
     scanner.clear();
   }, []);
 
+  const setPendingImage = useCallback((url: string | null) => {
+    if (pendingFileUrlRef.current) URL.revokeObjectURL(pendingFileUrlRef.current);
+    pendingFileUrlRef.current = url;
+    setPendingFileUrl(url);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (pendingFileUrlRef.current) URL.revokeObjectURL(pendingFileUrlRef.current);
+    },
+    [],
+  );
+
+  const resetEncuadre = () => {
+    setZoomRecorte(1);
+    setPanRecorte({ x: 0, y: 0 });
+    dragRef.current = null;
+  };
+
+  const handlePointerDownRecorte = (e: React.PointerEvent) => {
+    dragRef.current = { x: e.clientX - panRecorte.x, y: e.clientY - panRecorte.y };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const handlePointerMoveRecorte = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    setPanRecorte({ x: e.clientX - dragRef.current.x, y: e.clientY - dragRef.current.y });
+  };
+  const handlePointerUpRecorte = () => {
+    dragRef.current = null;
+  };
+
   const resetState = useCallback(() => {
     setStage('source');
     setProducto(null);
     setCameraError(null);
-  }, []);
+    setPendingImage(null);
+    setPendingFile(null);
+    imgSizeRef.current = null;
+    resetEncuadre();
+  }, [setPendingImage]);
 
   const handleClose = useCallback(() => {
     void detenerCamara();
@@ -146,21 +191,45 @@ export default function BarcodeScannerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, stage, activeTab]);
 
-  const handleFile = async (file: File | undefined) => {
+  const handleFile = (file: File | undefined) => {
     if (!file) return;
+    setPendingFile(file);
+    setPendingImage(URL.createObjectURL(file));
+    imgSizeRef.current = null;
+    resetEncuadre();
+    setStage('cropping');
+  };
+
+  const handleProcesarCodigo = async () => {
+    if (!pendingFile) return;
+    const imgSize = imgSizeRef.current;
+    const rectView = previewContainerRef.current?.getBoundingClientRect();
+    let archivo = pendingFile;
+    if (imgSize && rectView && rectView.width > 0) {
+      const recorte = calcularRecorte({
+        imgW: imgSize.w,
+        imgH: imgSize.h,
+        viewW: rectView.width,
+        viewH: rectView.height,
+        zoom: zoomRecorte,
+        panX: panRecorte.x,
+        panY: panRecorte.y,
+      });
+      archivo = await recortarImagen(pendingFile, recorte);
+    }
+
     const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
     const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, {
       formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13],
       verbose: false,
     });
     try {
-      const resultado = await scanner.scanFileV2(file, false);
+      const resultado = await scanner.scanFileV2(archivo, false);
       handleDecoded(resultado.decodedText);
     } catch {
-      setCameraError('No pudimos leer un código EAN-13 en esa imagen. Probá con otra foto.');
+      setCameraError('No pudimos leer un código EAN-13 en esa imagen. Probá reencuadrar y procesar de nuevo.');
     } finally {
       scanner.clear();
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -172,9 +241,25 @@ export default function BarcodeScannerModal({
     setStage('source');
   };
 
+  const renderVolver = (target: Stage) => (
+    <button
+      type="button"
+      onClick={() => setStage(target)}
+      className="mb-2 flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700"
+    >
+      <span aria-hidden="true">←</span> Volver
+    </button>
+  );
+
   return (
     <Modal open={open} onClose={handleClose} title="📷 Escanear código de barras">
       <div className="space-y-4">
+        <div
+          id={SCANNER_ELEMENT_ID}
+          className={
+            stage === 'source' && activeTab === 'camara' ? 'overflow-hidden rounded-2xl bg-black min-h-56' : 'hidden'
+          }
+        />
         {stage === 'source' && (
           <>
             {esDispositivoTactil && (
@@ -199,11 +284,6 @@ export default function BarcodeScannerModal({
                 </button>
               </div>
             )}
-
-            <div
-              id={SCANNER_ELEMENT_ID}
-              className={activeTab === 'camara' ? 'overflow-hidden rounded-2xl bg-black min-h-56' : 'hidden'}
-            />
 
             {activeTab === 'subir' && (
               <div
@@ -243,6 +323,71 @@ export default function BarcodeScannerModal({
               onChange={(e) => void handleFile(e.target.files?.[0])}
             />
           </>
+        )}
+
+        {stage === 'cropping' && pendingFileUrl && (
+          <div className="space-y-4">
+            {renderVolver('source')}
+            <div
+              ref={previewContainerRef}
+              className="relative h-56 overflow-hidden rounded-2xl border border-gray-100 bg-gray-900"
+              style={{ touchAction: 'none', cursor: 'grab' }}
+              onPointerDown={handlePointerDownRecorte}
+              onPointerMove={handlePointerMoveRecorte}
+              onPointerUp={handlePointerUpRecorte}
+              onPointerCancel={handlePointerUpRecorte}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={pendingFileUrl}
+                alt="Imagen a recortar"
+                draggable={false}
+                onLoad={(e) => {
+                  imgSizeRef.current = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
+                }}
+                className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
+                style={{
+                  transform: `translate(${panRecorte.x}px, ${panRecorte.y}px) scale(${zoomRecorte})`,
+                  transformOrigin: 'center',
+                }}
+              />
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <svg viewBox="0 0 250 100" className="h-full w-full" aria-hidden="true">
+                  <rect
+                    x="10" y="10" width="230" height="80" rx="8"
+                    fill="none" stroke="white" strokeWidth="3" strokeDasharray="8 6" opacity="0.9"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-gray-400" aria-hidden="true">Zoom</span>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.02}
+                value={zoomRecorte}
+                onChange={(e) => setZoomRecorte(Number(e.target.value))}
+                aria-label="Zoom de la imagen"
+                className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-gray-200 accent-orange-500"
+              />
+              <button type="button" onClick={resetEncuadre} className="text-xs font-semibold text-orange-600 hover:underline">
+                Reencuadrar
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Arrastrá y ajustá el zoom para que el código de barras coincida con el recuadro.
+            </p>
+            {cameraError && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700" aria-live="polite">
+                {cameraError}
+              </p>
+            )}
+            <Button type="button" variant="primary" className="w-full" onClick={() => void handleProcesarCodigo()}>
+              Procesar código
+            </Button>
+          </div>
         )}
 
         {stage === 'fetching' && (

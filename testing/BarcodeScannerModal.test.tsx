@@ -42,6 +42,10 @@ const PRODUCTO_OK = {
   porcion: 45,
   nutrientes100g: { kcal: 450, proteinas: 5, grasas: 20, carbs: 60 },
   imagenUrl: null,
+  esSuplemento: false,
+  porcionEtiqueta: null,
+  pesoNetoTotal: null,
+  infoAmpliada: { nutriscore: null, novaGroup: null, sinGluten: false, vegano: false, vegetariano: false },
 };
 
 function mockPointerCoarse(coarse: boolean) {

@@ -46,6 +46,13 @@ const NOVA_DESCRIPCIONES: Record<1 | 2 | 3 | 4, string> = {
   4: 'Ultraprocesado',
 };
 
+const NOVA_COLORES: Record<1 | 2 | 3 | 4, string> = {
+  1: '#16a34a',
+  2: '#84cc16',
+  3: '#f97316',
+  4: '#dc2626',
+};
+
 function esTactil(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
   return window.matchMedia('(pointer: coarse)').matches;
@@ -448,21 +455,19 @@ const renderVolver = (target: Stage) => (
                 />
               )}
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="font-semibold text-gray-900 truncate">{producto.nombre}</p>
-                  <button
-                    type="button"
-                    onClick={() => setMostrarInfoAmpliada((v) => !v)}
-                    aria-label="Ampliar información del producto"
-                    aria-expanded={mostrarInfoAmpliada}
-                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500 transition-colors hover:bg-gray-200"
-                  >
-                    ?
-                  </button>
-                </div>
+                <p className="font-semibold text-gray-900 truncate">{producto.nombre}</p>
                 {producto.marca && <p className="text-xs text-gray-500">{producto.marca}</p>}
                 <p className="text-xs text-gray-400">{producto.categoria}</p>
               </div>
+              <button
+                type="button"
+                onClick={() => setMostrarInfoAmpliada((v) => !v)}
+                aria-label="Ampliar información del producto"
+                aria-expanded={mostrarInfoAmpliada}
+                className="flex flex-shrink-0 items-center justify-center self-stretch rounded-xl bg-blue-500 px-3 text-lg font-bold text-white transition-colors hover:bg-blue-600"
+              >
+                ?
+              </button>
             </div>
             <div className="grid grid-cols-4 gap-2 rounded-2xl bg-gray-50 p-3 text-center">
               <div>
@@ -528,10 +533,22 @@ const renderVolver = (target: Stage) => (
                           </p>
                         </div>
                         <div>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Grupo NOVA</span>
-                          <p className="mt-1 text-sm text-gray-700">
-                            {novaGroup ? `${novaGroup} — ${NOVA_DESCRIPCIONES[novaGroup]}` : 'Sin datos'}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Grupo NOVA</span>
+                            {novaGroup ? (
+                              <span
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
+                                style={{ backgroundColor: NOVA_COLORES[novaGroup] }}
+                              >
+                                {novaGroup}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">Sin datos</span>
+                            )}
+                          </div>
+                          {novaGroup && (
+                            <p className="mt-1 text-sm text-gray-700">{NOVA_DESCRIPCIONES[novaGroup]}</p>
+                          )}
                           <p className="mt-1 text-xs text-gray-500">
                             Grupo NOVA: mide qué tan procesado está el alimento, de 1 (natural o casi sin procesar) a 4
                             (ultraprocesado — con ingredientes y aditivos industriales).
@@ -647,7 +664,7 @@ const renderVolver = (target: Stage) => (
               </Button>
             ) : (
               <div className="space-y-2 rounded-xl border border-gray-200 p-3">
-                <label htmlFor="paquete-gramos-custom" className="text-xs font-medium text-gray-600">
+                <label htmlFor="paquete-gramos-custom" className="text-xs font-semibold text-gray-700">
                   Gramos consumidos
                 </label>
                 <input
@@ -660,7 +677,7 @@ const renderVolver = (target: Stage) => (
                   value={paqueteCustomValor}
                   onChange={(e) => setPaqueteCustomValor(e.target.value)}
                   placeholder="Ej: 45"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 placeholder-gray-400"
                 />
                 <Button
                   type="submit"
@@ -708,7 +725,7 @@ const renderVolver = (target: Stage) => (
               </Button>
             ) : (
               <div className="space-y-2 rounded-xl border border-gray-200 p-3">
-                <label htmlFor="porciones-custom" className="text-xs font-medium text-gray-600">
+                <label htmlFor="porciones-custom" className="text-xs font-semibold text-gray-700">
                   Cantidad de porciones
                 </label>
                 <input
@@ -719,7 +736,7 @@ const renderVolver = (target: Stage) => (
                   value={porcionesCustomValor}
                   onChange={(e) => setPorcionesCustomValor(e.target.value)}
                   placeholder="Ej: 1.5"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 placeholder-gray-400"
                 />
                 <input
                   type="hidden"

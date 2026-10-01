@@ -274,7 +274,8 @@ describe('BarcodeScannerModal — confirmación ampliada', () => {
     await user.click(screen.getByRole('button', { name: /ampliar información/i }));
 
     expect(screen.getByText('B')).toBeInTheDocument();
-    expect(screen.getByText('3 — Procesado')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('Procesado')).toBeInTheDocument();
     expect(screen.getByText('Sin Gluten')).toBeInTheDocument();
     expect(screen.getByText('Vegetariano')).toBeInTheDocument();
     expect(screen.queryByText('Vegano')).not.toBeInTheDocument();

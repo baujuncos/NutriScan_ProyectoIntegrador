@@ -276,15 +276,15 @@ export default function BarcodeScannerModal({
     setStage('source');
   };
 
-  const renderVolver = (target: Stage) => (
-    <button
-      type="button"
-      onClick={() => setStage(target)}
-      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-    >
-      <span aria-hidden="true">←</span> Volver
-    </button>
-  );
+const renderVolver = (target: Stage) => (
+  <button
+    type="button"
+    onClick={() => setStage(target)}
+    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+  >
+    Volver
+  </button>
+);
 
   const tipoIngestaEfectivo = producto?.encontrado && producto.esSuplemento ? 'suplemento' : tipoIngesta;
 

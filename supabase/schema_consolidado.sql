@@ -837,7 +837,9 @@ create trigger items_calculate_nutrients
   before insert or update of id_alimento, id_alimento_barcode, cantidad
   on public.items
   for each row execute function public.calculate_item_nutrients();
--- 010 (NUT-166/NUT-172) — Predicciones de detección por IA (una por foto,
+
+
+-- 011 (NUT-166/NUT-172) — Predicciones de detección por IA (una por foto,
 -- sin refinamiento multi-turno) y guardados/correcciones del usuario.
 --
 -- IMPORTANTE: estas tablas NUNCA deben ser escritas por el mismo código que
@@ -1023,3 +1025,19 @@ CREATE POLICY "detecciones_guardados_items: own insert"
 CREATE POLICY "detecciones_guardados_items: investigador read all"
   ON public.detecciones_guardados_items FOR SELECT TO authenticated
   USING (public.get_my_role() IN ('investigador', 'administrador'));
+
+
+-- ============================================================
+-- 012 — Info ampliada de Open Food Facts en alimentos_barcode
+-- ============================================================
+
+ALTER TABLE public.alimentos_barcode
+  ADD COLUMN IF NOT EXISTS nutriscore_grade text CHECK (nutriscore_grade IN ('a','b','c','d','e')),
+  ADD COLUMN IF NOT EXISTS nova_group smallint CHECK (nova_group BETWEEN 1 AND 4),
+  ADD COLUMN IF NOT EXISTS is_gluten_free boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_vegan boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_vegetarian boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS serving_quantity_label text;
+
+COMMENT ON COLUMN public.alimentos_barcode.nutriscore_grade IS 'Calificación Nutri-Score de A a E (Open Food Facts)';
+COMMENT ON COLUMN public.alimentos_barcode.nova_group IS 'Clasificación NOVA de procesamiento (1 a 4, Open Food Facts)';

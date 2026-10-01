@@ -19,6 +19,11 @@ const PORCIONES_FABRICANTE = [
   { label: '3 porciones', fraccion: 3 },
 ] as const;
 
+// Debe coincidir con MAX_CANTIDAD del server action (actions.ts) — ahí es
+// donde se valida de verdad; acá es solo para no dejar al usuario elegir
+// algo que el servidor va a rechazar en silencio.
+const MAX_CANTIDAD_CLIENTE = 2000;
+
 const PAQUETE_FRACCIONES = [
   { label: 'Entero (1 envase)', fraccion: 1 },
   { label: 'Mitad (1/2)', fraccion: 0.5 },
@@ -78,6 +83,7 @@ export default function BarcodeScannerModal({
   const [esDispositivoTactil, setEsDispositivoTactil] = useState(true);
   const [mostrarInfoAmpliada, setMostrarInfoAmpliada] = useState(false);
   const [personalizarPaquete, setPersonalizarPaquete] = useState(false);
+  const [paqueteCustomValor, setPaqueteCustomValor] = useState('');
   const [personalizarPorcion, setPersonalizarPorcion] = useState(false);
   const [porcionesCustomValor, setPorcionesCustomValor] = useState('');
 
@@ -141,6 +147,7 @@ export default function BarcodeScannerModal({
     resetEncuadre();
     setMostrarInfoAmpliada(false);
     setPersonalizarPaquete(false);
+    setPaqueteCustomValor('');
     setPersonalizarPorcion(false);
     setPorcionesCustomValor('');
   }, [setPendingImage]);
@@ -599,13 +606,14 @@ export default function BarcodeScannerModal({
             <div className="grid grid-cols-2 gap-2">
               {PAQUETE_FRACCIONES.map(({ label, fraccion }) => {
                 const gramos = producto.pesoNetoTotal != null ? Math.round(producto.pesoNetoTotal * fraccion) : null;
+                const excedeMaximo = gramos != null && gramos > MAX_CANTIDAD_CLIENTE;
                 return (
                   <button
                     key={label}
                     type="submit"
                     name="cantidad"
                     value={gramos ?? ''}
-                    disabled={gramos == null}
+                    disabled={gramos == null || excedeMaximo}
                     className="rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 enabled:hover:border-orange-300 enabled:hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {label}
@@ -617,6 +625,11 @@ export default function BarcodeScannerModal({
             {producto.pesoNetoTotal == null && (
               <p className="text-xs text-amber-600">
                 No pudimos leer el peso del envase — usá &quot;Personalizar&quot; para ingresar los gramos directamente.
+              </p>
+            )}
+            {producto.pesoNetoTotal != null && producto.pesoNetoTotal > MAX_CANTIDAD_CLIENTE && (
+              <p className="text-xs text-amber-600">
+                Este envase pesa más de lo que podemos registrar de una — usá &quot;Personalizar&quot; para una cantidad menor.
               </p>
             )}
             {!personalizarPaquete ? (
@@ -633,11 +646,19 @@ export default function BarcodeScannerModal({
                   type="number"
                   name="cantidad"
                   min="1"
+                  max={MAX_CANTIDAD_CLIENTE}
                   step="any"
+                  value={paqueteCustomValor}
+                  onChange={(e) => setPaqueteCustomValor(e.target.value)}
                   placeholder="Ej: 45"
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                 />
-                <Button type="submit" variant="primary" className="w-full">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  disabled={!(Number(paqueteCustomValor) > 0 && Number(paqueteCustomValor) <= MAX_CANTIDAD_CLIENTE)}
+                >
                   Guardar
                 </Button>
               </div>

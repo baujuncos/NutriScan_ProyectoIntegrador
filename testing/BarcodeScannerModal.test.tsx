@@ -358,6 +358,34 @@ describe('BarcodeScannerModal — stage paquete', () => {
     expect(formData.get('cantidad')).toBe('45');
   });
 
+  it('deshabilita un botón fijo cuyo gramaje supera el máximo permitido (2000g)', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: 3000 });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    // Entero = 3000g (> 2000, deshabilitado); Mitad = 1500g (habilitado)
+    expect(screen.getByRole('button', { name: /entero \(1 envase\)/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /mitad \(1\/2\)/i })).toBeEnabled();
+  });
+
+  it('"Guardar" de Personalizar fracción/peso está deshabilitado sin un valor válido o por encima del máximo', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: null });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+    await user.click(screen.getByRole('button', { name: /personalizar fracción\/peso/i }));
+
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/gramos consumidos/i), '2500');
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText(/gramos consumidos/i));
+    await user.type(screen.getByLabelText(/gramos consumidos/i), '45');
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
+  });
+
   it('envía tipo_ingesta=suplemento cuando el producto es un suplemento, incluso en otra comida', async () => {
     vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, esSuplemento: true, pesoNetoTotal: 100 });
     const { user } = renderModal();

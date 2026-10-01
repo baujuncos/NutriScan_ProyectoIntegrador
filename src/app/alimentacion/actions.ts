@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { todayAR, daysAgoAR } from '@/lib/date';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
+import { CAMPOS_DEFAULT, aplicarFiltroSuplemento, buildMarcaDenominacionOr, idsRecientesUnicos, type CamposBusqueda } from './searchQuery';
 
 export type AlimentoOption = {
   id_alimento: number;
@@ -15,40 +16,80 @@ export type AlimentoOption = {
   fuente: string;
   marca: string | null;
   denominacion: string | null;
+  kcal_100g?: number | null;
+  proteinas_100g?: number | null;
+  grasas_100g?: number | null;
+  carbs_100g?: number | null;
 };
 
-const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion' as const;
+const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion, kcal_100g, proteinas_100g, grasas_100g, carbs_100g' as const;
 
-export async function searchAlimentosAction(query: string, tipoIngesta: string): Promise<AlimentoOption[]> {
+const CAP_RESULTADOS = 150;
+
+export async function searchAlimentosAction(
+  query: string,
+  tipoIngesta: string,
+  campos: CamposBusqueda = CAMPOS_DEFAULT,
+): Promise<AlimentoOption[]> {
   const q = query.trim().replace(/[*,\\]/g, '');
   if (q.length < 2) return [];
+  if (!campos.nombre && !campos.marca && !campos.denominacion) return [];
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
   const isSuplemento = tipoIngesta === 'suplemento';
+  // Los query builders de supabase-js son "thenables" (PromiseLike), no Promise
+  // real — no tienen .catch/.finally — por eso el array se tipa como PromiseLike.
+  const promises: Array<PromiseLike<{ data: AlimentoOption[] | null }>> = [];
 
-  // Two parallel queries for relevance ordering:
-  // 1. nombre matches (most relevant) — come first
-  // 2. marca/denominacion-only matches — come after, deduplicated via NOT nombre match
-  // ponytail: two round-trips; replace with one RPC + ORDER BY rank if latency matters
-  const q1 = supabase.from('alimentos').select(SEL)
-    .ilike('nombre', `%${q}%`)
-    .order('nombre', { ascending: true })
-    .limit(60);
-  const q2 = supabase.from('alimentos').select(SEL)
-    .or(`marca.ilike.*${q}*,denominacion.ilike.*${q}*`)
-    .not('nombre', 'ilike', `%${q}%`)
-    .order('nombre', { ascending: true })
-    .limit(40);
+  // Tier 1 (mayor relevancia): matches por nombre.
+  if (campos.nombre) {
+    let q1 = supabase.from('alimentos').select(SEL).ilike('nombre', `%${q}%`);
+    q1 = aplicarFiltroSuplemento(q1, isSuplemento);
+    promises.push(q1.order('nombre', { ascending: true }).limit(100));
+  }
 
-  const [r1, r2] = await Promise.all([
-    isSuplemento ? q1.ilike('categoria', '%suplemento%') : q1.not('categoria', 'ilike', '%suplemento%'),
-    isSuplemento ? q2.ilike('categoria', '%suplemento%') : q2.not('categoria', 'ilike', '%suplemento%'),
-  ]);
+  // Tier 2: matches por marca/denominacion que no vinieron ya por nombre.
+  const marcaDenomOr = buildMarcaDenominacionOr(campos, q);
+  if (marcaDenomOr.length > 0) {
+    let q2 = supabase.from('alimentos').select(SEL).or(marcaDenomOr);
+    if (campos.nombre) q2 = q2.not('nombre', 'ilike', `%${q}%`);
+    q2 = aplicarFiltroSuplemento(q2, isSuplemento);
+    promises.push(q2.order('nombre', { ascending: true }).limit(100));
+  }
 
-  return [...(r1.data ?? []), ...(r2.data ?? [])].slice(0, 80) as AlimentoOption[];
+  const resultados = await Promise.all(promises);
+  return resultados.flatMap((r) => r.data ?? []).slice(0, CAP_RESULTADOS) as AlimentoOption[];
+}
+
+export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: itemRows } = await supabase
+    .from('items')
+    .select('id_alimento, created_at, ingestas!inner(id_usuario)')
+    .eq('ingestas.id_usuario', user.id)
+    .not('id_alimento', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (!itemRows || itemRows.length === 0) return [];
+
+  const idsEnOrden = idsRecientesUnicos(
+    (itemRows as Array<{ id_alimento: number }>).map((r) => r.id_alimento),
+    8,
+  );
+  if (idsEnOrden.length === 0) return [];
+
+  const { data: alimentos } = await supabase.from('alimentos').select(SEL).in('id_alimento', idsEnOrden);
+  if (!alimentos) return [];
+
+  const porId = new Map((alimentos as AlimentoOption[]).map((a) => [a.id_alimento, a]));
+  return idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
 }
 
 function isWithinEditableRange(fecha: string): boolean {

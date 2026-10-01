@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PhysicalForm, { PhysicalInitialData } from '@/components/profile/PhysicalForm';
 import OnboardingProgress from '@/components/onboarding/OnboardingProgress';
+import Button from '@/components/ui/Button';
 
 export default function PerfilFisicoPage() {
   const router = useRouter();
@@ -79,7 +80,18 @@ export default function PerfilFisicoPage() {
           </div>
 
           {loaded ? (
-            <PhysicalForm initialData={initial} onSaved={handleSaved} />
+            <>
+              <PhysicalForm initialData={initial} onSaved={handleSaved} />
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                className="w-full mt-2"
+                onClick={() => router.push('/elegir-uso?volver=1')}
+              >
+                Volver a la fase anterior
+              </Button>
+            </>
           ) : (
             <p className="text-sm text-gray-500">Cargando…</p>
           )}

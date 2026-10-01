@@ -18,6 +18,10 @@ export default function ElegirUsoPage() {
   const [serverError, setServerError] = useState('');
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  // true cuando el usuario volvió acá desde una fase posterior (?volver=1) y
+  // ya existe una fila en `profiles` — el submit actualiza el rol en vez de
+  // insertar una fila nueva (que chocaría con el unique de user_id).
+  const [perfilExistente, setPerfilExistente] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -30,6 +34,8 @@ export default function ElegirUsoPage() {
         return;
       }
 
+      const volviendo = new URLSearchParams(window.location.search).get('volver') === '1';
+
       // If the user already has a profile (e.g. they re-visit this page), redirect accordingly
       const { data: profile } = await supabase
         .from('profiles')
@@ -38,7 +44,18 @@ export default function ElegirUsoPage() {
         .maybeSingle();
 
       if (profile) {
-        router.replace(profile.physical_completed ? '/home' : '/perfil-fisico');
+        if (!volviendo) {
+          router.replace(profile.physical_completed ? '/home' : '/perfil-fisico');
+          return;
+        }
+        // "Volver a la fase anterior" desde perfil-fisico: dejamos elegir de
+        // nuevo, precargado con la elección actual, sin tocar el resto del
+        // perfil (physical_completed, etc. quedan como estaban).
+        setPerfilExistente(true);
+        if (profile.role === 'deportista_ucc' || profile.role === 'particular') {
+          setSelectedUsage(profile.role);
+        }
+        setCheckingAuth(false);
         return;
       }
 
@@ -57,6 +74,12 @@ export default function ElegirUsoPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleVolver = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
+
   const handleSubmit = async () => {
     if (!selectedUsage) return;
     setLoading(true);
@@ -71,20 +94,17 @@ export default function ElegirUsoPage() {
       return;
     }
 
-    const { nombre, apellido } = extractNombreApellido(
-      user.user_metadata as Record<string, unknown>,
-    );
-
-    const { error } = await supabase.from('profiles').insert({
-      user_id: user.id,
-      nombre,
-      apellido,
-      email: user.email ?? '',
-      role: selectedUsage,
-      physical_completed: false,
-      academic_completed: false,
-      psychological_completed: false,
-    });
+    const { error } = perfilExistente
+      ? await supabase.from('profiles').update({ role: selectedUsage }).eq('user_id', user.id)
+      : await supabase.from('profiles').insert({
+          user_id: user.id,
+          ...extractNombreApellido(user.user_metadata as Record<string, unknown>),
+          email: user.email ?? '',
+          role: selectedUsage,
+          physical_completed: false,
+          academic_completed: false,
+          psychological_completed: false,
+        });
 
     if (error) {
       setServerError('Error al guardar tu selección. Intenta nuevamente.');
@@ -181,6 +201,10 @@ export default function ElegirUsoPage() {
           onClick={handleSubmit}
         >
           Continuar
+        </Button>
+
+        <Button type="button" variant="ghost" size="md" className="w-full mt-2" onClick={handleVolver}>
+          Volver
         </Button>
       </div>
       </main>

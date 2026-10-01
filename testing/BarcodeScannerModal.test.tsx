@@ -415,14 +415,92 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
 
     expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
   });
+});
 
-  it('"Volver" desde la pantalla de porción regresa a la confirmación', async () => {
+describe('BarcodeScannerModal — stage porción', () => {
+  it('muestra la aclaración de a qué equivale 1 porción (porcionEtiqueta)', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2.5 galletitas (30g)' });
     const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
 
-    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    expect(screen.getByText(/1 porción equivale a: 2\.5 galletitas \(30g\)/i)).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+  it('usa "{porcion} g" como fallback cuando no hay porcionEtiqueta', async () => {
+    const { user } = renderModal(); // PRODUCTO_OK: porcion=45, sin porcionEtiqueta
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    expect(screen.getByText(/1 porción equivale a: 45 g/i)).toBeInTheDocument();
+  });
+
+  it('los 4 botones fijos (1/2, 1, 2, 3) calculan gramos desde porcion', async () => {
+    const { user } = renderModal(); // porcion = 45
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    expect(screen.getByRole('button', { name: /1\/2 porción/i })).toHaveTextContent('23 g');
+    expect(screen.getByRole('button', { name: /^1 porción/ })).toHaveTextContent('45 g');
+    expect(screen.getByRole('button', { name: /2 porciones/i })).toHaveTextContent('90 g');
+    expect(screen.getByRole('button', { name: /3 porciones/i })).toHaveTextContent('135 g');
+  });
+
+  it('al elegir un botón fijo, llama a addScannedItemAction con fecha/tipo_ingesta/ean/cantidad correctos', async () => {
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('fecha')).toBe('2026-09-21');
+    expect(formData.get('tipo_ingesta')).toBe('almuerzo');
+    expect(formData.get('ean')).toBe('7790040000100');
+    expect(formData.get('cantidad')).toBe('45');
+  });
+
+  it('"Personalizar porciones" calcula gramos = porciones × porcion', async () => {
+    const { user } = renderModal(); // porcion = 45
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    await user.click(screen.getByRole('button', { name: /personalizar porciones/i }));
+    await user.type(screen.getByLabelText(/cantidad de porciones/i), '1.5');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('cantidad')).toBe('68'); // round(1.5 * 45)
+  });
+
+  it('"Guardar" de Personalizar porciones está deshabilitado sin un valor válido', async () => {
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+    await user.click(screen.getByRole('button', { name: /personalizar porciones/i }));
+
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+
+  it('al elegir una porción, cierra el modal', async () => {
+    const { user, onClose } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('"← Volver" desde porción regresa a la pantalla de modo', async () => {
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/cómo deseas registrar tu ingesta/i)).toBeInTheDocument();
   });
 });

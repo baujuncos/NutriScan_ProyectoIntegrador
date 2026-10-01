@@ -7,18 +7,16 @@ import { obtenerProductoPorEAN, type ProductoOFF } from '@/lib/openFoodFacts';
 import { addScannedItemAction } from './actions';
 import { calcularRecorte, recortarImagen } from '@/lib/recorteFoto';
 
-type Stage = 'source' | 'cropping' | 'fetching' | 'confirm' | 'mode' | 'paquete' | 'porcion' | 'portion' | 'discarded';
+type Stage = 'source' | 'cropping' | 'fetching' | 'confirm' | 'mode' | 'paquete' | 'porcion' | 'discarded';
 type CaptureTab = 'camara' | 'subir';
 
 const SCANNER_ELEMENT_ID = 'barcode-scanner-region';
 
-const PORCIONES = [
-  { label: '1/4 de porción', fraccion: 0.25 },
+const PORCIONES_FABRICANTE = [
   { label: '1/2 porción', fraccion: 0.5 },
-  { label: '3/4 de porción', fraccion: 0.75 },
   { label: '1 porción', fraccion: 1 },
-  { label: '1.5 porciones', fraccion: 1.5 },
   { label: '2 porciones', fraccion: 2 },
+  { label: '3 porciones', fraccion: 3 },
 ] as const;
 
 const PAQUETE_FRACCIONES = [
@@ -80,6 +78,8 @@ export default function BarcodeScannerModal({
   const [esDispositivoTactil, setEsDispositivoTactil] = useState(true);
   const [mostrarInfoAmpliada, setMostrarInfoAmpliada] = useState(false);
   const [personalizarPaquete, setPersonalizarPaquete] = useState(false);
+  const [personalizarPorcion, setPersonalizarPorcion] = useState(false);
+  const [porcionesCustomValor, setPorcionesCustomValor] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -141,6 +141,8 @@ export default function BarcodeScannerModal({
     resetEncuadre();
     setMostrarInfoAmpliada(false);
     setPersonalizarPaquete(false);
+    setPersonalizarPorcion(false);
+    setPorcionesCustomValor('');
   }, [setPendingImage]);
 
   const handleClose = useCallback(() => {
@@ -643,19 +645,18 @@ export default function BarcodeScannerModal({
           </form>
         )}
 
-        {stage === 'portion' && producto?.encontrado && (
-          <form
-            action={addScannedItemAction}
-            onSubmit={handleClose}
-            className="space-y-4"
-          >
+        {stage === 'porcion' && producto?.encontrado && (
+          <form action={addScannedItemAction} onSubmit={handleClose} className="space-y-4">
+            {renderVolver('mode')}
             <input type="hidden" name="fecha" value={fecha} />
-            <input type="hidden" name="tipo_ingesta" value={tipoIngesta} />
+            <input type="hidden" name="tipo_ingesta" value={tipoIngestaEfectivo} />
             <input type="hidden" name="tipo_item" value="solido" />
             <input type="hidden" name="ean" value={producto.ean} />
-            <p className="text-sm font-medium text-gray-700">¿Cuánto comiste de {producto.nombre}?</p>
+            <p className="text-sm font-medium text-gray-700">
+              1 porción equivale a: {producto.porcionEtiqueta ?? `${producto.porcion} g`}
+            </p>
             <div className="grid grid-cols-2 gap-2">
-              {PORCIONES.map(({ label, fraccion }) => {
+              {PORCIONES_FABRICANTE.map(({ label, fraccion }) => {
                 const gramos = Math.round(producto.porcion * fraccion);
                 return (
                   <button
@@ -671,9 +672,40 @@ export default function BarcodeScannerModal({
                 );
               })}
             </div>
-            <Button type="button" variant="outline" className="w-full" onClick={() => setStage('confirm')}>
-              Volver
-            </Button>
+            {!personalizarPorcion ? (
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPersonalizarPorcion(true)}>
+                Personalizar porciones
+              </Button>
+            ) : (
+              <div className="space-y-2 rounded-xl border border-gray-200 p-3">
+                <label htmlFor="porciones-custom" className="text-xs font-medium text-gray-600">
+                  Cantidad de porciones
+                </label>
+                <input
+                  id="porciones-custom"
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  value={porcionesCustomValor}
+                  onChange={(e) => setPorcionesCustomValor(e.target.value)}
+                  placeholder="Ej: 1.5"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                />
+                <input
+                  type="hidden"
+                  name="cantidad"
+                  value={Math.round((Number(porcionesCustomValor) || 0) * producto.porcion)}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  disabled={!(Number(porcionesCustomValor) > 0)}
+                >
+                  Guardar
+                </Button>
+              </div>
+            )}
           </form>
         )}
 

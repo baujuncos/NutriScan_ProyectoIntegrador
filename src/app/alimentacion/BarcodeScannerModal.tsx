@@ -280,7 +280,7 @@ export default function BarcodeScannerModal({
     <button
       type="button"
       onClick={() => setStage(target)}
-      className="mb-2 flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700"
+      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
     >
       <span aria-hidden="true">←</span> Volver
     </button>
@@ -364,7 +364,6 @@ export default function BarcodeScannerModal({
 
         {stage === 'cropping' && pendingFileUrl && (
           <div className="space-y-4">
-            {renderVolver('source')}
             <div
               ref={previewContainerRef}
               className="relative h-56 overflow-hidden rounded-2xl border border-gray-100 bg-gray-900"
@@ -424,6 +423,7 @@ export default function BarcodeScannerModal({
             <Button type="button" variant="primary" className="w-full" onClick={() => void handleProcesarCodigo()}>
               Procesar código
             </Button>
+            {renderVolver('source')}
           </div>
         )}
 
@@ -438,7 +438,6 @@ export default function BarcodeScannerModal({
 
         {stage === 'confirm' && producto?.encontrado && (
           <div className="space-y-4">
-            {renderVolver('source')}
             <div className="flex gap-3">
               {producto.imagenUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -449,7 +448,18 @@ export default function BarcodeScannerModal({
                 />
               )}
               <div className="min-w-0 flex-1">
-                <p className="font-semibold text-gray-900">{producto.nombre}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-semibold text-gray-900 truncate">{producto.nombre}</p>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarInfoAmpliada((v) => !v)}
+                    aria-label="Ampliar información del producto"
+                    aria-expanded={mostrarInfoAmpliada}
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500 transition-colors hover:bg-gray-200"
+                  >
+                    ?
+                  </button>
+                </div>
                 {producto.marca && <p className="text-xs text-gray-500">{producto.marca}</p>}
                 <p className="text-xs text-gray-400">{producto.categoria}</p>
               </div>
@@ -484,72 +494,71 @@ export default function BarcodeScannerModal({
               </p>
             )}
 
-            <button
-              type="button"
-              onClick={() => setMostrarInfoAmpliada((v) => !v)}
-              className="w-full text-center text-sm font-semibold text-orange-600 hover:underline"
-            >
-              Ampliar información del producto
-            </button>
-            {mostrarInfoAmpliada && (() => {
+            {(() => {
               const { nutriscore, novaGroup, sinGluten, vegano, vegetariano } = producto.infoAmpliada;
               const sinInfo = !nutriscore && !novaGroup && !sinGluten && !vegano && !vegetariano;
               return (
-                <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm">
-                  {sinInfo ? (
-                    <p className="text-xs text-gray-400">Open Food Facts no tiene esta información para este producto.</p>
-                  ) : (
-                    <>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Nutri-Score</span>
-                          {nutriscore ? (
-                            <span
-                              className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
-                              style={{ backgroundColor: NUTRISCORE_COLORES[nutriscore] }}
-                            >
-                              {nutriscore.toUpperCase()}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-gray-400">Sin datos</span>
-                          )}
+                <div
+                  className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                    mostrarInfoAmpliada ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
+                  }`}
+                >
+                  <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm">
+                    {sinInfo ? (
+                      <p className="text-xs text-gray-400">Open Food Facts no tiene esta información para este producto.</p>
+                    ) : (
+                      <>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Nutri-Score</span>
+                            {nutriscore ? (
+                              <span
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
+                                style={{ backgroundColor: NUTRISCORE_COLORES[nutriscore] }}
+                              >
+                                {nutriscore.toUpperCase()}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">Sin datos</span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Nutri-Score: calificación de A a E del perfil nutricional general (calorías, azúcares,
+                            grasas saturadas, sodio, proteínas, fibra y frutas/verduras). A es el mejor perfil, E el peor.
+                          </p>
                         </div>
-                        <p className="mt-1 text-xs text-gray-500">
-                          Nutri-Score: calificación de A a E del perfil nutricional general (calorías, azúcares,
-                          grasas saturadas, sodio, proteínas, fibra y frutas/verduras). A es el mejor perfil, E el peor.
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Grupo NOVA</span>
-                        <p className="mt-1 text-sm text-gray-700">
-                          {novaGroup ? `${novaGroup} — ${NOVA_DESCRIPCIONES[novaGroup]}` : 'Sin datos'}
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          Grupo NOVA: mide qué tan procesado está el alimento, de 1 (natural o casi sin procesar) a 4
-                          (ultraprocesado — con ingredientes y aditivos industriales).
-                        </p>
-                      </div>
-                      {(sinGluten || vegano || vegetariano) && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {sinGluten && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                              Sin Gluten
-                            </span>
-                          )}
-                          {vegano && (
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                              Vegano
-                            </span>
-                          )}
-                          {vegetariano && (
-                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                              Vegetariano
-                            </span>
-                          )}
+                        <div>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Grupo NOVA</span>
+                          <p className="mt-1 text-sm text-gray-700">
+                            {novaGroup ? `${novaGroup} — ${NOVA_DESCRIPCIONES[novaGroup]}` : 'Sin datos'}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Grupo NOVA: mide qué tan procesado está el alimento, de 1 (natural o casi sin procesar) a 4
+                            (ultraprocesado — con ingredientes y aditivos industriales).
+                          </p>
                         </div>
-                      )}
-                    </>
-                  )}
+                        {(sinGluten || vegano || vegetariano) && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {sinGluten && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                Sin Gluten
+                              </span>
+                            )}
+                            {vegano && (
+                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                                Vegano
+                              </span>
+                            )}
+                            {vegetariano && (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                Vegetariano
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })()}
@@ -563,12 +572,12 @@ export default function BarcodeScannerModal({
                 No, es otro
               </Button>
             </div>
+            {renderVolver('source')}
           </div>
         )}
 
         {stage === 'mode' && (
           <div className="space-y-4">
-            {renderVolver('confirm')}
             <p className="text-center text-sm font-medium text-gray-700">¿Cómo deseas registrar tu ingesta?</p>
             <div className="grid grid-cols-1 gap-3">
               <button
@@ -590,12 +599,12 @@ export default function BarcodeScannerModal({
                 <p className="text-xs text-gray-500">Según la porción indicada en la etiqueta del producto</p>
               </button>
             </div>
+            {renderVolver('confirm')}
           </div>
         )}
 
         {stage === 'paquete' && producto?.encontrado && (
           <form action={addScannedItemAction} onSubmit={handleClose} className="space-y-4">
-            {renderVolver('mode')}
             <input type="hidden" name="fecha" value={fecha} />
             <input type="hidden" name="tipo_ingesta" value={tipoIngestaEfectivo} />
             <input type="hidden" name="tipo_item" value="solido" />
@@ -663,12 +672,12 @@ export default function BarcodeScannerModal({
                 </Button>
               </div>
             )}
+            {renderVolver('mode')}
           </form>
         )}
 
         {stage === 'porcion' && producto?.encontrado && (
           <form action={addScannedItemAction} onSubmit={handleClose} className="space-y-4">
-            {renderVolver('mode')}
             <input type="hidden" name="fecha" value={fecha} />
             <input type="hidden" name="tipo_ingesta" value={tipoIngestaEfectivo} />
             <input type="hidden" name="tipo_item" value="solido" />
@@ -727,6 +736,7 @@ export default function BarcodeScannerModal({
                 </Button>
               </div>
             )}
+            {renderVolver('mode')}
           </form>
         )}
 

@@ -520,4 +520,25 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       expect(await screen.findByText(/no tiene valores nutricionales/i)).toBeInTheDocument();
     });
   });
+
+  it('el nombre del ítem cargado tiene title para ver el nombre completo si está truncado', () => {
+    render(
+      <AlimentacionClient
+        ingesta={{
+          id_ingesta: 1, tipo: 'almuerzo',
+          kcal_total: 100, proteinas_total_g: 5, grasas_total_g: 2, carbs_total_g: 10,
+          items: [{
+            id_item: 1, id_alimento: 1, nombre_manual: null, tipo_item: 'solido',
+            cantidad: 100, kcal: 100, proteinas_g: 5, grasas_g: 2, carbs_g: 10,
+            alimentos: { nombre: 'Un nombre de alimento muy pero muy largo para una fila', categoria: null },
+          }],
+        }}
+        tipoIngesta="almuerzo"
+        fecha="2026-09-21"
+        hideNutrition={false}
+      />,
+    );
+    expect(screen.getByText('Un nombre de alimento muy pero muy largo para una fila'))
+      .toHaveAttribute('title', 'Un nombre de alimento muy pero muy largo para una fila');
+  });
 });

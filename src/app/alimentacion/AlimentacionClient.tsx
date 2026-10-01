@@ -385,7 +385,7 @@ export default function AlimentacionClient({
                   /* Normal item display */
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{getAlimentoNombre(item)}</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate" title={getAlimentoNombre(item)}>{getAlimentoNombre(item)}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {toNum(item.cantidad).toFixed(0)} g
                       </p>

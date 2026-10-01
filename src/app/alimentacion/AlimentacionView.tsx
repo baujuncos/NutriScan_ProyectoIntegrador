@@ -191,7 +191,7 @@ export default function AlimentacionView({
       </div>
 
       {/* Date picker */}
-      <div className="pb-3">
+      <div className="pb-3 min-w-0 overflow-hidden">
         <DatePicker fecha={fecha} tipo={selectedTipo} />
       </div>
 

@@ -464,7 +464,16 @@ const renderVolver = (target: Stage) => (
                 onClick={() => setMostrarInfoAmpliada((v) => !v)}
                 aria-label="Ampliar información del producto"
                 aria-expanded={mostrarInfoAmpliada}
-                className="flex flex-shrink-0 items-center justify-center self-stretch rounded-xl bg-blue-500 px-3 text-lg font-bold text-white transition-colors hover:bg-blue-600"
+                className="
+                  flex items-center justify-center
+                  h-10 w-10
+                  rounded-full
+                  bg-blue-500/30
+                  backdrop-blur-sm
+                  text-lg font-bold text-blue-600
+                  transition-colors
+                  hover:bg-blue-500/40 hover:text-blue-700
+                "
               >
                 ?
               </button>

@@ -42,6 +42,10 @@ const PRODUCTO_OK = {
   porcion: 45,
   nutrientes100g: { kcal: 450, proteinas: 5, grasas: 20, carbs: 60 },
   imagenUrl: null,
+  esSuplemento: false,
+  porcionEtiqueta: null,
+  pesoNetoTotal: null,
+  infoAmpliada: { nutriscore: null, novaGroup: null, sinGluten: false, vegano: false, vegetariano: false },
 };
 
 function mockPointerCoarse(coarse: boolean) {
@@ -82,9 +86,9 @@ beforeEach(() => {
 });
 
 describe('BarcodeScannerModal — captura', () => {
-  it('en dispositivo táctil, la pestaña "Usar cámara" está activa por defecto y arranca restringida a EAN_13', async () => {
+  it('en dispositivo táctil, la pestaña "Escanear con cámara" está activa por defecto y arranca restringida a EAN_13', async () => {
     renderModal();
-    expect(screen.getByRole('button', { name: 'Usar cámara' })).toHaveClass('bg-white');
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toHaveClass('bg-white');
     await waitFor(() => expect(mockStart).toHaveBeenCalled());
 
     const { Html5Qrcode } = await import('html5-qrcode');
@@ -93,12 +97,74 @@ describe('BarcodeScannerModal — captura', () => {
     });
   });
 
-  it('en desktop (sin pointer coarse), la pestaña "Subir imagen" está activa por defecto y no arranca la cámara', async () => {
+  it('en desktop (sin pointer coarse), no arranca la cámara automáticamente', async () => {
     mockPointerCoarse(false);
     renderModal();
-    expect(screen.getByRole('button', { name: 'Subir imagen' })).toHaveClass('bg-white');
     await new Promise((r) => setTimeout(r, 0));
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('en desktop, la pestaña de cámara no existe (ni como botón)', async () => {
+    mockPointerCoarse(false);
+    renderModal();
+    expect(screen.queryByRole('button', { name: 'Escanear con cámara' })).not.toBeInTheDocument();
+    expect(screen.getByText(/arrastrá una imagen/i)).toBeInTheDocument();
+  });
+
+  it('en móvil, ambas pestañas existen', async () => {
+    mockPointerCoarse(true);
+    renderModal();
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Elegir de galería' })).toBeInTheDocument();
+  });
+
+  it('al elegir un archivo, pasa a la pantalla de recorte en vez de decodificar directo', async () => {
+    mockPointerCoarse(false);
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    expect(mockScanFileV2).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Procesar código' })).toBeInTheDocument();
+  });
+
+  it('"Procesar código" decodifica la imagen y avanza a confirmar', async () => {
+    mockPointerCoarse(false);
+    mockScanFileV2.mockResolvedValue({ decodedText: '7790040000100' });
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    await user.click(await screen.findByRole('button', { name: 'Procesar código' }));
+
+    expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+    expect(obtenerProductoPorEAN).toHaveBeenCalledWith('7790040000100');
+  });
+
+  it('si no decodifica, muestra error y se queda en la pantalla de recorte', async () => {
+    mockPointerCoarse(false);
+    mockScanFileV2.mockRejectedValue(new Error('no barcode found'));
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+
+    await user.click(await screen.findByRole('button', { name: 'Procesar código' }));
+
+    expect(await screen.findByText(/no pudimos leer un código ean-13/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Procesar código' })).toBeInTheDocument();
+  });
+
+  it('"← Volver" desde la pantalla de recorte regresa al origen', async () => {
+    mockPointerCoarse(false);
+    const { user } = renderModal();
+    const file = new File(['contenido'], 'codigo.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Subir imagen del código de barras'), file);
+    await screen.findByRole('button', { name: 'Procesar código' });
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/arrastrá una imagen/i)).toBeInTheDocument();
   });
 
   it('detiene la cámara (stop + clear) al cerrar el modal', async () => {
@@ -156,6 +222,195 @@ describe('BarcodeScannerModal — captura', () => {
   });
 });
 
+const PRODUCTO_SUPLEMENTO = {
+  ...PRODUCTO_OK,
+  nombre: 'Proteína Whey',
+  esSuplemento: true,
+};
+
+describe('BarcodeScannerModal — confirmación ampliada', () => {
+  it('muestra los macros con 1 decimal y la aclaración de base nutricional', async () => {
+    renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    expect(screen.getByText('450.0')).toBeInTheDocument();
+    expect(screen.getByText(/valores expresados cada 100g \/ 100ml/i)).toBeInTheDocument();
+  });
+
+  it('muestra la porción sugerida en el envoltorio cuando existe', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2.5 galletitas (30g)' });
+    renderModal();
+    await simularEscaneo();
+
+    expect(await screen.findByText(/porción sugerida en envoltorio: 2\.5 galletitas \(30g\)/i)).toBeInTheDocument();
+  });
+
+  it('no muestra la línea de porción sugerida cuando no hay etiqueta', async () => {
+    renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    expect(screen.queryByText(/porción sugerida en envoltorio/i)).not.toBeInTheDocument();
+  });
+
+  it('muestra el aviso de suplemento cuando el producto es un suplemento', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue(PRODUCTO_SUPLEMENTO);
+    renderModal();
+    await simularEscaneo();
+
+    expect(await screen.findByText(/detectamos que es un suplemento/i)).toBeInTheDocument();
+  });
+
+  it('"Ampliar información" muestra Nutri-Score, NOVA y badges cuando hay datos', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({
+      ...PRODUCTO_OK,
+      infoAmpliada: { nutriscore: 'b', novaGroup: 3, sinGluten: true, vegano: false, vegetariano: true },
+    });
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /ampliar información/i }));
+
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('Procesado')).toBeInTheDocument();
+    expect(screen.getByText('Sin Gluten')).toBeInTheDocument();
+    expect(screen.getByText('Vegetariano')).toBeInTheDocument();
+    expect(screen.queryByText('Vegano')).not.toBeInTheDocument();
+  });
+
+  it('"Ampliar información" muestra el mensaje de fallback cuando no hay ningún dato', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({
+      ...PRODUCTO_OK,
+      infoAmpliada: { nutriscore: null, novaGroup: null, sinGluten: false, vegano: false, vegetariano: false },
+    });
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /ampliar información/i }));
+
+    expect(screen.getByText(/no tiene esta información para este producto/i)).toBeInTheDocument();
+  });
+
+  it('"Sí, es correcto" lleva a la pantalla de elegir modo de registro', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    expect(await screen.findByText(/cómo deseas registrar tu ingesta/i)).toBeInTheDocument();
+  });
+
+  it('"← Volver" desde confirmar regresa al origen', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/arrastrá una imagen|escanear con cámara/i)).toBeInTheDocument();
+  });
+});
+
+async function irAModo(user: ReturnType<typeof userEvent.setup>) {
+  await simularEscaneo();
+  await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+}
+
+describe('BarcodeScannerModal — stage paquete', () => {
+  it('botones fijos calculan gramos desde pesoNetoTotal y están habilitados', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: 150 });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    const entero = screen.getByRole('button', { name: /entero \(1 envase\)/i });
+    expect(entero).toBeEnabled();
+    expect(entero).toHaveTextContent('150 g');
+    expect(screen.getByRole('button', { name: /mitad \(1\/2\)/i })).toHaveTextContent('75 g');
+    expect(screen.getByRole('button', { name: /un cuarto \(1\/4\)/i })).toHaveTextContent('38 g');
+    expect(screen.getByRole('button', { name: /un quinto \(1\/5\)/i })).toHaveTextContent('30 g');
+  });
+
+  it('botones fijos deshabilitados y nota visible cuando no hay pesoNetoTotal', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: null });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    expect(screen.getByRole('button', { name: /entero \(1 envase\)/i })).toBeDisabled();
+    expect(screen.getByText(/no pudimos leer el peso del envase/i)).toBeInTheDocument();
+  });
+
+  it('"Personalizar fracción/peso" permite ingresar gramos aunque no haya pesoNetoTotal', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: null });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    await user.click(screen.getByRole('button', { name: /personalizar fracción\/peso/i }));
+    await user.type(screen.getByLabelText(/gramos consumidos/i), '45');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('cantidad')).toBe('45');
+  });
+
+  it('deshabilita un botón fijo cuyo gramaje supera el máximo permitido (2000g)', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: 3000 });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    // Entero = 3000g (> 2000, deshabilitado); Mitad = 1500g (habilitado)
+    expect(screen.getByRole('button', { name: /entero \(1 envase\)/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /mitad \(1\/2\)/i })).toBeEnabled();
+  });
+
+  it('"Guardar" de Personalizar fracción/peso está deshabilitado sin un valor válido o por encima del máximo', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, pesoNetoTotal: null });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+    await user.click(screen.getByRole('button', { name: /personalizar fracción\/peso/i }));
+
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/gramos consumidos/i), '2500');
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText(/gramos consumidos/i));
+    await user.type(screen.getByLabelText(/gramos consumidos/i), '45');
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
+  });
+
+  it('envía tipo_ingesta=suplemento cuando el producto es un suplemento, incluso en otra comida', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, esSuplemento: true, pesoNetoTotal: 100 });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    await user.click(screen.getByRole('button', { name: /entero \(1 envase\)/i }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('tipo_ingesta')).toBe('suplemento');
+  });
+
+  it('"← Volver" desde paquete regresa a la pantalla de modo', async () => {
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Paquete Completo' }));
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/cómo deseas registrar tu ingesta/i)).toBeInTheDocument();
+  });
+});
+
 describe('BarcodeScannerModal — confirmación y porción', () => {
   it('"No, es otro" pasa a la pantalla de descarte sugiriendo otro método', async () => {
     const { user } = renderModal();
@@ -187,23 +442,43 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
 
     await user.click(screen.getByRole('button', { name: 'Escanear otro código' }));
 
-    expect(screen.getByRole('button', { name: 'Usar cámara' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
+  });
+});
+
+describe('BarcodeScannerModal — stage porción', () => {
+  it('muestra la aclaración de a qué equivale 1 porción (porcionEtiqueta)', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2.5 galletitas (30g)' });
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    expect(screen.getByText(/1 porción equivale a: 2\.5 galletitas \(30g\)/i)).toBeInTheDocument();
   });
 
-  it('los botones de porción muestran los gramos calculados según la porción del producto', async () => {
-    const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+  it('usa "{porcion} g" como fallback cuando no hay porcionEtiqueta', async () => {
+    const { user } = renderModal(); // PRODUCTO_OK: porcion=45, sin porcionEtiqueta
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
 
-    expect(screen.getByRole('button', { name: /1\/4 de porción/ })).toHaveTextContent('11 g'); // 45 * 0.25 ≈ 11
+    expect(screen.getByText(/1 porción equivale a: 45 g/i)).toBeInTheDocument();
+  });
+
+  it('los 4 botones fijos (1/2, 1, 2, 3) calculan gramos desde porcion', async () => {
+    const { user } = renderModal(); // porcion = 45
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    expect(screen.getByRole('button', { name: /1\/2 porción/i })).toHaveTextContent('23 g');
     expect(screen.getByRole('button', { name: /^1 porción/ })).toHaveTextContent('45 g');
-    expect(screen.getByRole('button', { name: /2 porciones/ })).toHaveTextContent('90 g');
+    expect(screen.getByRole('button', { name: /2 porciones/i })).toHaveTextContent('90 g');
+    expect(screen.getByRole('button', { name: /3 porciones/i })).toHaveTextContent('135 g');
   });
 
-  it('al elegir una porción, llama a addScannedItemAction con fecha/tipo_ingesta/ean/cantidad correctos', async () => {
+  it('al elegir un botón fijo, llama a addScannedItemAction con fecha/tipo_ingesta/ean/cantidad correctos', async () => {
     const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
 
     await user.click(screen.getByRole('button', { name: /^1 porción/ }));
 
@@ -215,23 +490,46 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
     expect(formData.get('cantidad')).toBe('45');
   });
 
-  it('al elegir una porción, cierra el modal (no se queda esperando sobre la pantalla de porción)', async () => {
+  it('"Personalizar porciones" calcula gramos = porciones × porcion', async () => {
+    const { user } = renderModal(); // porcion = 45
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    await user.click(screen.getByRole('button', { name: /personalizar porciones/i }));
+    await user.type(screen.getByLabelText(/cantidad de porciones/i), '1.5');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
+    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
+    expect(formData.get('cantidad')).toBe('68'); // round(1.5 * 45)
+  });
+
+  it('"Guardar" de Personalizar porciones está deshabilitado sin un valor válido', async () => {
+    const { user } = renderModal();
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+    await user.click(screen.getByRole('button', { name: /personalizar porciones/i }));
+
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
+  });
+
+  it('al elegir una porción, cierra el modal', async () => {
     const { user, onClose } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
 
     await user.click(screen.getByRole('button', { name: /^1 porción/ }));
 
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('"Volver" desde la pantalla de porción regresa a la confirmación', async () => {
+  it('"← Volver" desde porción regresa a la pantalla de modo', async () => {
     const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
 
-    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    await user.click(screen.getByRole('button', { name: /volver/i }));
 
-    expect(await screen.findByText('¿Es este tu alimento?')).toBeInTheDocument();
+    expect(screen.getByText(/cómo deseas registrar tu ingesta/i)).toBeInTheDocument();
   });
 });

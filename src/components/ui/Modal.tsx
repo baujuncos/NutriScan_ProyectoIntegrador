@@ -20,11 +20,31 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+
+    // `overflow: hidden` en el body no alcanza en iOS (Safari/PWA instalada):
+    // el touch-scroll de la página de atrás sigue andando igual mientras el
+    // modal está abierto. Fijar el body en su lugar con `position: fixed` sí
+    // lo bloquea de verdad ahí; se restaura el scroll al cerrar.
+    const scrollY = window.scrollY;
+    const { body } = document;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.width = '100%';
+    body.style.overflow = 'hidden';
+
     return () => {
       window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
     };
   }, [open, onClose]);
 
@@ -32,7 +52,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 py-8 overflow-y-auto"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 px-4 py-8 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-label={title}

@@ -339,7 +339,7 @@ const PALABRAS_SUPLEMENTO = ['suplemento', 'supplement', 'proteina', 'creatina',
 function normalizarTexto(value: string): string {
   return value
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/\p{M}/gu, '')
     .toLowerCase();
 }
 

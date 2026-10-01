@@ -318,4 +318,58 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       expect(screen.queryByText('Alimento sin nombre')).not.toBeInTheDocument();
     });
   });
+
+  describe('rol deportista (hideNutrition): solo ve gramos, no kcal/macros', () => {
+    const INGESTA_UN_ITEM = {
+      id_ingesta: 1,
+      tipo: 'almuerzo' as const,
+      kcal_total: 202.5,
+      proteinas_total_g: 2.25,
+      grasas_total_g: 9,
+      carbs_total_g: 27,
+      items: [
+        {
+          id_item: 1,
+          id_alimento: 42,
+          nombre_manual: null,
+          tipo_item: 'solido',
+          cantidad: 45,
+          kcal: 202.5,
+          proteinas_g: 2.25,
+          grasas_g: 9,
+          carbs_g: 27,
+          alimentos: { nombre: 'Arroz blanco', categoria: 'Cereales' },
+        },
+      ],
+    };
+
+    it('sigue mostrando los gramos del ítem aunque hideNutrition sea true', () => {
+      render(
+        <AlimentacionClient
+          ingesta={INGESTA_UN_ITEM}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={true}
+        />,
+      );
+
+      expect(screen.getByText('45 g')).toBeInTheDocument();
+      expect(screen.queryByText(/203 kcal|202\.5 kcal/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^P /)).not.toBeInTheDocument();
+    });
+
+    it('con hideNutrition en false, sigue mostrando gramos y kcal/macros (no se toca el rol particular)', () => {
+      render(
+        <AlimentacionClient
+          ingesta={INGESTA_UN_ITEM}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={false}
+        />,
+      );
+
+      expect(screen.getByText('45 g')).toBeInTheDocument();
+      expect(screen.getAllByText('203 kcal').length).toBeGreaterThan(0);
+    });
+  });
 });

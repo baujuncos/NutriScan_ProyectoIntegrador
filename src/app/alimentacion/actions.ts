@@ -281,6 +281,12 @@ export async function addScannedItemAction(formData: FormData) {
         grasas_100g: producto.nutrientes100g.grasas,
         carbs_100g: producto.nutrientes100g.carbs,
         imagen_url: producto.imagenUrl,
+        nutriscore_grade: producto.infoAmpliada.nutriscore,
+        nova_group: producto.infoAmpliada.novaGroup,
+        is_gluten_free: producto.infoAmpliada.sinGluten,
+        is_vegan: producto.infoAmpliada.vegano,
+        is_vegetarian: producto.infoAmpliada.vegetariano,
+        serving_quantity_label: producto.porcionEtiqueta,
       },
       { onConflict: 'codigo_ean' },
     )

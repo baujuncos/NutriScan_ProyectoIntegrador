@@ -86,9 +86,9 @@ beforeEach(() => {
 });
 
 describe('BarcodeScannerModal — captura', () => {
-  it('en dispositivo táctil, la pestaña "Usar cámara" está activa por defecto y arranca restringida a EAN_13', async () => {
+  it('en dispositivo táctil, la pestaña "Escanear con cámara" está activa por defecto y arranca restringida a EAN_13', async () => {
     renderModal();
-    expect(screen.getByRole('button', { name: 'Usar cámara' })).toHaveClass('bg-white');
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toHaveClass('bg-white');
     await waitFor(() => expect(mockStart).toHaveBeenCalled());
 
     const { Html5Qrcode } = await import('html5-qrcode');
@@ -97,12 +97,25 @@ describe('BarcodeScannerModal — captura', () => {
     });
   });
 
-  it('en desktop (sin pointer coarse), la pestaña "Subir imagen" está activa por defecto y no arranca la cámara', async () => {
+  it('en desktop (sin pointer coarse), no arranca la cámara automáticamente', async () => {
     mockPointerCoarse(false);
     renderModal();
-    expect(screen.getByRole('button', { name: 'Subir imagen' })).toHaveClass('bg-white');
     await new Promise((r) => setTimeout(r, 0));
     expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it('en desktop, la pestaña de cámara no existe (ni como botón)', async () => {
+    mockPointerCoarse(false);
+    renderModal();
+    expect(screen.queryByRole('button', { name: 'Escanear con cámara' })).not.toBeInTheDocument();
+    expect(screen.getByText(/arrastrá una imagen/i)).toBeInTheDocument();
+  });
+
+  it('en móvil, ambas pestañas existen', async () => {
+    mockPointerCoarse(true);
+    renderModal();
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Elegir de galería' })).toBeInTheDocument();
   });
 
   it('detiene la cámara (stop + clear) al cerrar el modal', async () => {
@@ -191,7 +204,7 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
 
     await user.click(screen.getByRole('button', { name: 'Escanear otro código' }));
 
-    expect(screen.getByRole('button', { name: 'Usar cámara' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
   });
 
   it('los botones de porción muestran los gramos calculados según la porción del producto', async () => {

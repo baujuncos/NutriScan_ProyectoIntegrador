@@ -45,8 +45,13 @@ export default function BarcodeScannerModal({
   const scannerRef = useRef<ScannerInstance | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [esDispositivoTactil, setEsDispositivoTactil] = useState(true);
+
   useEffect(() => {
-    if (open) setActiveTab(esTactil() ? 'camara' : 'subir');
+    if (!open) return;
+    const tactil = esTactil();
+    setEsDispositivoTactil(tactil);
+    setActiveTab(tactil ? 'camara' : 'subir');
   }, [open]);
 
   const detenerCamara = useCallback(async () => {
@@ -172,26 +177,28 @@ export default function BarcodeScannerModal({
       <div className="space-y-4">
         {stage === 'source' && (
           <>
-            <div className="flex gap-2 rounded-xl bg-gray-100 p-1">
-              <button
-                type="button"
-                onClick={() => setActiveTab('camara')}
-                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
-                  activeTab === 'camara' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
-                }`}
-              >
-                Usar cámara
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('subir')}
-                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
-                  activeTab === 'subir' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
-                }`}
-              >
-                Subir imagen
-              </button>
-            </div>
+            {esDispositivoTactil && (
+              <div className="flex gap-2 rounded-xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('camara')}
+                  className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
+                    activeTab === 'camara' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                  }`}
+                >
+                  Escanear con cámara
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('subir')}
+                  className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
+                    activeTab === 'subir' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                  }`}
+                >
+                  Elegir de galería
+                </button>
+              </div>
+            )}
 
             <div
               id={SCANNER_ELEMENT_ID}
@@ -231,7 +238,7 @@ export default function BarcodeScannerModal({
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              capture="environment"
+              aria-label="Subir imagen del código de barras"
               className="hidden"
               onChange={(e) => void handleFile(e.target.files?.[0])}
             />

@@ -641,6 +641,94 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     });
   });
 
+  describe('"Ver detalle" de un ítem ya cargado (cualquier método de carga)', () => {
+    it('ítem de catálogo: muestra fuente/marca/categoría/denominación', async () => {
+      const user = userEvent.setup();
+      render(
+        <AlimentacionClient
+          ingesta={{
+            id_ingesta: 1, tipo: 'almuerzo',
+            kcal_total: 100, proteinas_total_g: 5, grasas_total_g: 2, carbs_total_g: 10,
+            items: [{
+              id_item: 1, id_alimento: 42, nombre_manual: null, tipo_item: 'solido',
+              cantidad: 100, kcal: 100, proteinas_g: 5, grasas_g: 2, carbs_g: 10,
+              alimentos: { nombre: 'Arroz blanco cocido', categoria: 'Cereales', marca: null, denominacion: 'Arroz blanco cocido sin sal', fuente: 'SARA2' },
+            }],
+          }}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={false}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
+      const modal = screen.getByRole('dialog');
+      expect(within(modal).getByText('SARA2')).toBeInTheDocument();
+      expect(within(modal).getByText('Cereales')).toBeInTheDocument();
+      expect(within(modal).getByText('Arroz blanco cocido sin sal')).toBeInTheDocument();
+    });
+
+    it('ítem escaneado: muestra los datos ya guardados en alimentos_barcode con imagen, sin pegarle a OFF de nuevo', async () => {
+      const user = userEvent.setup();
+      render(
+        <AlimentacionClient
+          ingesta={{
+            id_ingesta: 1, tipo: 'almuerzo',
+            kcal_total: 202.5, proteinas_total_g: 2.25, grasas_total_g: 9, carbs_total_g: 27,
+            items: [{
+              id_item: 1, id_alimento: null, nombre_manual: null, tipo_item: 'solido',
+              cantidad: 45, kcal: 202.5, proteinas_g: 2.25, grasas_g: 9, carbs_g: 27,
+              alimentos: null,
+              id_alimento_barcode: 10,
+              alimentos_barcode: {
+                nombre: 'Alfajor Triple', marca: 'Havanna', categoria: 'Alfajores',
+                porcion: 50, kcal_100g: 450, proteinas_100g: 5, grasas_100g: 20, carbs_100g: 60,
+                imagen_url: 'https://images.openfoodfacts.org/alfajor.jpg',
+                nutriscore_grade: 'e', nova_group: 4,
+                is_gluten_free: false, is_vegan: false, is_vegetarian: true,
+                serving_quantity_label: '1 unidad (50 g)',
+              },
+            }],
+          }}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={false}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
+      const modal = screen.getByRole('dialog');
+      expect(within(modal).getByText('Havanna')).toBeInTheDocument();
+      expect(within(modal).getByText(/nutri-score e/i)).toBeInTheDocument();
+      expect(within(modal).getByText('Vegetariano')).toBeInTheDocument();
+      const img = within(modal).getByRole('img', { name: 'Alfajor Triple' });
+      expect(img).toHaveAttribute('src', 'https://images.openfoodfacts.org/alfajor.jpg');
+      expect(within(modal).getByText(/no se vuelve a consultar la API/i)).toBeInTheDocument();
+    });
+
+    it('ítem manual: avisa que no tiene datos de catálogo', async () => {
+      const user = userEvent.setup();
+      render(
+        <AlimentacionClient
+          ingesta={{
+            id_ingesta: 1, tipo: 'almuerzo',
+            kcal_total: 0, proteinas_total_g: 0, grasas_total_g: 0, carbs_total_g: 0,
+            items: [{
+              id_item: 1, id_alimento: null, nombre_manual: 'Tarta casera de verduras', tipo_item: 'solido',
+              cantidad: 200, kcal: 0, proteinas_g: 0, grasas_g: 0, carbs_g: 0,
+              alimentos: null,
+            }],
+          }}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={false}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
+      const modal = screen.getByRole('dialog');
+      expect(within(modal).getByText('Tarta casera de verduras')).toBeInTheDocument();
+      expect(within(modal).getByText(/sin datos de catálogo/i)).toBeInTheDocument();
+    });
+  });
+
   it('el nombre del ítem cargado tiene title para ver el nombre completo si está truncado', () => {
     render(
       <AlimentacionClient

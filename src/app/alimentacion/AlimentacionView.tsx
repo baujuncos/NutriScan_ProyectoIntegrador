@@ -15,7 +15,29 @@ type ItemRow = {
   proteinas_g: number | string;
   grasas_g: number | string;
   carbs_g: number | string;
-  alimentos: { nombre: string; categoria: string | null } | Array<{ nombre: string; categoria: string | null }> | null;
+  alimentos: AlimentoDetalle | AlimentoDetalle[] | null;
+  id_alimento_barcode?: number | null;
+  alimentos_barcode?: AlimentoBarcodeDetalle | AlimentoBarcodeDetalle[] | null;
+};
+
+type AlimentoDetalle = { nombre: string; categoria: string | null; marca?: string | null; denominacion?: string | null; fuente?: string };
+
+type AlimentoBarcodeDetalle = {
+  nombre: string;
+  marca: string | null;
+  categoria?: string | null;
+  porcion?: number | string;
+  kcal_100g?: number | string | null;
+  proteinas_100g?: number | string | null;
+  grasas_100g?: number | string | null;
+  carbs_100g?: number | string | null;
+  imagen_url?: string | null;
+  nutriscore_grade?: string | null;
+  nova_group?: number | null;
+  is_gluten_free?: boolean;
+  is_vegan?: boolean;
+  is_vegetarian?: boolean;
+  serving_quantity_label?: string | null;
 };
 
 type IngestaRow = {

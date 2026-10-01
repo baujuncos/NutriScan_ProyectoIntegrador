@@ -23,6 +23,7 @@ import AIRecognitionModal from './AIRecognitionModal';
 import ChatFoodModal from './ChatFoodModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import BusquedaAlimento, { type BusquedaAlimentoHandle } from './BusquedaAlimento';
+import CantidadSelector from './CantidadSelector';
 import type { FoodChatResult } from '@/lib/chatFood';
 
 type ItemRow = {
@@ -99,6 +100,7 @@ export default function AlimentacionClient({
 }) {
   const [selectedAlimento, setSelectedAlimento] = useState<AlimentoOption | null>(null);
   const [manualQuery, setManualQuery] = useState('');
+  const [cantidadValue, setCantidadValue] = useState('50');
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editingCantidad, setEditingCantidad] = useState('');
   const [showManualModal, setShowManualModal] = useState(false);
@@ -111,6 +113,10 @@ export default function AlimentacionClient({
   const label = MEAL_LABEL[tipoIngesta];
   const items = ingesta?.items ?? [];
   const canEdit = fecha >= daysAgoAR(7) && fecha <= todayAR();
+
+  useEffect(() => {
+    setCantidadValue('50');
+  }, [selectedAlimento?.id_alimento]);
 
   const handleCloseManualModal = () => {
     setShowManualModal(false);
@@ -275,6 +281,7 @@ export default function AlimentacionClient({
             <button
               type="button"
               onClick={() => setSelectedAlimento(null)}
+              aria-label="Quitar selección"
               className="text-gray-400 hover:text-gray-600 flex-shrink-0"
             >
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -283,24 +290,24 @@ export default function AlimentacionClient({
             </button>
           </div>
 
-          <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              name="cantidad"
-              placeholder="Cantidad en gramos"
-              min="1"
-              max={MAX_CANTIDAD}
-              step="any"
-              required
-              className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 transition-all"
-              style={{ ['--tw-ring-color' as string]: `${accentColor}40` }}
-            />
-            <span className="text-sm text-gray-500 font-medium pr-1">g</span>
-          </div>
+          <CantidadSelector
+            name="cantidad"
+            accentColor={accentColor}
+            maxCantidad={MAX_CANTIDAD}
+            value={cantidadValue}
+            onChange={setCantidadValue}
+            mostrarAvisoSinValores={
+              selectedAlimento.kcal_100g == null &&
+              selectedAlimento.proteinas_100g == null &&
+              selectedAlimento.grasas_100g == null &&
+              selectedAlimento.carbs_100g == null
+            }
+          />
 
           <button
             type="submit"
-            className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            disabled={!(Number(cantidadValue) > 0 && Number(cantidadValue) <= MAX_CANTIDAD)}
+            className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: accentColor }}
           >
             Agregar a {label}

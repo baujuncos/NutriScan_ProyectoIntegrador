@@ -474,4 +474,50 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await waitFor(() => expect(screen.queryByText('Recientes')).not.toBeInTheDocument());
     });
   });
+
+  describe('selector de cantidad del formulario de agregar', () => {
+    it('clickear un botón rápido actualiza la cantidad y el submit queda habilitado', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByRole('button', { name: '150 g' }));
+      expect(screen.getByRole('button', { name: /agregar a/i })).toBeEnabled();
+    });
+
+    it('cambiar de alimento seleccionado resetea la cantidad a 50 g', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA, A_ANMAT_CON_MARCA_SIN_DENOM]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByRole('button', { name: 'Personalizar' }));
+      await user.clear(screen.getByPlaceholderText('Cantidad en gramos'));
+      await user.type(screen.getByPlaceholderText('Cantidad en gramos'), '1200');
+
+      await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
+      await buscar(user, 'nu', A_ANMAT_CON_MARCA_SIN_DENOM.nombre);
+      await user.click(screen.getByText(A_ANMAT_CON_MARCA_SIN_DENOM.nombre));
+
+      expect(screen.getByRole('button', { name: '50 g' })).toHaveClass('text-white');
+    });
+
+    it('tipear un valor inválido en "Personalizar" deshabilita el submit', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByRole('button', { name: 'Personalizar' }));
+      await user.clear(screen.getByPlaceholderText('Cantidad en gramos'));
+      expect(screen.getByRole('button', { name: /agregar a/i })).toBeDisabled();
+    });
+
+    it('muestra el aviso de ANMAT sin valores cuando el alimento seleccionado no tiene macros', async () => {
+      const sinValores: AlimentoOption = { ...A_ANMAT_VACIO, kcal_100g: null, proteinas_100g: null, grasas_100g: null, carbs_100g: null };
+      vi.mocked(searchAlimentosAction).mockResolvedValue([sinValores]);
+      const { user } = mount();
+      await buscar(user, 'prod', sinValores.nombre);
+      await user.click(screen.getByText(sinValores.nombre));
+      expect(await screen.findByText(/no tiene valores nutricionales/i)).toBeInTheDocument();
+    });
+  });
 });

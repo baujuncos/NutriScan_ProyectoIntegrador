@@ -322,6 +322,27 @@ describe('obtenerProductoPorEAN', () => {
       expect(result.encontrado).toBe(true);
       if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
     });
+
+    it('es null para "x2 100g" (número antes del "x") en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('x2 100g', undefined));
+      const result = await obtenerProductoPorEAN('7790040001810');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para "100 g x 2" (la "x" no pega directo con los dígitos) en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('100 g x 2', undefined));
+      const result = await obtenerProductoPorEAN('7790040001820');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para multipack con signo "×" unicode (ej. "2 × 500 ml") en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('2 × 500 ml', undefined));
+      const result = await obtenerProductoPorEAN('7790040001830');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
   });
 
   describe('infoAmpliada', () => {

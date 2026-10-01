@@ -89,7 +89,12 @@ function parsePesoNetoTotal(product: Record<string, unknown>): number | null {
 
   const texto = product.quantity;
   if (typeof texto !== 'string') return null;
-  if (/\d+\s*x\s*\d/i.test(texto)) return null; // multipack ambiguo, no adivinar
+
+  // Si aparece más de un número en el texto, es una notación ambigua
+  // (multipack tipo "4 x 25 g", "x2 100g", "100 g x 2", "2 × 500 ml") — no
+  // adivinamos cuál es el total, mejor null que un valor incorrecto.
+  const numeros = texto.match(/\d+(?:[.,]\d+)?/g) ?? [];
+  if (numeros.length !== 1) return null;
 
   const match = texto.match(/([\d.,]+)\s*(kg|g|l|ml)\b/i);
   if (!match) return null;

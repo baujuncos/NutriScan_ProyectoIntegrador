@@ -61,14 +61,28 @@ function renderModal(props: Partial<React.ComponentProps<typeof BarcodeScannerMo
   const onClose = vi.fn();
   const user = userEvent.setup();
   const { rerender } = render(
-    <BarcodeScannerModal open onClose={onClose} fecha="2026-09-21" tipoIngesta="almuerzo" {...props} />,
+    <BarcodeScannerModal
+      open
+      onClose={onClose}
+      fecha="2026-09-21"
+      tipoIngesta="almuerzo"
+      hideNutrition={false}
+      {...props}
+    />,
   );
   // `onClose` es un mock: no cambia `open` solo. Un test que necesite simular
   // lo que hace AlimentacionClient en producción (bajar `open` a false cuando
   // se llama onClose) puede pasar rerenderWithOpen(false).
   const rerenderWithOpen = (open: boolean) =>
     rerender(
-      <BarcodeScannerModal open={open} onClose={onClose} fecha="2026-09-21" tipoIngesta="almuerzo" {...props} />,
+      <BarcodeScannerModal
+        open={open}
+        onClose={onClose}
+        fecha="2026-09-21"
+        tipoIngesta="almuerzo"
+        hideNutrition={false}
+        {...props}
+      />,
     );
   return { onClose, user, rerenderWithOpen };
 }
@@ -227,6 +241,35 @@ const PRODUCTO_SUPLEMENTO = {
   nombre: 'Proteína Whey',
   esSuplemento: true,
 };
+
+describe('BarcodeScannerModal — rol deportista (hideNutrition)', () => {
+  it('oculta kcal/macros, el botón de ampliar información y la aclaración de base nutricional', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2 galletitas (30g)' });
+    renderModal({ hideNutrition: true });
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    expect(screen.queryByText('450.0')).not.toBeInTheDocument();
+    expect(screen.queryByText(/valores expresados cada 100g \/ 100ml/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ampliar información/i })).not.toBeInTheDocument();
+  });
+
+  it('igual muestra la porción sugerida en el envoltorio (son gramos, no datos nutricionales)', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2 galletitas (30g)' });
+    renderModal({ hideNutrition: true });
+    await simularEscaneo();
+
+    expect(await screen.findByText(/porción sugerida en envoltorio: 2 galletitas \(30g\)/i)).toBeInTheDocument();
+  });
+
+  it('en el paso de porción, sigue mostrando los gramos de cada botón', async () => {
+    const { user } = renderModal({ hideNutrition: true });
+    await irAModo(user);
+    await user.click(screen.getByRole('button', { name: 'Por Porción del Fabricante' }));
+
+    expect(screen.getByRole('button', { name: /^1 porción/ })).toHaveTextContent('45 g');
+  });
+});
 
 describe('BarcodeScannerModal — confirmación ampliada', () => {
   it('muestra los macros con 1 decimal y la aclaración de base nutricional', async () => {

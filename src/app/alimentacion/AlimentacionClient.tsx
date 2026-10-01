@@ -438,6 +438,7 @@ export default function AlimentacionClient({
         onClose={() => setShowBarcodeModal(false)}
         fecha={fecha}
         tipoIngesta={tipoIngesta}
+        hideNutrition={hideNutrition}
       />
 
       {/* Add form (shown when food is selected) */}
@@ -574,18 +575,16 @@ export default function AlimentacionClient({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{getAlimentoNombre(item)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {toNum(item.cantidad).toFixed(0)} g
+                      </p>
                       {!hideNutrition && (
-                        <>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {toNum(item.cantidad).toFixed(0)} g
-                          </p>
-                          <div className="flex items-center gap-3 mt-1.5">
-                            <span className="text-xs font-semibold text-gray-700">{toNum(item.kcal).toFixed(0)} kcal</span>
-                            <span className="text-xs text-gray-400">P {toNum(item.proteinas_g).toFixed(1)}g</span>
-                            <span className="text-xs text-gray-400">C {toNum(item.carbs_g).toFixed(1)}g</span>
-                            <span className="text-xs text-gray-400">G {toNum(item.grasas_g).toFixed(1)}g</span>
-                          </div>
-                        </>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="text-xs font-semibold text-gray-700">{toNum(item.kcal).toFixed(0)} kcal</span>
+                          <span className="text-xs text-gray-400">P {toNum(item.proteinas_g).toFixed(1)}g</span>
+                          <span className="text-xs text-gray-400">C {toNum(item.carbs_g).toFixed(1)}g</span>
+                          <span className="text-xs text-gray-400">G {toNum(item.grasas_g).toFixed(1)}g</span>
+                        </div>
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

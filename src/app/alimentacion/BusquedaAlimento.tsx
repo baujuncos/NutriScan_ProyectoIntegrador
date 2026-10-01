@@ -1,7 +1,6 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import Modal from '@/components/ui/Modal';
 import { searchAlimentosAction, getAlimentosRecientesAction, type AlimentoOption } from './actions';
 import { CAMPOS_DEFAULT, campoDeCoincidencia, rangoCoincidencia, type CamposBusqueda } from './searchQuery';
 import { type IngestaTipo } from '@/lib/nutrition';
@@ -13,7 +12,7 @@ type FuenteFiltro = 'todas' | 'SARA2' | 'ANMAT';
 /**
  * Una fila de resultado (búsqueda o "Recientes"): nombre, "Marca · Categoría"
  * (o "Genérico"), denominación completa truncada con tooltip, badge de
- * fuente y el botón "?" opcional. Mismo diseño en ambas listas, como pide el
+ * fuente. Mismo diseño en ambas listas, como pide el
  * mockup — se factoriza acá para no duplicarlo.
  */
 function FilaResultado({
@@ -22,14 +21,12 @@ function FilaResultado({
   idx,
   activeIndex,
   onSelect,
-  onVerDetalle,
 }: {
   a: AlimentoOption;
   query: string;
   idx: number;
   activeIndex: number;
   onSelect: (a: AlimentoOption) => void;
-  onVerDetalle: (a: AlimentoOption) => void;
 }) {
   const campoMatch = query.length >= 2 ? campoDeCoincidencia(a, query) : null;
   const rango = query.length >= 2 ? rangoCoincidencia(a.nombre, query) : null;
@@ -60,20 +57,6 @@ function FilaResultado({
         }`}>
           {a.fuente}
         </span>
-        {(a.denominacion || a.categoria) && (
-          <button
-            type="button"
-            aria-label="Ver detalle del alimento"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onVerDetalle(a);
-            }}
-            className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center hover:bg-blue-600 transition-colors"
-          >
-            ?
-          </button>
-        )}
       </div>
       <p className="text-xs text-gray-400 mt-0.5 truncate">
         <span>{a.marca ?? 'Genérico'}</span>
@@ -108,7 +91,6 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchResults, setSearchResults] = useState<AlimentoOption[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [denominacionModal, setDenominacionModal] = useState<AlimentoOption | null>(null);
   const [recientes, setRecientes] = useState<AlimentoOption[]>([]);
   const [campos, setCampos] = useState<CamposBusqueda>(CAMPOS_DEFAULT);
   const [showFiltros, setShowFiltros] = useState(false);
@@ -267,7 +249,6 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
                   idx={idx}
                   activeIndex={activeIndex}
                   onSelect={handleSelect}
-                  onVerDetalle={setDenominacionModal}
                 />
               ))}
             </div>
@@ -284,7 +265,6 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
                   idx={idx}
                   activeIndex={activeIndex}
                   onSelect={handleSelect}
-                  onVerDetalle={setDenominacionModal}
                 />
               ))}
             </div>
@@ -456,31 +436,6 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
         </div>
       )}
 
-      <Modal open={denominacionModal !== null} onClose={() => setDenominacionModal(null)} title="Detalle del alimento">
-        <p className="text-sm font-semibold text-gray-900">{denominacionModal?.nombre}</p>
-        <dl className="mt-3 space-y-2 text-sm">
-          {([
-            ['Fuente', denominacionModal?.fuente],
-            ['Categoría', denominacionModal?.categoria],
-            ['Marca', denominacionModal?.marca],
-            ['Denominación', denominacionModal?.denominacion],
-          ] as const).map(([label, value]) =>
-            value ? (
-              <div key={label}>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-gray-400">{label}</dt>
-                <dd className="text-gray-700 leading-relaxed">{value}</dd>
-              </div>
-            ) : null
-          )}
-        </dl>
-        <button
-          type="button"
-          onClick={() => setDenominacionModal(null)}
-          className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-colors"
-        >
-          Cerrar
-        </button>
-      </Modal>
     </div>
   );
 });

@@ -154,86 +154,47 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     });
   });
 
-  // ── Botón "?" de detalle ───────────────────────────────────────────────────
-  describe('botón "?" de detalle', () => {
-    it('aparece y está habilitado cuando el alimento tiene denominación o categoría', async () => {
+  // ── Denominación inline (reemplaza al botón "?" + modal) ────────────────────
+  describe('denominación inline', () => {
+    it('la fila muestra "Marca · Categoría" y la denominación completa con title, sin botón "?" ni modal', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
       const { user } = mount();
       await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
 
-      const btn = screen.getByRole('button', { name: 'Ver detalle del alimento' });
-      expect(btn).toBeInTheDocument();
-      expect(btn).not.toBeDisabled();
+      const fila = screen.getByRole('option');
+      expect(within(fila).getByText(A_ANMAT_COMPLETO.marca!)).toBeInTheDocument();
+      expect(within(fila).getByText(`· ${A_ANMAT_COMPLETO.categoria}`)).toBeInTheDocument();
+      expect(within(fila).getByText(A_ANMAT_COMPLETO.denominacion!))
+        .toHaveAttribute('title', A_ANMAT_COMPLETO.denominacion);
+      expect(screen.queryByRole('button', { name: 'Ver detalle del alimento' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('no está en el DOM cuando el alimento no tiene categoría ni denominación (SARA2)', async () => {
+    it('sin marca muestra "Genérico" y no renderiza la línea de denominación vacía', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_VACIO]);
       const { user } = mount();
       await buscar(user, 'ag', A_SARA2_VACIO.nombre);
 
-      expect(
-        screen.queryByRole('button', { name: 'Ver detalle del alimento' }),
-      ).not.toBeInTheDocument();
+      const fila = screen.getByRole('option');
+      expect(within(fila).getByText('Genérico')).toBeInTheDocument();
+      expect(fila.querySelectorAll('p')).toHaveLength(1);
     });
 
-    it('no está en el DOM cuando un alimento ANMAT tampoco tiene categoría ni denominación', async () => {
-      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_VACIO]);
-      const { user } = mount();
-      await buscar(user, 'pr', A_ANMAT_VACIO.nombre);
-
-      expect(
-        screen.queryByRole('button', { name: 'Ver detalle del alimento' }),
-      ).not.toBeInTheDocument();
-    });
-
-    it('al hacer click abre el modal con todos los campos disponibles del alimento', async () => {
+    it('no muestra el id_alimento', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
       const { user } = mount();
       await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
-      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
-
-      // El modal se identifica por su título
-      const modal = screen.getByRole('dialog');
-      expect(within(modal).getByText(porNombre(A_ANMAT_COMPLETO.nombre))).toBeInTheDocument();
-      expect(within(modal).getByText(A_ANMAT_COMPLETO.denominacion!)).toBeInTheDocument();
-      expect(within(modal).getByText(A_ANMAT_COMPLETO.marca!)).toBeInTheDocument();
-      expect(within(modal).getByText(A_ANMAT_COMPLETO.categoria!)).toBeInTheDocument();
-      // La fuente también debe aparecer en el modal
-      expect(within(modal).getByText('ANMAT')).toBeInTheDocument();
+      expect(screen.queryByText(String(A_ANMAT_COMPLETO.id_alimento))).not.toBeInTheDocument();
     });
 
-    it('el modal no muestra el id_alimento', async () => {
+    it('al seleccionar, la tarjeta del alimento elegido muestra la denominación completa', async () => {
       vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
       const { user } = mount();
       await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
-      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
+      await user.click(screen.getByText(porNombre(A_ANMAT_COMPLETO.nombre)));
 
-      const modal = screen.getByRole('dialog');
-      expect(within(modal).queryByText(String(A_ANMAT_COMPLETO.id_alimento))).not.toBeInTheDocument();
-    });
-
-    it('el modal se cierra al hacer click en Cerrar', async () => {
-      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
-      const { user } = mount();
-      await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
-      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
-
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
-
-      // El modal tiene dos botones "Cerrar": la X del header y el botón azul.
-      // getByText apunta únicamente al botón azul con texto visible.
-      await user.click(within(screen.getByRole('dialog')).getByText('Cerrar'));
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    });
-
-    it('clickear "?" no cierra el dropdown de resultados', async () => {
-      vi.mocked(searchAlimentosAction).mockResolvedValue([A_ANMAT_COMPLETO]);
-      const { user } = mount();
-      await buscar(user, 'ace', A_ANMAT_COMPLETO.nombre);
-      await user.click(screen.getByRole('button', { name: 'Ver detalle del alimento' }));
-      await user.click(within(screen.getByRole('dialog')).getByText('Cerrar'));
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-      expect(screen.getByText(porNombre(A_ANMAT_COMPLETO.nombre))).toBeInTheDocument();
+      expect(screen.queryByRole('option')).not.toBeInTheDocument();
+      expect(screen.getByText(A_ANMAT_COMPLETO.denominacion!)).toBeInTheDocument();
     });
   });
 

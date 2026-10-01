@@ -273,6 +273,9 @@ export default function AlimentacionClient({
               {selectedAlimento.categoria && (
                 <p className="text-xs text-gray-400 mt-0.5">{selectedAlimento.categoria}</p>
               )}
+              {selectedAlimento.denominacion && (
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed">{selectedAlimento.denominacion}</p>
+              )}
               <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-semibold ${
                 selectedAlimento.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
               }`}>

@@ -222,6 +222,97 @@ describe('BarcodeScannerModal — captura', () => {
   });
 });
 
+const PRODUCTO_SUPLEMENTO = {
+  ...PRODUCTO_OK,
+  nombre: 'Proteína Whey',
+  esSuplemento: true,
+};
+
+describe('BarcodeScannerModal — confirmación ampliada', () => {
+  it('muestra los macros con 1 decimal y la aclaración de base nutricional', async () => {
+    renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    expect(screen.getByText('450.0')).toBeInTheDocument();
+    expect(screen.getByText(/valores expresados cada 100g \/ 100ml/i)).toBeInTheDocument();
+  });
+
+  it('muestra la porción sugerida en el envoltorio cuando existe', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({ ...PRODUCTO_OK, porcionEtiqueta: '2.5 galletitas (30g)' });
+    renderModal();
+    await simularEscaneo();
+
+    expect(await screen.findByText(/porción sugerida en envoltorio: 2\.5 galletitas \(30g\)/i)).toBeInTheDocument();
+  });
+
+  it('no muestra la línea de porción sugerida cuando no hay etiqueta', async () => {
+    renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    expect(screen.queryByText(/porción sugerida en envoltorio/i)).not.toBeInTheDocument();
+  });
+
+  it('muestra el aviso de suplemento cuando el producto es un suplemento', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue(PRODUCTO_SUPLEMENTO);
+    renderModal();
+    await simularEscaneo();
+
+    expect(await screen.findByText(/detectamos que es un suplemento/i)).toBeInTheDocument();
+  });
+
+  it('"Ampliar información" muestra Nutri-Score, NOVA y badges cuando hay datos', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({
+      ...PRODUCTO_OK,
+      infoAmpliada: { nutriscore: 'b', novaGroup: 3, sinGluten: true, vegano: false, vegetariano: true },
+    });
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /ampliar información/i }));
+
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.getByText('3 — Procesado')).toBeInTheDocument();
+    expect(screen.getByText('Sin Gluten')).toBeInTheDocument();
+    expect(screen.getByText('Vegetariano')).toBeInTheDocument();
+    expect(screen.queryByText('Vegano')).not.toBeInTheDocument();
+  });
+
+  it('"Ampliar información" muestra el mensaje de fallback cuando no hay ningún dato', async () => {
+    vi.mocked(obtenerProductoPorEAN).mockResolvedValue({
+      ...PRODUCTO_OK,
+      infoAmpliada: { nutriscore: null, novaGroup: null, sinGluten: false, vegano: false, vegetariano: false },
+    });
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /ampliar información/i }));
+
+    expect(screen.getByText(/no tiene esta información para este producto/i)).toBeInTheDocument();
+  });
+
+  it('"Sí, es correcto" lleva a la pantalla de elegir modo de registro', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
+
+    expect(await screen.findByText(/cómo deseas registrar tu ingesta/i)).toBeInTheDocument();
+  });
+
+  it('"← Volver" desde confirmar regresa al origen', async () => {
+    const { user } = renderModal();
+    await simularEscaneo();
+    await screen.findByText('¿Es este tu alimento?');
+
+    await user.click(screen.getByRole('button', { name: /volver/i }));
+
+    expect(screen.getByText(/arrastrá una imagen|escanear con cámara/i)).toBeInTheDocument();
+  });
+});
+
 describe('BarcodeScannerModal — confirmación y porción', () => {
   it('"No, es otro" pasa a la pantalla de descarte sugiriendo otro método', async () => {
     const { user } = renderModal();
@@ -254,41 +345,6 @@ describe('BarcodeScannerModal — confirmación y porción', () => {
     await user.click(screen.getByRole('button', { name: 'Escanear otro código' }));
 
     expect(screen.getByRole('button', { name: 'Escanear con cámara' })).toBeInTheDocument();
-  });
-
-  it('los botones de porción muestran los gramos calculados según la porción del producto', async () => {
-    const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
-
-    expect(screen.getByRole('button', { name: /1\/4 de porción/ })).toHaveTextContent('11 g'); // 45 * 0.25 ≈ 11
-    expect(screen.getByRole('button', { name: /^1 porción/ })).toHaveTextContent('45 g');
-    expect(screen.getByRole('button', { name: /2 porciones/ })).toHaveTextContent('90 g');
-  });
-
-  it('al elegir una porción, llama a addScannedItemAction con fecha/tipo_ingesta/ean/cantidad correctos', async () => {
-    const { user } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
-
-    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
-
-    await waitFor(() => expect(addScannedItemAction).toHaveBeenCalled());
-    const formData = vi.mocked(addScannedItemAction).mock.calls[0][0] as FormData;
-    expect(formData.get('fecha')).toBe('2026-09-21');
-    expect(formData.get('tipo_ingesta')).toBe('almuerzo');
-    expect(formData.get('ean')).toBe('7790040000100');
-    expect(formData.get('cantidad')).toBe('45');
-  });
-
-  it('al elegir una porción, cierra el modal (no se queda esperando sobre la pantalla de porción)', async () => {
-    const { user, onClose } = renderModal();
-    await simularEscaneo();
-    await user.click(await screen.findByRole('button', { name: 'Sí, es correcto' }));
-
-    await user.click(screen.getByRole('button', { name: /^1 porción/ }));
-
-    expect(onClose).toHaveBeenCalled();
   });
 
   it('"Volver" desde la pantalla de porción regresa a la confirmación', async () => {

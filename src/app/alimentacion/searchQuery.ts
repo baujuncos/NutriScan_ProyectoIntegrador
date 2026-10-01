@@ -35,6 +35,22 @@ export function aplicarFiltroSuplemento<T extends FiltroEncadenable<T>>(builder:
     : builder.not('categoria', 'ilike', '%suplemento%').not('nombre', 'ilike', '%suplemento%');
 }
 
+/**
+ * En qué campo matchea `q` dentro de un alimento (prioridad nombre > marca >
+ * denominacion) — se usa para la etiqueta "en denominación" en el dropdown
+ * cuando la única coincidencia vino de ese campo.
+ */
+export function campoDeCoincidencia(
+  a: { nombre: string; marca: string | null; denominacion: string | null },
+  q: string,
+): 'nombre' | 'marca' | 'denominacion' | null {
+  const ql = q.toLowerCase();
+  if (a.nombre.toLowerCase().includes(ql)) return 'nombre';
+  if (a.marca?.toLowerCase().includes(ql)) return 'marca';
+  if (a.denominacion?.toLowerCase().includes(ql)) return 'denominacion';
+  return null;
+}
+
 /** Dedupea una lista de ids (ya ordenada por fecha desc) y la corta en `limite`. */
 export function idsRecientesUnicos(idsEnOrdenDeFecha: number[], limite: number): number[] {
   const vistos = new Set<number>();

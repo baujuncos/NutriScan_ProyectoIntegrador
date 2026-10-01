@@ -3,10 +3,82 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import { searchAlimentosAction, getAlimentosRecientesAction, type AlimentoOption } from './actions';
-import { CAMPOS_DEFAULT, type CamposBusqueda } from './searchQuery';
+import { CAMPOS_DEFAULT, campoDeCoincidencia, type CamposBusqueda } from './searchQuery';
 import { type IngestaTipo } from '@/lib/nutrition';
 
 export type BusquedaAlimentoHandle = { focus: () => void; clear: () => void };
+
+type FuenteFiltro = 'todas' | 'SARA2' | 'ANMAT';
+
+/**
+ * Una fila de resultado (búsqueda o "Recientes"): nombre, "Marca · Categoría"
+ * (o "Genérico"), denominación completa truncada con tooltip, badge de
+ * fuente y el botón "?" opcional. Mismo diseño en ambas listas, como pide el
+ * mockup — se factoriza acá para no duplicarlo.
+ */
+function FilaResultado({
+  a,
+  query,
+  idx,
+  activeIndex,
+  onSelect,
+  onVerDetalle,
+}: {
+  a: AlimentoOption;
+  query: string;
+  idx: number;
+  activeIndex: number;
+  onSelect: (a: AlimentoOption) => void;
+  onVerDetalle: (a: AlimentoOption) => void;
+}) {
+  const campoMatch = query.length >= 2 ? campoDeCoincidencia(a, query) : null;
+  const activo = idx === activeIndex;
+
+  return (
+    <div
+      id={`opt-${a.id_alimento}`}
+      role="option"
+      aria-selected={activo}
+      onMouseDown={() => onSelect(a)}
+      className={`w-full text-left px-4 py-3 text-sm border-b border-gray-50 last:border-0 transition-colors cursor-pointer ${
+        activo ? 'bg-gray-50' : 'hover:bg-gray-50'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-gray-900 flex-1 min-w-0 truncate">{a.nombre}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
+          a.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
+        }`}>
+          {a.fuente}
+        </span>
+        {(a.denominacion || a.categoria) && (
+          <button
+            type="button"
+            aria-label="Ver detalle del alimento"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onVerDetalle(a);
+            }}
+            className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center hover:bg-blue-600 transition-colors"
+          >
+            ?
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-gray-400 mt-0.5 truncate">
+        <span>{a.marca ?? 'Genérico'}</span>
+        {a.categoria && <span> · {a.categoria}</span>}
+        {campoMatch === 'denominacion' && (
+          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">en denominación</span>
+        )}
+      </p>
+      {a.denominacion && (
+        <p className="text-xs text-gray-400 truncate" title={a.denominacion}>{a.denominacion}</p>
+      )}
+    </div>
+  );
+}
 
 const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   tipoIngesta: IngestaTipo;
@@ -31,6 +103,10 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   const [recientes, setRecientes] = useState<AlimentoOption[]>([]);
   const [campos, setCampos] = useState<CamposBusqueda>(CAMPOS_DEFAULT);
   const [showFiltros, setShowFiltros] = useState(false);
+  // Persiste durante la sesión de búsqueda a propósito (no se resetea al
+  // limpiar el query) — así como "campos", es un filtro de sesión.
+  const [fuenteFiltro, setFuenteFiltro] = useState<FuenteFiltro>('todas');
+  const [activeIndex, setActiveIndex] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const ningunCampoTildado = !campos.nombre && !campos.marca && !campos.denominacion;
@@ -66,7 +142,21 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
     return () => { cancelado = true; clearTimeout(t); };
   }, [query, tipoIngesta, campos, ningunCampoTildado]);
 
-  const filtered = selectedAlimento ? [] : searchResults;
+  // El índice activo (teclado ↑ ↓) es relativo a la lista visible en cada
+  // momento — se resetea cada vez que esa lista puede haber cambiado.
+  useEffect(() => { setActiveIndex(-1); }, [query, campos, fuenteFiltro, searchResults, recientes]);
+
+  const countTodas = searchResults.length;
+  const countSARA2 = searchResults.filter((a) => a.fuente === 'SARA2').length;
+  const countANMAT = searchResults.filter((a) => a.fuente === 'ANMAT').length;
+
+  const filtered = selectedAlimento
+    ? []
+    : fuenteFiltro === 'todas'
+      ? searchResults
+      : searchResults.filter((a) => a.fuente === fuenteFiltro);
+
+  const listaVisible = selectedAlimento ? [] : query.length === 0 ? recientes : filtered;
 
   const handleSelect = (a: AlimentoOption) => {
     onSelectAlimento(a);
@@ -79,6 +169,23 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
     setSearchResults([]);
     setShowDropdown(false);
     onClearSelection();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showDropdown || listaVisible.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % listaVisible.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? listaVisible.length - 1 : i - 1));
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault();
+      handleSelect(listaVisible[activeIndex]);
+    } else if (e.key === 'Escape') {
+      setShowDropdown(false);
+      setActiveIndex(-1);
+    }
   };
 
   if (!canEdit) return null;
@@ -107,6 +214,11 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
               }}
               onFocus={() => setShowDropdown(true)}
               onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+              onKeyDown={handleKeyDown}
+              aria-autocomplete="list"
+              aria-expanded={showDropdown}
+              aria-controls="busqueda-listbox"
+              aria-activedescendant={activeIndex >= 0 && listaVisible[activeIndex] ? `opt-${listaVisible[activeIndex].id_alimento}` : undefined}
               placeholder={
                 tipoIngesta === 'suplemento'
                   ? 'Buscar suplemento: proteína, creatina...'
@@ -137,57 +249,34 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
           )}
 
           {showDropdown && !searchLoading && filtered.length > 0 && !selectedAlimento && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 overflow-hidden max-h-64 overflow-y-auto">
-              {filtered.map((a) => (
-                <div
+            <div id="busqueda-listbox" role="listbox" className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 overflow-hidden max-h-64 overflow-y-auto">
+              {filtered.map((a, idx) => (
+                <FilaResultado
                   key={a.id_alimento}
-                  onMouseDown={() => handleSelect(a)}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0 transition-colors cursor-pointer"
-                >
-                  <span className="font-medium text-gray-900 flex-1 min-w-0 truncate">{a.nombre}</span>
-                  {a.marca && (
-                    <span className="text-xs text-gray-400 flex-shrink-0 hidden sm:inline truncate max-w-24">{a.marca}</span>
-                  )}
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
-                    a.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
-                  }`}>
-                    {a.fuente}
-                  </span>
-                  {(a.denominacion || a.categoria) && (
-                    <button
-                      type="button"
-                      aria-label="Ver detalle del alimento"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDenominacionModal(a);
-                      }}
-                      className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex-shrink-0 flex items-center justify-center hover:bg-blue-600 transition-colors"
-                    >
-                      ?
-                    </button>
-                  )}
-                </div>
+                  a={a}
+                  query={query}
+                  idx={idx}
+                  activeIndex={activeIndex}
+                  onSelect={handleSelect}
+                  onVerDetalle={setDenominacionModal}
+                />
               ))}
             </div>
           )}
 
           {showDropdown && query.length === 0 && !selectedAlimento && recientes.length > 0 && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 overflow-hidden max-h-64 overflow-y-auto">
+            <div id="busqueda-listbox" role="listbox" className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 overflow-hidden max-h-64 overflow-y-auto">
               <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Recientes</p>
-              {recientes.map((a) => (
-                <div
+              {recientes.map((a, idx) => (
+                <FilaResultado
                   key={a.id_alimento}
-                  onMouseDown={() => handleSelect(a)}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0 transition-colors cursor-pointer"
-                >
-                  <span className="font-medium text-gray-900 flex-1 min-w-0 truncate">{a.nombre}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
-                    a.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
-                  }`}>
-                    {a.fuente}
-                  </span>
-                </div>
+                  a={a}
+                  query=""
+                  idx={idx}
+                  activeIndex={activeIndex}
+                  onSelect={handleSelect}
+                  onVerDetalle={setDenominacionModal}
+                />
               ))}
             </div>
           )}
@@ -278,6 +367,27 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        {query.length >= 2 && !selectedAlimento && searchResults.length > 0 && (
+          <div role="group" aria-label="Filtrar por fuente" className="inline-flex items-center gap-1 rounded-full bg-gray-100 p-0.5 text-xs">
+            {([
+              ['todas', `Todas (${countTodas})`],
+              ['SARA2', `SARA2 (${countSARA2})`],
+              ['ANMAT', `ANMAT (${countANMAT})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFuenteFiltro(key)}
+                aria-pressed={fuenteFiltro === key}
+                className={`rounded-full px-2.5 py-1 font-semibold transition-colors ${
+                  fuenteFiltro === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => setShowFiltros((v) => !v)}

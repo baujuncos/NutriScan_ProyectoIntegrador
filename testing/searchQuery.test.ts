@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, CAMPOS_DEFAULT } from '@/app/alimentacion/searchQuery';
+import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, campoDeCoincidencia, CAMPOS_DEFAULT } from '@/app/alimentacion/searchQuery';
 
 describe('buildMarcaDenominacionOr', () => {
   it('arma la clausula OR con marca y denominacion cuando ambos campos están tildados', () => {
@@ -40,6 +40,24 @@ describe('aplicarFiltroSuplemento — fix: mira categoria Y nombre en ambas rama
     expect(builder.not).toHaveBeenCalledWith('categoria', 'ilike', '%suplemento%');
     expect(builder.not).toHaveBeenCalledWith('nombre', 'ilike', '%suplemento%');
     expect(builder.or).not.toHaveBeenCalled();
+  });
+});
+
+describe('campoDeCoincidencia', () => {
+  it('detecta coincidencia por nombre', () => {
+    expect(campoDeCoincidencia({ nombre: 'Leche entera', marca: null, denominacion: null }, 'leche')).toBe('nombre');
+  });
+
+  it('detecta coincidencia por marca cuando el nombre no matchea', () => {
+    expect(campoDeCoincidencia({ nombre: 'Yogur', marca: 'La Serenísima', denominacion: null }, 'serenísima')).toBe('marca');
+  });
+
+  it('detecta coincidencia por denominación cuando nombre y marca no matchean', () => {
+    expect(campoDeCoincidencia({ nombre: 'Producto', marca: null, denominacion: 'Bebida láctea fermentada' }, 'láctea')).toBe('denominacion');
+  });
+
+  it('devuelve null si no matchea en ningún campo', () => {
+    expect(campoDeCoincidencia({ nombre: 'Agua', marca: null, denominacion: null }, 'zzz')).toBeNull();
   });
 });
 

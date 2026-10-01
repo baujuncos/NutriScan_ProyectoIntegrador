@@ -11,6 +11,10 @@ export default function CantidadSelector({
   value,
   onChange,
   mostrarAvisoSinValores,
+  kcal100 = null,
+  proteinas100 = null,
+  grasas100 = null,
+  carbs100 = null,
 }: {
   name: string;
   accentColor: string;
@@ -18,6 +22,11 @@ export default function CantidadSelector({
   value: string;
   onChange: (v: string) => void;
   mostrarAvisoSinValores: boolean;
+  /** Valores por 100 g del alimento seleccionado — si `kcal100` es null/undefined, no se muestra la vista previa. */
+  kcal100?: number | null;
+  proteinas100?: number | null;
+  grasas100?: number | null;
+  carbs100?: number | null;
 }) {
   const [personalizar, setPersonalizar] = useState(false);
 
@@ -26,6 +35,10 @@ export default function CantidadSelector({
     const siguiente = Math.min(maxCantidad, Math.max(1, actual + delta));
     onChange(String(siguiente));
   };
+
+  const gramos = Number(value) || 0;
+  const previewDisponible = kcal100 != null;
+  const porcion = (valorPor100g: number) => (valorPor100g * gramos) / 100;
 
   return (
     <div className="space-y-2">
@@ -68,6 +81,27 @@ export default function CantidadSelector({
           +
         </button>
       </div>
+
+      {previewDisponible && (
+        <div className="grid grid-cols-4 gap-2 rounded-xl bg-gray-50 p-2 text-center">
+          <div>
+            <p className="text-sm font-bold text-gray-900">{Math.round(porcion(kcal100))}</p>
+            <p className="text-[10px] text-gray-400">kcal</p>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">{porcion(proteinas100 ?? 0).toFixed(1)}</p>
+            <p className="text-[10px] text-gray-400">P</p>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">{porcion(carbs100 ?? 0).toFixed(1)}</p>
+            <p className="text-[10px] text-gray-400">C</p>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">{porcion(grasas100 ?? 0).toFixed(1)}</p>
+            <p className="text-[10px] text-gray-400">G</p>
+          </div>
+        </div>
+      )}
 
       {!personalizar ? (
         <button

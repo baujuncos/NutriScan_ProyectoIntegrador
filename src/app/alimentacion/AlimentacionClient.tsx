@@ -297,6 +297,10 @@ export default function AlimentacionClient({
             maxCantidad={MAX_CANTIDAD}
             value={cantidadValue}
             onChange={setCantidadValue}
+            kcal100={selectedAlimento.kcal_100g}
+            proteinas100={selectedAlimento.proteinas_100g}
+            grasas100={selectedAlimento.grasas_100g}
+            carbs100={selectedAlimento.carbs_100g}
             mostrarAvisoSinValores={
               !hideNutrition &&
               selectedAlimento.kcal_100g == null &&

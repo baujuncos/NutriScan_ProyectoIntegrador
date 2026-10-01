@@ -65,11 +65,13 @@ export default function BarcodeScannerModal({
   onClose,
   fecha,
   tipoIngesta,
+  hideNutrition,
 }: {
   open: boolean;
   onClose: () => void;
   fecha: string;
   tipoIngesta: string;
+  hideNutrition: boolean;
 }) {
   const [stage, setStage] = useState<Stage>('source');
   const [activeTab, setActiveTab] = useState<CaptureTab>('camara');
@@ -459,44 +461,50 @@ const renderVolver = (target: Stage) => (
                 {producto.marca && <p className="text-xs text-gray-500">{producto.marca}</p>}
                 <p className="text-xs text-gray-400">{producto.categoria}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setMostrarInfoAmpliada((v) => !v)}
-                aria-label="Ampliar información del producto"
-                aria-expanded={mostrarInfoAmpliada}
-                className="
-                  flex items-center justify-center
-                  h-10 w-10
-                  rounded-full
-                  bg-blue-500/30
-                  backdrop-blur-sm
-                  text-lg font-bold text-blue-600
-                  transition-colors
-                  hover:bg-blue-500/40 hover:text-blue-700
-                "
-              >
-                ?
-              </button>
+              {!hideNutrition && (
+                <button
+                  type="button"
+                  onClick={() => setMostrarInfoAmpliada((v) => !v)}
+                  aria-label="Ampliar información del producto"
+                  aria-expanded={mostrarInfoAmpliada}
+                  className="
+                    flex items-center justify-center
+                    h-10 w-10
+                    rounded-full
+                    bg-blue-500/30
+                    backdrop-blur-sm
+                    text-lg font-bold text-blue-600
+                    transition-colors
+                    hover:bg-blue-500/40 hover:text-blue-700
+                  "
+                >
+                  ?
+                </button>
+              )}
             </div>
-            <div className="grid grid-cols-4 gap-2 rounded-2xl bg-gray-50 p-3 text-center">
-              <div>
-                <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.kcal.toFixed(1)}</p>
-                <p className="text-[10px] text-gray-400">kcal/100g</p>
+            {!hideNutrition && (
+              <div className="grid grid-cols-4 gap-2 rounded-2xl bg-gray-50 p-3 text-center">
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.kcal.toFixed(1)}</p>
+                  <p className="text-[10px] text-gray-400">kcal/100g</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.proteinas.toFixed(1)}g</p>
+                  <p className="text-[10px] text-gray-400">Proteínas</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.grasas.toFixed(1)}g</p>
+                  <p className="text-[10px] text-gray-400">Grasas</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.carbs.toFixed(1)}g</p>
+                  <p className="text-[10px] text-gray-400">Carbs</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.proteinas.toFixed(1)}g</p>
-                <p className="text-[10px] text-gray-400">Proteínas</p>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.grasas.toFixed(1)}g</p>
-                <p className="text-[10px] text-gray-400">Grasas</p>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">{producto.nutrientes100g.carbs.toFixed(1)}g</p>
-                <p className="text-[10px] text-gray-400">Carbs</p>
-              </div>
-            </div>
-            <p className="text-center text-xs text-gray-400">Valores expresados cada 100g / 100ml.</p>
+            )}
+            {!hideNutrition && (
+              <p className="text-center text-xs text-gray-400">Valores expresados cada 100g / 100ml.</p>
+            )}
             {producto.porcionEtiqueta && (
               <p className="text-center text-xs text-gray-500">
                 Porción sugerida en envoltorio: {producto.porcionEtiqueta}
@@ -508,7 +516,7 @@ const renderVolver = (target: Stage) => (
               </p>
             )}
 
-            {(() => {
+            {!hideNutrition && (() => {
               const { nutriscore, novaGroup, sinGluten, vegano, vegetariano } = producto.infoAmpliada;
               const sinInfo = !nutriscore && !novaGroup && !sinGluten && !vegano && !vegetariano;
               return (

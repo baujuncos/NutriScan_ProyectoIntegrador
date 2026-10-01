@@ -6,7 +6,7 @@ import { searchAlimentosAction, getAlimentosRecientesAction, type AlimentoOption
 import { CAMPOS_DEFAULT, type CamposBusqueda } from './searchQuery';
 import { type IngestaTipo } from '@/lib/nutrition';
 
-export type BusquedaAlimentoHandle = { focus: () => void };
+export type BusquedaAlimentoHandle = { focus: () => void; clear: () => void };
 
 const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   tipoIngesta: IngestaTipo;
@@ -35,7 +35,10 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
 
   const ningunCampoTildado = !campos.nombre && !campos.marca && !campos.denominacion;
 
-  useImperativeHandle(ref, () => ({ focus: () => searchInputRef.current?.focus() }));
+  useImperativeHandle(ref, () => ({
+    focus: () => searchInputRef.current?.focus(),
+    clear: () => handleClear(),
+  }));
 
   useEffect(() => {
     getAlimentosRecientesAction().then(setRecientes);
@@ -47,13 +50,20 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
       setSearchLoading(false);
       return;
     }
+    let cancelado = false;
     setSearchLoading(true);
     const t = setTimeout(async () => {
       const data = await searchAlimentosAction(query, tipoIngesta, campos);
-      setSearchResults(data);
-      setSearchLoading(false);
+      // Si el query cambió (o se limpió) mientras esta búsqueda estaba en
+      // vuelo, descartamos la respuesta — si no, puede repoblar el dropdown
+      // con resultados de una búsqueda vieja después de que el usuario ya
+      // navegó lejos de ella.
+      if (!cancelado) {
+        setSearchResults(data);
+        setSearchLoading(false);
+      }
     }, 300);
-    return () => clearTimeout(t);
+    return () => { cancelado = true; clearTimeout(t); };
   }, [query, tipoIngesta, campos, ningunCampoTildado]);
 
   const filtered = selectedAlimento ? [] : searchResults;
@@ -182,8 +192,8 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
             </div>
           )}
 
-          {showDropdown && query.length >= 2 && filtered.length === 0 && !selectedAlimento && (
-            <div className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 p-4 text-center">
+          {showDropdown && query.length >= 2 && filtered.length === 0 && !selectedAlimento && (ningunCampoTildado || !searchLoading) && (
+            <div data-testid="dropdown-sin-resultados" className="absolute top-full left-0 right-0 bg-white rounded-2xl shadow-lg border border-gray-100 z-20 mt-1 p-4 text-center">
               {ningunCampoTildado ? (
                 <>
                   <p className="text-sm text-gray-500">Elegí al menos un campo para buscar.</p>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AlimentacionClient from '@/app/alimentacion/AlimentacionClient';
 import type { AlimentoOption } from '@/app/alimentacion/actions';
@@ -405,7 +405,19 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       const { user } = mount();
 
       await user.type(screen.getByRole('textbox'), 'ar');
+      // Esperar a que venza el debounce de 300ms y la búsqueda real arranque
+      // (quede "en vuelo") antes de limpiar — si no, el cleanup del effect
+      // cancela el setTimeout antes de que searchAlimentosAction se llegue a
+      // llamar, y el test no prueba la carrera real.
+      await waitFor(() => expect(searchAlimentosAction).toHaveBeenCalled());
       await user.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }));
+      // El input nunca pierde el foco real (el botón "×" usa preventDefault
+      // en mousedown justamente para eso), así que un click no dispara un
+      // nuevo evento focus — se dispara el evento a mano para reabrir el
+      // dropdown (showDropdown=true) con query vacía, que es el momento en
+      // que la respuesta vieja, si no se descarta, se colaría igual aunque
+      // el usuario ya limpió y no está tipeando nada.
+      fireEvent.focus(screen.getByRole('textbox'));
       resolverBusqueda([A_SARA2_CON_CATEGORIA]);
 
       await new Promise((r) => setTimeout(r, 50));
@@ -441,6 +453,14 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await user.type(screen.getByRole('textbox'), 'ar');
       expect(await screen.findByText(/elegí al menos un campo/i)).toBeInTheDocument();
       expect(screen.queryByText(/no encontramos/i)).not.toBeInTheDocument();
+    });
+
+    it('mientras busca, no se renderiza (ni vacío) el contenedor de "sin resultados" encima de "Buscando..."', async () => {
+      vi.mocked(searchAlimentosAction).mockReturnValue(new Promise(() => {}));
+      const { user } = mount();
+      await user.type(screen.getByRole('textbox'), 'xyz');
+      await screen.findByText('Buscando...', {}, { timeout: 1500 });
+      expect(screen.queryByTestId('dropdown-sin-resultados')).not.toBeInTheDocument();
     });
 
     it('"Quitar filtros" vuelve a tildar los 3 campos', async () => {
@@ -518,6 +538,42 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await buscar(user, 'prod', sinValores.nombre);
       await user.click(screen.getByText(sinValores.nombre));
       expect(await screen.findByText(/no tiene valores nutricionales/i)).toBeInTheDocument();
+    });
+
+    it('con hideNutrition en true, NO muestra el aviso de ANMAT sin valores (no filtra información nutricional a un rol bloqueado)', async () => {
+      const sinValores: AlimentoOption = { ...A_ANMAT_VACIO, kcal_100g: null, proteinas_100g: null, grasas_100g: null, carbs_100g: null };
+      vi.mocked(searchAlimentosAction).mockResolvedValue([sinValores]);
+      const user = userEvent.setup();
+      render(
+        <AlimentacionClient
+          ingesta={null}
+          tipoIngesta="almuerzo"
+          fecha="2026-09-21"
+          hideNutrition={true}
+        />,
+      );
+      await buscar(user, 'prod', sinValores.nombre);
+      await user.click(screen.getByText(sinValores.nombre));
+      expect(screen.queryByText(/no tiene valores nutricionales/i)).not.toBeInTheDocument();
+    });
+
+    it('"Quitar selección" también limpia el texto del buscador, no solo la selección', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([A_SARA2_CON_CATEGORIA]);
+      const { user } = mount();
+      await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
+      await user.click(screen.getByText(A_SARA2_CON_CATEGORIA.nombre));
+      await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
+      expect(screen.getByRole('textbox')).toHaveValue('');
+    });
+
+    it('cerrar el modal de carga manual también limpia el texto del buscador', async () => {
+      vi.mocked(searchAlimentosAction).mockResolvedValue([]);
+      const { user } = mount();
+      await user.type(screen.getByRole('textbox'), 'xyz');
+      await screen.findByText(/no encontramos/i);
+      await user.click(screen.getByText('Cargar alimento manualmente'));
+      await user.click(within(screen.getByRole('dialog')).getByText('Cancelar'));
+      expect(screen.getByRole('textbox')).toHaveValue('');
     });
   });
 

@@ -121,6 +121,7 @@ export default function AlimentacionClient({
   const handleCloseManualModal = () => {
     setShowManualModal(false);
     setManualQuery('');
+    searchHandleRef.current?.clear();
   };
 
   const handleStartEdit = (item: ItemRow) => {
@@ -280,7 +281,7 @@ export default function AlimentacionClient({
             </div>
             <button
               type="button"
-              onClick={() => setSelectedAlimento(null)}
+              onClick={() => { setSelectedAlimento(null); searchHandleRef.current?.clear(); }}
               aria-label="Quitar selección"
               className="text-gray-400 hover:text-gray-600 flex-shrink-0"
             >
@@ -297,6 +298,7 @@ export default function AlimentacionClient({
             value={cantidadValue}
             onChange={setCantidadValue}
             mostrarAvisoSinValores={
+              !hideNutrition &&
               selectedAlimento.kcal_100g == null &&
               selectedAlimento.proteinas_100g == null &&
               selectedAlimento.grasas_100g == null &&

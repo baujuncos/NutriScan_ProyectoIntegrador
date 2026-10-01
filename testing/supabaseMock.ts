@@ -26,10 +26,17 @@ export interface InsertLlamado {
   payload: unknown;
 }
 
+export interface FiltroLlamado {
+  tabla: string;
+  metodo: string;
+  args: unknown[];
+}
+
 export function createSupabaseFromMock() {
   const colas = new Map<string, TableResult[]>();
   const llamadas: string[] = [];
   const inserts: InsertLlamado[] = [];
+  const filtros: FiltroLlamado[] = [];
 
   function siguiente(tabla: string): TableResult {
     const cola = colas.get(tabla) ?? [];
@@ -59,7 +66,12 @@ export function createSupabaseFromMock() {
           // Passthrough encadenable para cualquier método de filtro de
           // PostgREST (ilike, or, not, order, limit, in, etc.) que todavía no
           // tiene un stub explícito arriba — siempre devuelve la misma cadena.
-          return vi.fn(() => chain);
+          // Cada llamada queda registrada en `filtros` para poder assertar
+          // qué predicados arma el código bajo test, no solo qué devuelve.
+          return vi.fn((...args: unknown[]) => {
+            filtros.push({ tabla, metodo: prop, args });
+            return chain;
+          });
         },
       },
     );
@@ -76,10 +88,13 @@ export function createSupabaseFromMock() {
     },
     tablasLlamadas: () => llamadas,
     insertsLlamados: () => inserts,
+    /** Cada llamada a un método de filtro sin stub explícito (ilike, or, not, order, limit, in, etc.), en orden. */
+    filtrosLlamados: () => filtros,
     reset() {
       colas.clear();
       llamadas.length = 0;
       inserts.length = 0;
+      filtros.length = 0;
       from.mockClear();
     },
   };

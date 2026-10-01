@@ -64,8 +64,8 @@ export default function CantidadSelector({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => ajustar(-1)}
-          aria-label="Restar 1 gramo"
+          onClick={() => ajustar(-10)}
+          aria-label="Restar 10 gramos"
           className="w-9 h-9 flex-shrink-0 rounded-lg border border-gray-200 text-gray-600 font-bold hover:bg-gray-50"
         >
           −
@@ -74,8 +74,8 @@ export default function CantidadSelector({
         <div className="flex-1 text-center text-sm font-semibold text-gray-900">{value || 0} g</div>
         <button
           type="button"
-          onClick={() => ajustar(1)}
-          aria-label="Sumar 1 gramo"
+          onClick={() => ajustar(10)}
+          aria-label="Sumar 10 gramos"
           className="w-9 h-9 flex-shrink-0 rounded-lg border border-gray-200 text-gray-600 font-bold hover:bg-gray-50"
         >
           +

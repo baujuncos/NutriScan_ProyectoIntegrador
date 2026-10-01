@@ -28,25 +28,25 @@ describe('CantidadSelector', () => {
     expect(screen.getByDisplayValue('100')).toBeInTheDocument();
   });
 
-  it('el stepper suma y resta 1 gramo, con piso en 1 y techo en maxCantidad', async () => {
+  it('el stepper suma y resta 10 gramos, con piso en 1 y techo en maxCantidad', async () => {
     const user = userEvent.setup();
-    render(<Wrapper initial="2000" />);
-    await user.click(screen.getByRole('button', { name: 'Sumar 1 gramo' }));
+    render(<Wrapper initial="1995" />);
+    await user.click(screen.getByRole('button', { name: 'Sumar 10 gramos' }));
     expect(screen.getByDisplayValue('2000')).toBeInTheDocument(); // techo: no pasa de maxCantidad
 
-    render(<Wrapper initial="1" />);
-    await user.click(screen.getAllByRole('button', { name: 'Restar 1 gramo' })[1]);
+    render(<Wrapper initial="5" />);
+    await user.click(screen.getAllByRole('button', { name: 'Restar 10 gramos' })[1]);
     expect(screen.getByDisplayValue('1')).toBeInTheDocument(); // piso: no baja de 1
   });
 
-  it('el stepper suma/resta desde un valor intermedio', async () => {
+  it('el stepper suma/resta 10 gramos desde un valor intermedio', async () => {
     const user = userEvent.setup();
     render(<Wrapper initial="50" />);
-    await user.click(screen.getByRole('button', { name: 'Sumar 1 gramo' }));
-    expect(screen.getByDisplayValue('51')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Restar 1 gramo' }));
-    await user.click(screen.getByRole('button', { name: 'Restar 1 gramo' }));
-    expect(screen.getByDisplayValue('49')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Sumar 10 gramos' }));
+    expect(screen.getByDisplayValue('60')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Restar 10 gramos' }));
+    await user.click(screen.getByRole('button', { name: 'Restar 10 gramos' }));
+    expect(screen.getByDisplayValue('40')).toBeInTheDocument();
   });
 
   it('"Personalizar" revela un input libre que sigue sincronizado con el valor', async () => {

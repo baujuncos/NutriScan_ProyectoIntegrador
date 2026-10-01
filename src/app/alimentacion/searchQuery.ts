@@ -24,15 +24,24 @@ export interface FiltroEncadenable<T> {
 
 /**
  * Filtra por categoría=suplemento (tab Suplementos) o la excluye (el resto de
- * los tabs). Mira categoria Y nombre en ambas ramas: un producto como
- * "Proteína Whey" categorizado como "Snacks" debe aparecer buscando desde
- * Suplementos, y un producto categorizado "Suplementos" nunca debe colarse
- * en Desayuno/Almuerzo/etc. aunque su nombre no diga "suplemento".
+ * los tabs). Mira categoria, nombre Y denominacion en ambas ramas.
+ *
+ * `categoria ilike '%suplemento%'` solo (lo que había antes) deja afuera
+ * casos reales del catálogo ANMAT: bebidas/geles deportivos como "Reaktor" o
+ * "Recover" están categorizados como "Bebidas analcohólicas" o "Alimentos de
+ * régimen" (no "Suplementos dietarios"), pero su `denominacion` dice
+ * literalmente "Suplemento hidroelectrolítico..." — verificado contra las
+ * 38k filas reales de `ANMAT/anmat_unificado_100g.csv` (32 productos en ese
+ * caso exacto). Agregar denominacion a la OR/exclusión cierra ese hueco sin
+ * mantener una lista de palabras clave a mano.
  */
 export function aplicarFiltroSuplemento<T extends FiltroEncadenable<T>>(builder: T, isSuplemento: boolean): T {
   return isSuplemento
-    ? builder.or('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%')
-    : builder.not('categoria', 'ilike', '%suplemento%').not('nombre', 'ilike', '%suplemento%');
+    ? builder.or('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%,denominacion.ilike.%suplemento%')
+    : builder
+        .not('categoria', 'ilike', '%suplemento%')
+        .not('nombre', 'ilike', '%suplemento%')
+        .not('denominacion', 'ilike', '%suplemento%');
 }
 
 /**

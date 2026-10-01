@@ -27,18 +27,19 @@ function fakeBuilder() {
 }
 
 describe('aplicarFiltroSuplemento — fix: mira categoria Y nombre en ambas ramas', () => {
-  it('tab Suplementos: filtra por categoria O nombre conteniendo "suplemento"', () => {
+  it('tab Suplementos: filtra por categoria, nombre O denominacion conteniendo "suplemento"', () => {
     const builder = fakeBuilder();
     aplicarFiltroSuplemento(builder, true);
-    expect(builder.or).toHaveBeenCalledWith('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%');
+    expect(builder.or).toHaveBeenCalledWith('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%,denominacion.ilike.%suplemento%');
     expect(builder.not).not.toHaveBeenCalled();
   });
 
-  it('otros tabs: excluye por categoria Y por nombre conteniendo "suplemento"', () => {
+  it('otros tabs: excluye por categoria, nombre Y denominacion conteniendo "suplemento"', () => {
     const builder = fakeBuilder();
     aplicarFiltroSuplemento(builder, false);
     expect(builder.not).toHaveBeenCalledWith('categoria', 'ilike', '%suplemento%');
     expect(builder.not).toHaveBeenCalledWith('nombre', 'ilike', '%suplemento%');
+    expect(builder.not).toHaveBeenCalledWith('denominacion', 'ilike', '%suplemento%');
     expect(builder.or).not.toHaveBeenCalled();
   });
 });

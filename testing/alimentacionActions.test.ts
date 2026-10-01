@@ -56,17 +56,17 @@ describe('searchAlimentosAction', () => {
     expect(resultado).toHaveLength(150);
   });
 
-  it('aplica el filtro de categoría O nombre "suplemento" en las consultas reales cuando tipoIngesta es suplemento', async () => {
+  it('aplica el filtro de categoría, nombre O denominación "suplemento" en las consultas reales cuando tipoIngesta es suplemento', async () => {
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
 
     await searchAlimentosAction('whey', 'suplemento');
 
     const ors = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'or');
-    expect(ors.some((f) => f.args[0] === 'categoria.ilike.%suplemento%,nombre.ilike.%suplemento%')).toBe(true);
+    expect(ors.some((f) => f.args[0] === 'categoria.ilike.%suplemento%,nombre.ilike.%suplemento%,denominacion.ilike.%suplemento%')).toBe(true);
   });
 
-  it('excluye por categoría Y por nombre "suplemento" en las consultas reales cuando tipoIngesta no es suplemento', async () => {
+  it('excluye por categoría, nombre Y denominación "suplemento" en las consultas reales cuando tipoIngesta no es suplemento', async () => {
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
 
@@ -75,6 +75,7 @@ describe('searchAlimentosAction', () => {
     const nots = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'not');
     expect(nots.some((f) => f.args[0] === 'categoria' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
     expect(nots.some((f) => f.args[0] === 'nombre' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
+    expect(nots.some((f) => f.args[0] === 'denominacion' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
   });
 });
 

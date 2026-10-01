@@ -42,6 +42,10 @@ describe('obtenerProductoPorEAN', () => {
       porcion: 45,
       nutrientes100g: { kcal: 450, proteinas: 5, grasas: 20, carbs: 60 },
       imagenUrl: 'https://example.com/img.jpg',
+      esSuplemento: false,
+      porcionEtiqueta: null,
+      pesoNetoTotal: null,
+      infoAmpliada: { nutriscore: null, novaGroup: null, sinGluten: false, vegano: false, vegetariano: false },
     });
   });
 
@@ -179,6 +183,232 @@ describe('obtenerProductoPorEAN', () => {
     if (result.encontrado) {
       expect(result.nutrientes100g).toEqual({ kcal: 0, proteinas: 5, grasas: 20, carbs: 60 });
     }
+  });
+
+  it('redondea los 4 macros a 1 decimal', async () => {
+    mockFetchOnce({
+      status: 1,
+      product: {
+        product_name: 'Producto con decimales largos',
+        nutriments: {
+          'energy-kcal_100g': 120.566,
+          proteins_100g: 3.249,
+          fat_100g: 1.05,
+          carbohydrates_100g: 24.84,
+        },
+      },
+    });
+    const result = await obtenerProductoPorEAN('7790040000800');
+    expect(result.encontrado).toBe(true);
+    if (result.encontrado) {
+      expect(result.nutrientes100g).toEqual({ kcal: 120.6, proteinas: 3.2, grasas: 1.1, carbs: 24.8 });
+    }
+  });
+
+  describe('esSuplemento', () => {
+    const base = {
+      status: 1,
+      product: {
+        nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+      },
+    };
+
+    it.each([
+      ['Suplemento Multivitamínico', '', ''],
+      ['Whey Protein', 'supplement', ''],
+      ['Barrita', 'proteina', ''],
+      ['Monohidrato', 'creatina', ''],
+      ['Complejo B', 'multivitaminico', ''],
+    ])('detecta "%s" / categoria "%s" / marca "%s" como suplemento', async (nombre, categoria, marca) => {
+      mockFetchOnce({
+        ...base,
+        product: { ...base.product, product_name: nombre, categories: categoria, brands: marca },
+      });
+      const result = await obtenerProductoPorEAN('7790040000900');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.esSuplemento).toBe(true);
+    });
+
+    it('un alimento común no se marca como suplemento', async () => {
+      mockFetchOnce({
+        ...base,
+        product: { ...base.product, product_name: 'Arroz blanco', categories: 'Cereales', brands: 'Marca X' },
+      });
+      const result = await obtenerProductoPorEAN('7790040001000');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.esSuplemento).toBe(false);
+    });
+  });
+
+  describe('porcionEtiqueta', () => {
+    it('toma el texto de serving_size cuando está presente', async () => {
+      mockFetchOnce({
+        status: 1,
+        product: {
+          product_name: 'Galletitas',
+          serving_size: '2.5 galletitas (30g)',
+          nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+        },
+      });
+      const result = await obtenerProductoPorEAN('7790040001100');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.porcionEtiqueta).toBe('2.5 galletitas (30g)');
+    });
+
+    it('es null cuando serving_size está ausente o vacío', async () => {
+      mockFetchOnce({
+        status: 1,
+        product: {
+          product_name: 'Producto sin etiqueta de porción',
+          serving_size: '   ',
+          nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+        },
+      });
+      const result = await obtenerProductoPorEAN('7790040001200');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.porcionEtiqueta).toBeNull();
+    });
+  });
+
+  describe('pesoNetoTotal', () => {
+    const conQuantity = (quantity?: unknown, product_quantity?: unknown) => ({
+      status: 1,
+      product: {
+        product_name: 'Producto con peso neto',
+        quantity,
+        product_quantity,
+        nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+      },
+    });
+
+    it('usa product_quantity numérico cuando está presente', async () => {
+      mockFetchOnce(conQuantity('150 g', '150'));
+      const result = await obtenerProductoPorEAN('7790040001300');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBe(150);
+    });
+
+    it('parsea quantity en gramos cuando falta product_quantity', async () => {
+      mockFetchOnce(conQuantity('250 g', undefined));
+      const result = await obtenerProductoPorEAN('7790040001400');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBe(250);
+    });
+
+    it('convierte quantity en kg a gramos', async () => {
+      mockFetchOnce(conQuantity('1.5 kg', undefined));
+      const result = await obtenerProductoPorEAN('7790040001500');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBe(1500);
+    });
+
+    it('convierte quantity en litros a "gramos" (ml, densidad ~1)', async () => {
+      mockFetchOnce(conQuantity('1.5 l', undefined));
+      const result = await obtenerProductoPorEAN('7790040001600');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBe(1500);
+    });
+
+    it('es null cuando no hay quantity ni product_quantity', async () => {
+      mockFetchOnce(conQuantity(undefined, undefined));
+      const result = await obtenerProductoPorEAN('7790040001700');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para texto de multipack ambiguo (ej. "4 x 25 g") en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('4 x 25 g', undefined));
+      const result = await obtenerProductoPorEAN('7790040001800');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para "x2 100g" (número antes del "x") en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('x2 100g', undefined));
+      const result = await obtenerProductoPorEAN('7790040001810');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para "100 g x 2" (la "x" no pega directo con los dígitos) en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('100 g x 2', undefined));
+      const result = await obtenerProductoPorEAN('7790040001820');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+
+    it('es null para multipack con signo "×" unicode (ej. "2 × 500 ml") en vez de calcular mal', async () => {
+      mockFetchOnce(conQuantity('2 × 500 ml', undefined));
+      const result = await obtenerProductoPorEAN('7790040001830');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) expect(result.pesoNetoTotal).toBeNull();
+    });
+  });
+
+  describe('infoAmpliada', () => {
+    it('extrae nutriscore, nova group y los 3 labels cuando vienen completos', async () => {
+      mockFetchOnce({
+        status: 1,
+        product: {
+          product_name: 'Producto con info completa',
+          nutriscore_grade: 'B',
+          nova_group: 3,
+          labels_tags: ['en:vegan', 'en:gluten-free'],
+          nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+        },
+      });
+      const result = await obtenerProductoPorEAN('7790040001900');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) {
+        expect(result.infoAmpliada).toEqual({
+          nutriscore: 'b',
+          novaGroup: 3,
+          sinGluten: true,
+          vegano: true,
+          vegetariano: true, // vegano implica vegetariano
+        });
+      }
+    });
+
+    it('nutriscore inválido y nova_group fuera de rango caen a null; sin labels, los 3 booleanos son false', async () => {
+      mockFetchOnce({
+        status: 1,
+        product: {
+          product_name: 'Producto con info rara',
+          nutriscore_grade: 'z',
+          nova_group: 7,
+          nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+        },
+      });
+      const result = await obtenerProductoPorEAN('7790040002000');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) {
+        expect(result.infoAmpliada).toEqual({
+          nutriscore: null,
+          novaGroup: null,
+          sinGluten: false,
+          vegano: false,
+          vegetariano: false,
+        });
+      }
+    });
+
+    it('vegetariano true sin ser vegano cuando el label es solo en:vegetarian', async () => {
+      mockFetchOnce({
+        status: 1,
+        product: {
+          product_name: 'Producto vegetariano no vegano',
+          labels_tags: ['en:vegetarian'],
+          nutriments: { 'energy-kcal_100g': 100, proteins_100g: 1, fat_100g: 1, carbohydrates_100g: 1 },
+        },
+      });
+      const result = await obtenerProductoPorEAN('7790040002100');
+      expect(result.encontrado).toBe(true);
+      if (result.encontrado) {
+        expect(result.infoAmpliada.vegano).toBe(false);
+        expect(result.infoAmpliada.vegetariano).toBe(true);
+      }
+    });
   });
 
   it('devuelve encontrado:false ante un error de red', async () => {

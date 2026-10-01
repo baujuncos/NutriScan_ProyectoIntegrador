@@ -10,7 +10,7 @@
 -- ============================================================
 
 -- ============================================================
--- 010 (NUT-166/NUT-172) — Predicciones de detección por IA (una por foto,
+-- 011 (NUT-166/NUT-172) — Predicciones de detección por IA (una por foto,
 -- sin refinamiento multi-turno) y guardados/correcciones del usuario.
 --
 -- IMPORTANTE: estas tablas NUNCA deben ser escritas por el mismo código que

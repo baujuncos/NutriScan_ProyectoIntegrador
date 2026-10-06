@@ -150,9 +150,8 @@ export async function obtenerProductoPorEAN(ean: string): Promise<ProductoOFF> {
     const grasasNum = aNumero(n['fat_100g']);
     const carbsNum = aNumero(n['carbohydrates_100g']);
 
-    const todosAusentes =
-      kcalNum === null && proteinasNum === null && grasasNum === null && carbsNum === null;
-    if (todosAusentes) return { encontrado: false, ean };
+    // Sin ningún macro (nulo o 0) no hay datos utilizables, aunque venga kcal.
+    if (!proteinasNum && !grasasNum && !carbsNum) return { encontrado: false, ean };
 
     const nombre =
       typeof product.product_name === 'string' && product.product_name.trim()

@@ -7,12 +7,14 @@ import { createClient } from '@/lib/supabase/client';
 import PhysicalForm, { PhysicalInitialData } from '@/components/profile/PhysicalForm';
 import OnboardingProgress from '@/components/onboarding/OnboardingProgress';
 import Button from '@/components/ui/Button';
+import { esEmailUCC } from '@/lib/roles';
 
 export default function PerfilFisicoPage() {
   const router = useRouter();
   const supabase = createClient();
   const [initial, setInitial] = useState<PhysicalInitialData | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [esUCC, setEsUCC] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +32,7 @@ export default function PerfilFisicoPage() {
         .eq('user_id', user.id)
         .maybeSingle();
       if (!cancelled) {
+        setEsUCC(esEmailUCC(user.email));
         setInitial(data ?? null);
         setLoaded(true);
       }
@@ -38,6 +41,13 @@ export default function PerfilFisicoPage() {
       cancelled = true;
     };
   }, [router, supabase]);
+
+  // Sin mail UCC no hay fase anterior: se cierra la sesión y se vuelve al login.
+  const handleVolverAlLogin = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
 
   const handleSaved = async () => {
     const {
@@ -87,9 +97,9 @@ export default function PerfilFisicoPage() {
                 variant="ghost"
                 size="md"
                 className="w-full mt-2"
-                onClick={() => router.push('/elegir-uso?volver=1')}
+                onClick={esUCC ? () => router.push('/elegir-uso?volver=1') : handleVolverAlLogin}
               >
-                Volver a la fase anterior
+                {esUCC ? 'Volver a la fase anterior' : 'Volver'}
               </Button>
             </>
           ) : (

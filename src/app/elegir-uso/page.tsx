@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { extractNombreApellido } from '@/lib/roles';
+import { esEmailUCC, extractNombreApellido } from '@/lib/roles';
 import Button from '@/components/ui/Button';
 import AnimatedError from '@/components/ui/AnimatedError';
 
@@ -34,6 +34,12 @@ export default function ElegirUsoPage() {
         return;
       }
 
+      // Esta pantalla es solo para usuarios @ucc.edu.ar, con o sin perfil previo.
+      if (!esEmailUCC(user.email)) {
+        router.replace('/perfil-fisico');
+        return;
+      }
+
       const volviendo = new URLSearchParams(window.location.search).get('volver') === '1';
 
       // If the user already has a profile (e.g. they re-visit this page), redirect accordingly
@@ -56,13 +62,6 @@ export default function ElegirUsoPage() {
           setSelectedUsage(profile.role);
         }
         setCheckingAuth(false);
-        return;
-      }
-
-      // Ensure this page is only accessible to @ucc.edu.ar users
-      const isUCC = (user.email ?? '').toLowerCase().endsWith('@ucc.edu.ar');
-      if (!isUCC) {
-        router.replace('/perfil-fisico');
         return;
       }
 

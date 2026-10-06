@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { extractNombreApellido } from '@/lib/roles';
+import { esAltaInvestigador, extractNombreApellido } from '@/lib/roles';
+import { INV_CODE_COOKIE } from '@/lib/inv-code-cookie';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  // 'role' is passed via redirectTo for investigators using Google OAuth
-  const roleParam = searchParams.get('role');
+  let invConsumido = false;
   const next = searchParams.get('next') ?? '/';
 
   if (code) {
@@ -37,8 +37,15 @@ export async function GET(request: NextRequest) {
               user.user_metadata as Record<string, unknown>,
             );
 
-            if (roleParam === 'investigador') {
-              // Investigador confirmed via Google OAuth or email link with role in URL
+            if (
+              esAltaInvestigador({
+                metaRole: (user.user_metadata as Record<string, unknown>)?.role,
+                cookieToken: request.cookies.get(INV_CODE_COOKIE)?.value,
+                validCode: process.env.INVITATION_CODE_INVESTIGADOR,
+              })
+            ) {
+              // Investigador: alta por email (metadata) o Google tras validar el código
+              invConsumido = true;
               await supabase.from('profiles').insert({
                 user_id: user.id,
                 nombre,
@@ -82,13 +89,10 @@ export async function GET(request: NextRequest) {
       const forwardedHost = request.headers.get('x-forwarded-host');
       const isLocalEnv = process.env.NODE_ENV === 'development';
 
-      if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`);
-      } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`);
-      } else {
-        return NextResponse.redirect(`${origin}${next}`);
-      }
+      const base = !isLocalEnv && forwardedHost ? `https://${forwardedHost}` : origin;
+      const res = NextResponse.redirect(`${base}${next}`);
+      if (invConsumido) res.cookies.set(INV_CODE_COOKIE, '', { path: '/', maxAge: 0 });
+      return res;
     }
   }
 

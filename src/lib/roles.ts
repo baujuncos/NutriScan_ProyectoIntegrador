@@ -14,12 +14,32 @@ export function shouldHideNutritionInfo(role: string): boolean {
   return role === 'deportista_ucc';
 }
 
+export function esEmailUCC(email: string | null | undefined): boolean {
+  return (email ?? '').toLowerCase().endsWith('@ucc.edu.ar');
+}
+
 export function determineRoleFromEmail(email: string): UserRole {
   const domain = email.split('@')[1]?.toLowerCase();
   if (domain === 'ucc.edu.ar') {
     return 'deportista_ucc';
   }
   return 'particular';
+}
+
+/**
+ * ¿Este alta es de investigador? No se confía en un query param (cualquiera lo
+ * puede agregar a /auth/callback, y Supabase puede descartarlo del redirectTo):
+ * vale el rol que /api/register dejó en user_metadata (alta por email) o la
+ * cookie del código de invitación ya validado (alta con Google).
+ */
+export function esAltaInvestigador(opts: {
+  metaRole: unknown;
+  cookieToken?: string;
+  validCode?: string;
+}): boolean {
+  if (opts.metaRole === 'investigador') return true;
+  const valid = opts.validCode?.trim();
+  return !!valid && opts.cookieToken === valid;
 }
 
 /**

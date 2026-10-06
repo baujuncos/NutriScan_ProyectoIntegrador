@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   open: boolean;
@@ -48,9 +49,12 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  // Portal a <body>: si el modal se renderiza dentro de un contenedor con su
+  // propio stacking context (ej. el sidebar sticky), su z-index queda atrapado
+  // ahí y el contenido de la página lo tapa.
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 px-4 py-8 overflow-y-auto"
       role="dialog"
@@ -96,6 +100,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

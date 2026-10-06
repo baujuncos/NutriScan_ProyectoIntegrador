@@ -84,17 +84,15 @@ function SidebarContent({ nombre, apellido, onNavigate }: SidebarContentProps) {
         <div className="flex items-center gap-3 rounded-xl px-2 py-2">
           <Avatar nombre={nombre} apellido={apellido} size="md" />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold text-slate-900">
-                {nombre} {apellido}
-              </p>
-              <DeleteAccountAction displayName={`${nombre} ${apellido}`} />
-            </div>
+            <p className="truncate text-sm font-semibold text-slate-900">
+              {nombre} {apellido}
+            </p>
             <p className="truncate text-xs text-slate-400">Investigador</p>
           </div>
         </div>
-        <div className="mt-1 px-2">
+        <div className="mt-1 flex items-center justify-between px-2">
           <LogoutButton />
+          <DeleteAccountAction displayName={`${nombre} ${apellido}`} />
         </div>
       </div>
     </div>
@@ -111,9 +109,10 @@ interface SidebarProps {
 export default function Sidebar({ nombre, apellido, open, onClose }: SidebarProps) {
   return (
     <>
-      {/* Desktop: fixed light sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block">
-        <div className="sticky top-0 h-screen">
+      {/* Desktop: sidebar fixed (no sticky) + spacer. Con un modal abierto el body
+          pasa a position:fixed y un sticky saltaría hacia arriba. */}
+      <aside className="hidden w-64 shrink-0 lg:block">
+        <div className="fixed inset-y-0 left-0 w-64 border-r border-slate-200 bg-white">
           <SidebarContent nombre={nombre} apellido={apellido} />
         </div>
       </aside>

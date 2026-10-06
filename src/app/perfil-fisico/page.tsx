@@ -42,6 +42,13 @@ export default function PerfilFisicoPage() {
     };
   }, [router, supabase]);
 
+  // Sin mail UCC no hay fase anterior: se cierra la sesión y se vuelve al login.
+  const handleVolverAlLogin = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
+
   const handleSaved = async () => {
     const {
       data: { user },
@@ -85,17 +92,15 @@ export default function PerfilFisicoPage() {
           {loaded ? (
             <>
               <PhysicalForm initialData={initial} onSaved={handleSaved} />
-              {esUCC && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="md"
-                  className="w-full mt-2"
-                  onClick={() => router.push('/elegir-uso?volver=1')}
-                >
-                  Volver a la fase anterior
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                className="w-full mt-2"
+                onClick={esUCC ? () => router.push('/elegir-uso?volver=1') : handleVolverAlLogin}
+              >
+                {esUCC ? 'Volver a la fase anterior' : 'Volver'}
+              </Button>
             </>
           ) : (
             <p className="text-sm text-gray-500">Cargando…</p>

@@ -7,12 +7,14 @@ import { createClient } from '@/lib/supabase/client';
 import PhysicalForm, { PhysicalInitialData } from '@/components/profile/PhysicalForm';
 import OnboardingProgress from '@/components/onboarding/OnboardingProgress';
 import Button from '@/components/ui/Button';
+import { esEmailUCC } from '@/lib/roles';
 
 export default function PerfilFisicoPage() {
   const router = useRouter();
   const supabase = createClient();
   const [initial, setInitial] = useState<PhysicalInitialData | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [esUCC, setEsUCC] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +32,7 @@ export default function PerfilFisicoPage() {
         .eq('user_id', user.id)
         .maybeSingle();
       if (!cancelled) {
+        setEsUCC(esEmailUCC(user.email));
         setInitial(data ?? null);
         setLoaded(true);
       }
@@ -82,15 +85,17 @@ export default function PerfilFisicoPage() {
           {loaded ? (
             <>
               <PhysicalForm initialData={initial} onSaved={handleSaved} />
-              <Button
-                type="button"
-                variant="ghost"
-                size="md"
-                className="w-full mt-2"
-                onClick={() => router.push('/elegir-uso?volver=1')}
-              >
-                Volver a la fase anterior
-              </Button>
+              {esUCC && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="md"
+                  className="w-full mt-2"
+                  onClick={() => router.push('/elegir-uso?volver=1')}
+                >
+                  Volver a la fase anterior
+                </Button>
+              )}
             </>
           ) : (
             <p className="text-sm text-gray-500">Cargando…</p>

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getRoleLabel, determineRoleFromEmail, extractNombreApellido } from '@/lib/roles';
+import {
+  getRoleLabel,
+  determineRoleFromEmail,
+  extractNombreApellido,
+  esAltaInvestigador,
+  esEmailUCC,
+} from '@/lib/roles';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getRoleLabel — etiqueta en español para cada rol del sistema
@@ -82,5 +88,30 @@ describe('extractNombreApellido', () => {
     });
     expect(result.nombre).toBe('Laura');
     expect(result.apellido).toBe('Martínez');
+  });
+});
+
+describe('esAltaInvestigador', () => {
+  it('alta por email: user_metadata.role investigador', () => {
+    expect(esAltaInvestigador({ metaRole: 'investigador' })).toBe(true);
+  });
+
+  it('alta con Google: cookie igual al código válido', () => {
+    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: 'abc', validCode: 'abc' })).toBe(true);
+  });
+
+  it('cookie distinta, ausente o sin código configurado → no es investigador', () => {
+    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: 'x', validCode: 'abc' })).toBe(false);
+    expect(esAltaInvestigador({ metaRole: undefined, validCode: 'abc' })).toBe(false);
+    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: undefined, validCode: undefined })).toBe(false);
+    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: '', validCode: '' })).toBe(false);
+  });
+});
+
+describe('esEmailUCC', () => {
+  it('solo @ucc.edu.ar', () => {
+    expect(esEmailUCC('a@UCC.edu.ar')).toBe(true);
+    expect(esEmailUCC('a@gmail.com')).toBe(false);
+    expect(esEmailUCC(undefined)).toBe(false);
   });
 });

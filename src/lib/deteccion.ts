@@ -99,3 +99,10 @@ export function esBoundingBoxValida(bbox: BoundingBox): boolean {
     y + height <= 1 + 1e-6
   );
 }
+
+/**
+ * NUT-119 — Versión del prompt de estimación de macros por 100 g (fallback de
+ * Gemini cuando el alimento no está en la DB). Se persiste junto a cada
+ * estimación. Bumpear cuando cambie la semántica del prompt.
+ */
+export const NUTRITION_PROMPT_VERSION = 'nut119-macros-v1';

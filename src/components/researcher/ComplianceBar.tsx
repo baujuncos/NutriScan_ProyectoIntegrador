@@ -23,7 +23,7 @@ export default function ComplianceBar({ data }: { data: ComplianceSegment[] }) {
 
   if (!hasData) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+      <div className="flex h-64 items-center justify-center text-sm text-slate-500">
         Sin registros de comidas esta semana
       </div>
     );

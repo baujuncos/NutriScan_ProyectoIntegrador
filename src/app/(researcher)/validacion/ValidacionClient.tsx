@@ -46,7 +46,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Validación de alimentos</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-600">
           Alimentos que los deportistas registraron y no estaban en el catálogo. {total}{' '}
           {total === 1 ? 'resultado' : 'resultados'}.
         </p>
@@ -87,7 +87,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div
           aria-hidden="true"
-          className={`hidden border-b border-slate-100 bg-slate-50/60 px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-500 ${GRID}`}
+          className={`hidden border-b border-slate-100 bg-slate-50/60 px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-600 ${GRID}`}
         >
           <span>Alimento</span>
           <span>Estado</span>
@@ -97,7 +97,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
         </div>
 
         {rows.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-slate-500">
+          <p className="px-5 py-10 text-center text-sm text-slate-600">
             No hay alimentos {params.estado === 'todos' ? 'en la cola' : `${ESTADO_LABEL[params.estado].toLowerCase()}s`}
             {params.q ? ` que coincidan con “${params.q}”` : ''}.
           </p>
@@ -110,7 +110,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                   <div className="min-w-0">
                     <p className="truncate font-medium text-slate-900">{nombre}</p>
                     {nombre !== r.nombre_original && (
-                      <p className="truncate text-xs text-slate-400">Detectado como: {r.nombre_original}</p>
+                      <p className="truncate text-xs text-slate-600">Detectado como: {r.nombre_original}</p>
                     )}
                   </div>
                   <span>
@@ -119,10 +119,10 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                     </span>
                   </span>
                   <span className="text-sm text-slate-700">
-                    <span className="sm:hidden text-slate-400">Ocurrencias: </span>
+                    <span className="sm:hidden text-slate-600">Ocurrencias: </span>
                     <span>{r.ocurrencias}</span>
                   </span>
-                  <span className="text-sm text-slate-500">{formatFechaCorta(r.ultima_ocurrencia ?? r.created_at)}</span>
+                  <span className="text-sm text-slate-600">{formatFechaCorta(r.ultima_ocurrencia ?? r.created_at)}</span>
                   <Button
                     type="button"
                     variant="outline"
@@ -148,7 +148,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
           ) : (
             <span />
           )}
-          <span className="text-slate-500">
+          <span className="text-slate-600">
             Página {params.page} de {totalPaginas}
           </span>
           {params.page < totalPaginas ? (

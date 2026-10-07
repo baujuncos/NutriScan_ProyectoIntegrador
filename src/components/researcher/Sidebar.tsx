@@ -59,7 +59,7 @@ function SidebarContent({ nombre, apellido, onNavigate }: SidebarContentProps) {
         <Image src="/logo.png" alt="NutriScan" width={40} height={40} className="h-10 w-10 shrink-0" />
         <div className="min-w-0">
           <Image src="/tituloNutriScanNEGRO.png" alt="NutriScan" width={100} height={20} className="h-5 w-auto" />
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             Panel Investigador
           </p>
         </div>
@@ -81,7 +81,7 @@ function SidebarContent({ nombre, apellido, onNavigate }: SidebarContentProps) {
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
-              <span className={active ? 'text-white' : 'text-slate-400'}>{item.icon}</span>
+              <span className={active ? 'text-white' : 'text-slate-500'}>{item.icon}</span>
               {item.label}
             </Link>
           );
@@ -96,7 +96,7 @@ function SidebarContent({ nombre, apellido, onNavigate }: SidebarContentProps) {
             <p className="truncate text-sm font-semibold text-slate-900">
               {nombre} {apellido}
             </p>
-            <p className="truncate text-xs text-slate-400">Investigador</p>
+            <p className="truncate text-xs text-slate-500">Investigador</p>
           </div>
         </div>
         <div className="mt-1 flex items-center justify-between px-2">

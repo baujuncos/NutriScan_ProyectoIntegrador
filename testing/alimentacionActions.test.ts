@@ -87,10 +87,11 @@ describe('searchAlimentosAction', () => {
 
     await searchAlimentosAction('arroz', 'almuerzo');
 
-    const nots = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'not');
-    expect(nots.some((f) => f.args[0] === 'categoria' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
-    expect(nots.some((f) => f.args[0] === 'nombre' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
-    expect(nots.some((f) => f.args[0] === 'denominacion' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
+    // NULL-safe: los SARA2 tienen denominacion NULL y `NOT ILIKE` los descartaba (regresión df5947c).
+    const ors = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'or').map((f) => f.args[0]);
+    for (const col of ['categoria', 'nombre', 'denominacion']) {
+      expect(ors).toContain(`${col}.is.null,${col}.not.ilike.%suplemento%`);
+    }
   });
 });
 

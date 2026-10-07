@@ -11,3 +11,8 @@ export function daysAgoAR(days: number): string {
   date.setUTCDate(date.getUTCDate() - days);
   return formatter.format(date);
 }
+
+/** Ventana en la que se puede cargar o editar una comida: hasta 7 días atrás, nunca en el futuro. */
+export function estaEnRangoEditable(fecha: string): boolean {
+  return fecha >= daysAgoAR(7) && fecha <= todayAR();
+}

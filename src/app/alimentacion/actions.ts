@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
-import { todayAR, daysAgoAR } from '@/lib/date';
+import { INGESTA_TIPOS, ITEM_TIPOS, MAX_CANTIDAD, isValidDateInput, toFixed2 } from '@/lib/nutrition';
+import { estaEnRangoEditable } from '@/lib/date';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
 import { CAMPOS_DEFAULT, aplicarFiltroSuplemento, buildMarcaDenominacionOr, idsRecientesUnicos, type CamposBusqueda } from './searchQuery';
 
@@ -92,12 +92,6 @@ export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
   return idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
 }
 
-function isWithinEditableRange(fecha: string): boolean {
-  return fecha >= daysAgoAR(7) && fecha <= todayAR();
-}
-
-const MAX_CANTIDAD = 2000;
-
 function getStringField(formData: FormData, key: string): string {
   const value = formData.get(key);
   return typeof value === 'string' ? value.trim() : '';
@@ -163,7 +157,7 @@ export async function addItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -224,7 +218,7 @@ export async function addManualItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -272,7 +266,7 @@ export async function addScannedItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -402,7 +396,7 @@ export async function updateItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }

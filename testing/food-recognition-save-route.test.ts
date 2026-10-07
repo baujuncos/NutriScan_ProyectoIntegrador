@@ -1,273 +1,418 @@
+/**
+ * NUT-119 — /save: valida, resuelve cada alimento (foodRef | catálogo | Gemini)
+ * y escribe TODO en una sola RPC transaccional (cliente admin). Nunca devuelve
+ * kcal/macros. Matching, Gemini y RPC de commit mockeados.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 import { createSupabaseFromMock } from './supabaseMock';
 
-const { getUserMock } = vi.hoisted(() => ({ getUserMock: vi.fn() }));
-const supabaseFromMock = createSupabaseFromMock();
+const { getUserMock, estimarMock } = vi.hoisted(() => ({ getUserMock: vi.fn(), estimarMock: vi.fn() }));
+const userDb = createSupabaseFromMock();
+const adminDb = createSupabaseFromMock();
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { getUser: getUserMock }, from: supabaseFromMock.from }),
+  createClient: async () => ({ auth: { getUser: getUserMock }, from: userDb.from, rpc: userDb.rpc }),
 }));
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ rpc: adminDb.rpc, from: adminDb.from }),
+}));
+vi.mock('@/lib/geminiNutritionFallback', () => ({ estimarMacrosPor100g: estimarMock }));
 
 import { POST } from '@/app/api/food-recognition/save/route';
-import type { FinalItem, SaveRequest } from '@/lib/deteccion';
+import { NUTRITION_PROMPT_VERSION, type FinalItem, type SaveRequest } from '@/lib/deteccion';
+import { UMBRAL_MATCH } from '@/lib/matchingAlimentos';
+import { daysAgoAR, todayAR } from '@/lib/date';
 
 const ITEM_UUID = '11111111-1111-1111-1111-111111111111';
+const ITEM_UUID_2 = '33333333-3333-3333-3333-333333333333';
 
-function makeSaveRequest(overrides: Partial<SaveRequest> = {}): SaveRequest {
-  const items: FinalItem[] = overrides.items ?? [
-    {
-      sourceItemId: ITEM_UUID,
-      name: 'Milanesa de pollo',
-      category: 'proteína animal',
-      grams: 150,
-      aiGrams: 150,
-      origin: 'ai',
-      answers: [],
-    },
-  ];
+const baseItem = (over: Partial<FinalItem> = {}): FinalItem => ({
+  sourceItemId: ITEM_UUID,
+  name: 'Milanesa de pollo',
+  category: 'proteína animal',
+  grams: 150,
+  aiGrams: 150,
+  origin: 'ai',
+  answers: [],
+  ...over,
+});
+
+function makeSaveRequest(over: Partial<SaveRequest> = {}): SaveRequest {
   return {
-    predictionId: overrides.predictionId ?? '1',
-    mealType: overrides.mealType ?? 'Desayuno',
-    items,
-    removedItemIds: overrides.removedItemIds ?? [],
+    predictionId: over.predictionId ?? '1',
+    mealType: over.mealType ?? 'desayuno',
+    items: over.items ?? [baseItem()],
+    removedItemIds: over.removedItemIds ?? [],
+    ...(over.fecha ? { fecha: over.fecha } : {}),
   };
 }
 
-function makeRequest(body: unknown): NextRequest {
-  return { json: async () => body } as unknown as NextRequest;
+const makeRequest = (body: unknown): NextRequest => ({ json: async () => body }) as unknown as NextRequest;
+
+const filaMatch = (idx: number, over: Record<string, unknown> = {}) => ({
+  idx,
+  nombre_normalizado: `n${idx}`,
+  id_alimento: null,
+  nombre: null,
+  fuente: null,
+  score: null,
+  metodo: null,
+  kcal_100g: null,
+  proteinas_100g: null,
+  grasas_100g: null,
+  carbs_100g: null,
+  ...over,
+});
+const catalogo = (idx: number, id = 10, score = 0.8) =>
+  filaMatch(idx, {
+    id_alimento: id,
+    nombre: 'X',
+    fuente: 'SARA2',
+    score,
+    metodo: 'trigram',
+    kcal_100g: 200,
+    proteinas_100g: 10,
+    grasas_100g: 5,
+    carbs_100g: 20,
+  });
+
+const IA = { kcal_100g: 250, proteinas_100g: 20, grasas_100g: 15, carbs_100g: 10 };
+
+const COMMIT_OK = { data: { id_guardado: 7, items_registrados: 1, sin_datos: 0 }, error: null };
+
+/** Encola el escenario feliz para UN POST (predicción propia, sin guardado previo, un ítem sin match). */
+function escenario(opts: { uuids?: string[]; match?: unknown[] } = {}) {
+  const uuids = opts.uuids ?? [ITEM_UUID];
+  userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'user-1' }, error: null });
+  userDb.mockTable('detecciones_ia_items', { data: uuids.map((u) => ({ item_uuid: u })), error: null });
+  userDb.mockTable('detecciones_guardados', { data: [], error: null }); // pre-check: sin guardado previo
+  userDb.mockRpc('match_alimentos', { data: opts.match ?? [filaMatch(1)], error: null });
+  adminDb.mockRpc('registrar_guardado_deteccion', COMMIT_OK);
 }
+
+const itemsDeLaRpc = (n = 0) =>
+  (adminDb.rpcLlamadas().filter((l) => l.nombre === 'registrar_guardado_deteccion')[n].args as { p_items: any[] })
+    .p_items;
 
 beforeEach(() => {
   getUserMock.mockReset().mockResolvedValue({ data: { user: { id: 'user-1', email: 'test@example.com' } } });
-  supabaseFromMock.reset();
-  supabaseFromMock.mockTable('detecciones_ia', {
-    data: { id_deteccion: 1, id_usuario: 'user-1' },
-    error: null,
-  });
-  supabaseFromMock.mockTable('detecciones_ia_items', {
-    data: [{ item_uuid: ITEM_UUID }],
-    error: null,
-  });
-  supabaseFromMock.mockTable('detecciones_guardados', { data: { id_guardado: 1 }, error: null });
-  supabaseFromMock.mockTable('detecciones_guardados_items', { data: null, error: null });
+  estimarMock.mockReset().mockResolvedValue({ valores: [], modelo: null });
+  userDb.reset();
+  adminDb.reset();
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('POST /api/food-recognition/save — autenticación', () => {
+describe('POST /save — autenticación y validación', () => {
   it('sin sesión responde 401 UNAUTHENTICATED', async () => {
     getUserMock.mockResolvedValue({ data: { user: null } });
-
     const res = await POST(makeRequest(makeSaveRequest()));
-    const body = await res.json();
-
     expect(res.status).toBe(401);
-    expect(body.error).toBe('UNAUTHENTICATED');
+    expect((await res.json()).error).toBe('UNAUTHENTICATED');
   });
-});
 
-describe('POST /api/food-recognition/save — validación', () => {
   it('cuerpo no-JSON responde 400 INVALID', async () => {
-    const req = { json: async () => { throw new Error('bad'); } } as unknown as NextRequest;
-    const res = await POST(req);
-    const body = await res.json();
-
+    const res = await POST({
+      json: async () => {
+        throw new Error('bad');
+      },
+    } as unknown as NextRequest);
     expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
+    expect((await res.json()).error).toBe('INVALID');
   });
 
-  it('falta predictionId responde 400 INVALID', async () => {
-    const payload = makeSaveRequest();
-    const { predictionId: _predictionId, ...sinPredictionId } = payload;
-    const res = await POST(makeRequest(sinPredictionId));
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
-  });
-
-  it('origin inválido responde 400 INVALID', async () => {
-    const payload = makeSaveRequest({
-      items: [{ ...makeSaveRequest().items[0], origin: 'inventado' as FinalItem['origin'] }],
-    });
-    const res = await POST(makeRequest(payload));
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
-  });
-
-  it('grams<=0 responde 400 INVALID', async () => {
-    const payload = makeSaveRequest({ items: [{ ...makeSaveRequest().items[0], grams: 0 }] });
-    const res = await POST(makeRequest(payload));
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
+  it('falta predictionId / origin inválido / grams<=0 responden 400 INVALID', async () => {
+    const { predictionId: _p, ...sinId } = makeSaveRequest();
+    for (const body of [
+      sinId,
+      makeSaveRequest({ items: [baseItem({ origin: 'inventado' as FinalItem['origin'] })] }),
+      makeSaveRequest({ items: [baseItem({ grams: 0 })] }),
+    ]) {
+      const res = await POST(makeRequest(body));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('INVALID');
+    }
   });
 
   it('added_manually con sourceItemId no nulo responde 400 INVALID', async () => {
-    const payload = makeSaveRequest({
-      items: [
-        {
-          sourceItemId: ITEM_UUID,
-          name: 'Agregado a mano',
-          category: 'otro',
-          grams: 50,
-          aiGrams: null,
-          origin: 'added_manually',
-          answers: [],
-        },
-      ],
+    escenario();
+    const body = makeSaveRequest({
+      items: [baseItem({ sourceItemId: ITEM_UUID, aiGrams: null, origin: 'added_manually' })],
     });
-    const res = await POST(makeRequest(payload));
-    const body = await res.json();
-
+    const res = await POST(makeRequest(body));
     expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
   });
 
   it('sourceItemId que no pertenece a la predicción responde 400 INVALID', async () => {
-    const payload = makeSaveRequest({
-      items: [{ ...makeSaveRequest().items[0], sourceItemId: '22222222-2222-2222-2222-222222222222' }],
-    });
-    const res = await POST(makeRequest(payload));
-    const body = await res.json();
-
+    escenario();
+    const res = await POST(
+      makeRequest(makeSaveRequest({ items: [baseItem({ sourceItemId: '22222222-2222-2222-2222-222222222222' })] })),
+    );
     expect(res.status).toBe(400);
-    expect(body.error).toBe('INVALID');
-  });
-});
-
-describe('POST /api/food-recognition/save — ownership de la predicción', () => {
-  it('predicción inexistente responde 404 NOT_FOUND', async () => {
-    supabaseFromMock.reset();
-    supabaseFromMock.mockTable('detecciones_ia', { data: null, error: null });
-
-    const res = await POST(makeRequest(makeSaveRequest()));
-    const body = await res.json();
-
-    expect(res.status).toBe(404);
-    expect(body.error).toBe('NOT_FOUND');
   });
 
-  it('predicción de otro usuario responde 403 FORBIDDEN', async () => {
-    supabaseFromMock.reset();
-    supabaseFromMock.mockTable('detecciones_ia', {
-      data: { id_deteccion: 1, id_usuario: 'otro-usuario' },
-      error: null,
-    });
-
-    const res = await POST(makeRequest(makeSaveRequest()));
-    const body = await res.json();
-
-    expect(res.status).toBe(403);
-    expect(body.error).toBe('FORBIDDEN');
-  });
-});
-
-describe('POST /api/food-recognition/save — éxito por cada origin', () => {
-  it('origin "ai" (aceptación sin cambios) persiste el guardado y responde 200', async () => {
-    const res = await POST(makeRequest(makeSaveRequest()));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(typeof body.savedId).toBe('string');
+  it("mealType inválido → 400 INVALID con field 'mealType'", async () => {
+    const res = await POST(makeRequest(makeSaveRequest({ mealType: 'brunch' })));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('mealType');
   });
 
-  it('origin "answered" (respondió una pregunta) persiste el guardado', async () => {
-    const payload = makeSaveRequest({
-      items: [
-        {
-          sourceItemId: ITEM_UUID,
-          name: 'Milanesa de pollo (al horno)',
-          category: 'proteína animal',
-          grams: 150,
-          aiGrams: 150,
-          origin: 'answered',
-          answers: [{ question: '¿Frita o al horno?', answer: 'Al horno' }],
-        },
-      ],
-    });
-    const res = await POST(makeRequest(payload));
-    expect(res.status).toBe(200);
+  it("'Desayuno' y 'Colación' se aceptan y viajan normalizados a la RPC", async () => {
+    for (const mealType of ['Desayuno', 'Colación']) {
+      escenario();
+      const ok = await POST(makeRequest(makeSaveRequest({ mealType })));
+      expect(ok.status).toBe(200);
+    }
+    const tipos = adminDb.rpcLlamadas().map((l) => (l.args as { p_tipo: string }).p_tipo);
+    expect(tipos).toEqual(['desayuno', 'colacion']);
   });
 
-  it('origin "replaced" (cambió el alimento) persiste el guardado', async () => {
-    const payload = makeSaveRequest({
-      items: [
-        {
-          sourceItemId: ITEM_UUID,
-          name: 'Yogur griego',
-          category: 'lácteo',
-          grams: 35,
-          aiGrams: 35,
-          origin: 'replaced',
-          answers: [],
-        },
-      ],
-    });
-    const res = await POST(makeRequest(payload));
-    expect(res.status).toBe(200);
+  it("fecha fuera de la ventana editable → 400 INVALID con field 'fecha'", async () => {
+    for (const fecha of [daysAgoAR(8), '2999-01-01', 'ayer']) {
+      const res = await POST(makeRequest(makeSaveRequest({ fecha })));
+      expect(res.status).toBe(400);
+      expect((await res.json()).field).toBe('fecha');
+    }
   });
 
-  it('origin "added_manually" (ítem agregado a mano) persiste el guardado', async () => {
-    const payload = makeSaveRequest({
-      items: [
-        {
-          sourceItemId: null,
-          name: 'Café con leche',
-          category: 'bebida',
-          grams: 200,
-          aiGrams: null,
-          origin: 'added_manually',
-          answers: [],
-        },
-      ],
-    });
-    const res = await POST(makeRequest(payload));
-    expect(res.status).toBe(200);
-  });
-
-  it('removedItemIds (falso positivo) se persiste en el guardado', async () => {
-    const payload = makeSaveRequest({ removedItemIds: [ITEM_UUID] });
-    await POST(makeRequest(payload));
-
-    const insertGuardado = supabaseFromMock
-      .insertsLlamados()
-      .find((i) => i.tabla === 'detecciones_guardados');
-    expect(insertGuardado?.payload).toMatchObject({ removed_item_uuids: [ITEM_UUID] });
-  });
-});
-
-describe('POST /api/food-recognition/save — fallos de persistencia', () => {
-  it('si falla el insert de detecciones_guardados responde 502 PERSISTENCE_ERROR', async () => {
-    supabaseFromMock.reset();
-    supabaseFromMock.mockTable('detecciones_ia', {
-      data: { id_deteccion: 1, id_usuario: 'user-1' },
-      error: null,
-    });
-    supabaseFromMock.mockTable('detecciones_ia_items', { data: [{ item_uuid: ITEM_UUID }], error: null });
-    supabaseFromMock.mockTable('detecciones_guardados', { data: null, error: { message: 'boom' } });
-
-    const res = await POST(makeRequest(makeSaveRequest()));
-    const body = await res.json();
-
-    expect(res.status).toBe(502);
-    expect(body.error).toBe('PERSISTENCE_ERROR');
-  });
-});
-
-describe('POST /api/food-recognition/save — nunca toca el diario real', () => {
-  it('supabase.from nunca se llama con "ingestas" ni "items"', async () => {
+  it('fecha por defecto = hoy (AR) y una fecha válida viaja a la RPC', async () => {
+    escenario();
     await POST(makeRequest(makeSaveRequest()));
+    expect((adminDb.rpcLlamadas()[0].args as { p_fecha: string }).p_fecha).toBe(todayAR());
 
-    const tablas = supabaseFromMock.tablasLlamadas();
-    expect(tablas).not.toContain('ingestas');
-    expect(tablas).not.toContain('items');
+    escenario();
+    const ayer = daysAgoAR(1);
+    await POST(makeRequest(makeSaveRequest({ fecha: ayer })));
+    expect((adminDb.rpcLlamadas()[1].args as { p_fecha: string }).p_fecha).toBe(ayer);
+  });
+
+  it('grams > 2000 → 400 INVALID (field items.0.grams)', async () => {
+    const res = await POST(makeRequest(makeSaveRequest({ items: [baseItem({ grams: 2001 })] })));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('items.0.grams');
+  });
+
+  it('foodRef no numérico → 400 INVALID (field items.0.foodRef)', async () => {
+    const res = await POST(makeRequest(makeSaveRequest({ items: [baseItem({ foodRef: 'abc' })] })));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('items.0.foodRef');
+  });
+});
+
+describe('POST /save — ownership y guardado previo', () => {
+  it('predicción inexistente → 404 NOT_FOUND', async () => {
+    userDb.mockTable('detecciones_ia', { data: null, error: null });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('NOT_FOUND');
+  });
+
+  it('predicción de otro usuario → 403 FORBIDDEN', async () => {
+    userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'otro' }, error: null });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('FORBIDDEN');
+  });
+
+  it('guardado previo → 409 ALREADY_SAVED sin llamar a Gemini ni a la RPC de commit', async () => {
+    userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'user-1' }, error: null });
+    userDb.mockTable('detecciones_ia_items', { data: [{ item_uuid: ITEM_UUID }], error: null });
+    userDb.mockTable('detecciones_guardados', { data: [{ id_guardado: 5 }], error: null });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('ALREADY_SAVED');
+    expect(estimarMock).not.toHaveBeenCalled();
+    expect(adminDb.rpcLlamadas()).toHaveLength(0);
+  });
+
+  it('ALREADY_SAVED lanzado por la RPC (carrera) también es 409', async () => {
+    escenario();
+    adminDb.reset();
+    adminDb.mockRpc('registrar_guardado_deteccion', { data: null, error: { message: 'ALREADY_SAVED' } });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /save — resolución de alimentos', () => {
+  it('foodRef: no entra en match_alimentos y viaja con metodo_match food_ref', async () => {
+    escenario({ uuids: [ITEM_UUID, ITEM_UUID_2], match: [catalogo(1, 77)] });
+    await POST(
+      makeRequest(
+        makeSaveRequest({
+          items: [baseItem({ foodRef: '42' }), baseItem({ sourceItemId: ITEM_UUID_2, name: 'Otro' })],
+        }),
+      ),
+    );
+
+    expect(userDb.rpcLlamadas()[0].args).toEqual({ p_nombres: ['Otro'], p_umbral: UMBRAL_MATCH });
+    const items = itemsDeLaRpc();
+    expect(items[0]).toMatchObject({ id_alimento: 42, metodo_match: 'food_ref', food_ref: '42' });
+    expect(items[1]).toMatchObject({ id_alimento: 77, metodo_match: 'trigram', score_match: 0.8 });
+  });
+
+  it('todos con foodRef: no llama a match_alimentos', async () => {
+    escenario();
+    await POST(makeRequest(makeSaveRequest({ items: [baseItem({ foodRef: '5' })] })));
+    expect(userDb.rpcLlamadas()).toHaveLength(0);
+  });
+
+  it('match del catálogo: viaja el gramaje FINAL (no aiGrams) y no se llama a Gemini', async () => {
+    escenario({ match: [catalogo(1, 10)] });
+    await POST(makeRequest(makeSaveRequest({ items: [baseItem({ grams: 220, aiGrams: 150 })] })));
+    expect(itemsDeLaRpc()[0]).toMatchObject({
+      grams: 220,
+      ai_grams: 150,
+      id_alimento: 10,
+      metodo_match: 'trigram',
+      ia: null,
+    });
+    expect(estimarMock).not.toHaveBeenCalled();
+  });
+
+  it('sin match: una sola llamada a Gemini y los valores viajan en ia', async () => {
+    escenario();
+    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'gemini-x' });
+    await POST(makeRequest(makeSaveRequest()));
+    expect(estimarMock).toHaveBeenCalledTimes(1);
+    expect(estimarMock).toHaveBeenCalledWith([{ nombre: 'Milanesa de pollo', categoria: 'proteína animal' }]);
+    const args = adminDb.rpcLlamadas()[0].args as Record<string, unknown>;
+    expect(itemsDeLaRpc()[0]).toMatchObject({ id_alimento: null, metodo_match: 'gemini', ia: IA });
+    expect(args.p_modelo_nutricion).toBe('gemini-x');
+    expect(args.p_nutrition_prompt_version).toBe(NUTRITION_PROMPT_VERSION);
+  });
+
+  it('Gemini falla (null) → ia null, metodo_match ninguno y el guardado responde 200', async () => {
+    escenario();
+    estimarMock.mockResolvedValue({ valores: [null], modelo: null });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(200);
+    expect(itemsDeLaRpc()[0]).toMatchObject({ ia: null, metodo_match: 'ninguno' });
+  });
+
+  it('dos ítems con el mismo nombre normalizado → un solo nombre a Gemini, ambos con los valores', async () => {
+    escenario({
+      uuids: [ITEM_UUID, ITEM_UUID_2],
+      match: [filaMatch(1, { nombre_normalizado: 'flan' }), filaMatch(2, { nombre_normalizado: 'flan' })],
+    });
+    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+    await POST(
+      makeRequest(
+        makeSaveRequest({
+          items: [baseItem({ name: 'Flan' }), baseItem({ sourceItemId: ITEM_UUID_2, name: 'flan ', grams: 80 })],
+        }),
+      ),
+    );
+    expect(estimarMock.mock.calls[0][0]).toHaveLength(1);
+    const items = itemsDeLaRpc();
+    expect(items.map((i) => i.ia)).toEqual([IA, IA]);
+    expect(items.map((i) => i.grams)).toEqual([150, 80]);
+  });
+
+  it('el matching caído → 502 PERSISTENCE_ERROR y no se escribe nada', async () => {
+    userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'user-1' }, error: null });
+    userDb.mockTable('detecciones_ia_items', { data: [{ item_uuid: ITEM_UUID }], error: null });
+    userDb.mockTable('detecciones_guardados', { data: [], error: null });
+    userDb.mockRpc('match_alimentos', { data: null, error: { message: 'boom' } });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(502);
+    expect(adminDb.rpcLlamadas()).toHaveLength(0);
+  });
+});
+
+describe('POST /save — commit transaccional', () => {
+  it('usa el cliente admin con p_user_id = user.id y los datos del guardado', async () => {
+    escenario();
+    await POST(makeRequest(makeSaveRequest({ removedItemIds: [ITEM_UUID_2] })));
+    const call = adminDb.rpcLlamadas()[0];
+    expect(call.nombre).toBe('registrar_guardado_deteccion');
+    expect(call.args).toMatchObject({
+      p_user_id: 'user-1',
+      p_id_deteccion: 1,
+      p_tipo: 'desayuno',
+      p_removed: [ITEM_UUID_2],
+    });
+    // ya no se escribe nada directo desde el cliente del usuario
+    expect(userDb.insertsLlamados()).toEqual([]);
+  });
+
+  it('mapea los ítems al formato snake_case de la RPC', async () => {
+    escenario();
+    await POST(
+      makeRequest(
+        makeSaveRequest({
+          items: [baseItem({ origin: 'answered', answers: [{ question: '¿Cómo?', answer: 'Al horno' }] })],
+        }),
+      ),
+    );
+    expect(itemsDeLaRpc()[0]).toMatchObject({
+      source_item_uuid: ITEM_UUID,
+      name: 'Milanesa de pollo',
+      category: 'proteína animal',
+      origin: 'answered',
+      answers: [{ question: '¿Cómo?', answer: 'Al horno' }],
+    });
+  });
+
+  it('si la RPC falla → 502 PERSISTENCE_ERROR', async () => {
+    escenario();
+    adminDb.reset();
+    adminDb.mockRpc('registrar_guardado_deteccion', { data: null, error: { message: 'boom' } });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe('PERSISTENCE_ERROR');
+  });
+
+  it('FOOD_REF_INVALIDO → 400 INVALID apuntando al ítem con ese foodRef', async () => {
+    escenario();
+    adminDb.reset();
+    adminDb.mockRpc('registrar_guardado_deteccion', {
+      data: null,
+      error: { message: 'FOOD_REF_INVALIDO', details: '999' },
+    });
+    const res = await POST(makeRequest(makeSaveRequest({ items: [baseItem({ foodRef: '999' })] })));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe('items.0.foodRef');
+  });
+
+  it('cada origin y removedItemIds se aceptan (200)', async () => {
+    for (const item of [
+      baseItem({ origin: 'replaced', name: 'Yogur griego' }),
+      baseItem({ sourceItemId: null, aiGrams: null, origin: 'added_manually', name: 'Café' }),
+    ]) {
+      escenario();
+      const res = await POST(makeRequest(makeSaveRequest({ items: [item], removedItemIds: [ITEM_UUID] })));
+      expect(res.status).toBe(200);
+    }
+  });
+});
+
+describe('POST /save — la respuesta nunca lleva kcal/macros', () => {
+  const claves = (v: unknown, acc: string[] = []): string[] => {
+    if (v && typeof v === 'object') {
+      for (const [k, val] of Object.entries(v)) {
+        acc.push(k);
+        claves(val, acc);
+      }
+    }
+    return acc;
+  };
+
+  it('devuelve savedId y contadores, sin ninguna clave de kcal/macros', async () => {
+    escenario();
+    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+    adminDb.reset();
+    adminDb.mockRpc('registrar_guardado_deteccion', {
+      data: { id_guardado: 7, items_registrados: 1, sin_datos: 0, kcal: 999 },
+      error: null,
+    });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ ok: true, savedId: '7', diario: { itemsRegistrados: 1, sinDatos: 0 } });
+    expect(claves(body).join(' ')).not.toMatch(/kcal|proteina|grasa|carb|macro/i);
   });
 });

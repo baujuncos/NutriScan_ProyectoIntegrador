@@ -65,6 +65,17 @@ export interface SaveRequest {
   mealType: string; // ej. "Desayuno", viene del contexto de la página
   items: FinalItem[];
   removedItemIds: string[]; // ítems de la IA que el usuario quitó (falsos positivos)
+  fecha?: string; // NUT-119: YYYY-MM-DD de la comida en el diario; default hoy (AR). Dentro de la ventana editable (7 días).
+}
+
+/**
+ * NUT-119 — Respuesta de /save. Aditiva: `ok` y `savedId` ya existían.
+ * NUNCA lleva kcal/macros (ni para deportistas ni para particulares): solo contadores.
+ */
+export interface SaveResponse {
+  ok: true;
+  savedId: string;
+  diario: { itemsRegistrados: number; sinDatos: number };
 }
 
 /**

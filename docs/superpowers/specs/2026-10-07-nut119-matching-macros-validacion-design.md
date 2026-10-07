@@ -339,6 +339,18 @@ Los nombres cambian con las respuestas y los reemplazos del usuario, el endpoint
 - **Prompt:** `NUTRITION_PROMPT_VERSION = 'nut119-sara2-v1'`.
 - **Sin medir:** la precisión de la elección de la IA no se midió (no hay `GEMINI_API_KEY` en el entorno de desarrollo). Se decidió no armar un set de evaluación por ahora.
 
+## 4c. Cambio posterior: los validados no van al catálogo (migración 016)
+
+> Revierte la decisión D2 (validados → `alimentos` con `fuente = 'VALIDADO'`).
+
+- **Validar no inserta en `alimentos`.** El catálogo queda como referencia pura (SARA2 y ANMAT). Los valores finales viven en la cola (`alimentos_pendientes_validacion`, estado `validado`) y, como snapshot por 100 g, en cada ítem (`origen_macros = 'validado'`, `id_alimento` nulo). Vincular a una entrada existente del catálogo sigue disponible.
+- **Reutilización:** otro deportista que carga el mismo alimento lo recibe por la cola, sin IA. Los particulares no pasan por la cola, así que no se benefician.
+- **Matching automático:** sólo SARA2 (`match_alimentos` y la lista de `cargarCatalogoAutomatico`).
+- **Se elimina** `DUPLICADO_EN_CATALOGO` y el botón "Vincular al existente": sin inserción no hay catálogo que ensuciar, y bloqueaba validar "Huevo" por un producto ANMAT homónimo.
+- **Vista nueva** `v_alimentos_validados` (`security_invoker`): la cola filtrada por `estado = 'validado'` con las ocurrencias.
+- **Filas `VALIDADO` previas** (de pruebas) no se tocan; quedan sin uso (`select * from alimentos where fuente = 'VALIDADO'`).
+- **Mezclas:** en el panel, "Armar una mezcla con varios alimentos" calcula los valores por 100 g (promedio ponderado por gramos, `macrosMezcla`) para validar compuestos como "aceite y vinagre"; los vuelca al formulario.
+
 ## 5. Fallback Gemini
 
 ### 5.1 Refactor previo de `geminiClient.ts`

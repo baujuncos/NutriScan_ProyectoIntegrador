@@ -23,8 +23,9 @@ type ErrorRpc = { message?: string; details?: string | null };
 export type ResultadoError = { error: string };
 export type ModificarResultado = { ok: true } | ResultadoError;
 export type ValidarResultado =
-  | { ok: true; idAlimento: number; itemsAfectados: number }
-  | { error: string; idAlimentoExistente?: number };
+  /** `idAlimento` es null cuando se valida un alimento nuevo: no se agrega al catálogo. */
+  | { ok: true; idAlimento: number | null; itemsAfectados: number }
+  | ResultadoError;
 export type DescartarResultado = { ok: true; itemsAfectados: number } | ResultadoError;
 
 /** Fila de `v_alimentos_pendientes` (cola + ocurrencias). */
@@ -120,16 +121,10 @@ async function clienteInvestigador(): Promise<{ supabase: Supabase } | Resultado
 }
 
 /** Traduce los `raise exception` de las RPCs `pendiente_*`. */
-function errorDeRpc(error: ErrorRpc): { error: string; idAlimentoExistente?: number } {
+function errorDeRpc(error: ErrorRpc): ResultadoError {
   switch (error.message) {
     case 'ESTADO_INVALIDO':
       return { error: 'Este alimento ya fue resuelto por otro investigador' };
-    case 'DUPLICADO_EN_CATALOGO': {
-      const existente = Number(error.details);
-      return Number.isInteger(existente) && existente > 0
-        ? { error: 'Ya existe un alimento con ese nombre en el catálogo. Podés vincularlo.', idAlimentoExistente: existente }
-        : { error: 'Ya existe un alimento con ese nombre en el catálogo.' };
-    }
     case 'FORBIDDEN':
       return { error: 'Acceso denegado' };
     case 'NOT_FOUND':
@@ -188,7 +183,7 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
-  const r = data as { id_alimento: number; items_afectados: number };
+  const r = data as { id_alimento: number | null; items_afectados: number };
   return { ok: true, idAlimento: r.id_alimento, itemsAfectados: r.items_afectados };
 }
 

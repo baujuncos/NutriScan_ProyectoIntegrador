@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
 
   const clavesAEstimar = claves.filter((c) => !enCola.has(c));
 
-  // 2c) La IA resuelve el resto en UNA llamada: ELIGE de la lista de SARA2/VALIDADO (nunca ANMAT: son
+  // 2c) La IA resuelve el resto en UNA llamada: ELIGE de la lista de SARA2 (nunca ANMAT: son
   // productos envasados y un match equivocado, ej. "Huevo" → un huevo de chocolate, es muy probable)
   // o, si no hay equivalente, estima los macros por 100 g.
   let resolucion: ResolucionIA = { resultados: [], modelo: null };

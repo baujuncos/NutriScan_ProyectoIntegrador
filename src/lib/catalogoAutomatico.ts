@@ -1,15 +1,16 @@
 /**
  * NUT-119 — Catálogo que usa el matching automático de lo que detecta la IA:
- * SARA2 (genéricos, ~930) + VALIDADO (alimentos que aprobaron los
- * investigadores). ANMAT queda afuera a propósito: son productos envasados y el
- * riesgo de un match equivocado (ej. "Huevo" → un huevo de chocolate) es alto;
- * esos se cargan por código de barras o eligiéndolos a mano en el buscador.
+ * sólo SARA2 (genéricos, ~930). ANMAT queda afuera a propósito: son productos
+ * envasados y el riesgo de un match equivocado (ej. "Huevo" → un huevo de
+ * chocolate) es alto; esos se cargan por código de barras o eligiéndolos a mano
+ * en el buscador. Los alimentos que validan los investigadores tampoco entran
+ * (no se agregan a `alimentos`): se reutilizan por la cola de validación.
  *
- * La lista se le pasa entera a Gemini para que ELIJA de ella. Es de lectura
+ * Se le pasan a Gemini los candidatos de esta lista para que ELIJA de ellos. Es de lectura
  * pública y casi no cambia, así que se cachea en memoria unos minutos.
  */
 
-export const FUENTES_AUTOMATICAS = ['SARA2', 'VALIDADO'] as const;
+export const FUENTES_AUTOMATICAS = ['SARA2'] as const;
 
 export interface EntradaCatalogo {
   id: number;

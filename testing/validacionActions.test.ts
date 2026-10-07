@@ -109,12 +109,18 @@ describe('acciones con rol permitido', () => {
 });
 
 describe('errores de la RPC', () => {
-  it('DUPLICADO_EN_CATALOGO → { error, idAlimentoExistente } leído de details', async () => {
+  it('validar un alimento nuevo (sin vínculo): la RPC no devuelve id de catálogo (no se agrega a `alimentos`)', async () => {
     comoRol('investigador');
+    sb.mockRpc('pendiente_validar', { data: { id_alimento: null, items_afectados: 3 }, error: null });
+    expect(await validarPendienteAction(FORM)).toEqual({ ok: true, idAlimento: null, itemsAfectados: 3 });
+  });
+
+  it('ya no existe DUPLICADO_EN_CATALOGO: un código desconocido es un error genérico, sin ofrecer vincular', async () => {
+    comoRol('investigador');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     sb.mockRpc('pendiente_validar', { data: null, error: { message: 'DUPLICADO_EN_CATALOGO', details: '1234' } });
     const r = await validarPendienteAction(FORM);
-    expect(r).toMatchObject({ idAlimentoExistente: 1234 });
-    expect('error' in r && r.error).toBeTruthy();
+    expect(r).toEqual({ error: 'No se pudo completar la acción. Probá de nuevo.' });
     expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 

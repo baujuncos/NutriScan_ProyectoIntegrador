@@ -42,7 +42,7 @@ beforeEach(() => {
   vi.mocked(modificarPendienteAction).mockReset().mockResolvedValue({ ok: true });
   vi.mocked(validarPendienteAction)
     .mockReset()
-    .mockResolvedValue({ ok: true, idAlimento: 2000000, itemsAfectados: 2 });
+    .mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
   vi.mocked(descartarPendienteAction).mockReset().mockResolvedValue({ ok: true, itemsAfectados: 2 });
   vi.mocked(searchAlimentosAction).mockReset().mockResolvedValue([]);
 });
@@ -225,17 +225,13 @@ describe('PendienteDetalle — buscar en catálogo', () => {
     expect(validarPendienteAction).toHaveBeenCalledWith(expect.objectContaining({ id: 5, idAlimentoExistente: 77 }));
   });
 
-  it('si ya existe en el catálogo (duplicado) ofrece vincular al existente', async () => {
-    vi.mocked(validarPendienteAction)
-      .mockResolvedValueOnce({ error: 'Ya existe un alimento con ese nombre en el catálogo', idAlimentoExistente: 9 })
-      .mockResolvedValueOnce({ ok: true, idAlimento: 9, itemsAfectados: 2 });
+  it('validar un alimento nuevo funciona aunque exista uno con el mismo nombre en el catálogo (no se inserta en `alimentos`)', async () => {
+    vi.mocked(validarPendienteAction).mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
     const { user, onResuelto } = await abrir();
     await user.click(screen.getByRole('button', { name: 'Validar' }));
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
-
-    await user.click(await screen.findByRole('button', { name: 'Vincular al existente' }));
-    expect(validarPendienteAction).toHaveBeenLastCalledWith(expect.objectContaining({ idAlimentoExistente: 9 }));
     expect(onResuelto).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Vincular al existente' })).not.toBeInTheDocument();
   });
 });
 

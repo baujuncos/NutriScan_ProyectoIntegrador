@@ -1,5 +1,5 @@
 /**
- * NUT-119 — Carga (paginada y cacheada) del catálogo automático: SARA2 + VALIDADO, nunca ANMAT.
+ * NUT-119 — Carga (paginada y cacheada) del catálogo automático: sólo SARA2 (ni ANMAT ni VALIDADO).
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cargarCatalogoAutomatico, limpiarCacheCatalogo, preseleccionarCandidatos } from '@/lib/catalogoAutomatico';
@@ -11,7 +11,7 @@ const filas = (desde: number, n: number) =>
 beforeEach(() => limpiarCacheCatalogo());
 
 describe('cargarCatalogoAutomatico', () => {
-  it('pide sólo SARA2 y VALIDADO (nunca ANMAT), ordenado por id', async () => {
+  it('pide sólo SARA2 (ni ANMAT ni VALIDADO), ordenado por id', async () => {
     const mock = createSupabaseFromMock();
     mock.mockTable('alimentos', { data: filas(1, 3), error: null });
     const r = await cargarCatalogoAutomatico(mock);
@@ -21,7 +21,7 @@ describe('cargarCatalogoAutomatico', () => {
       { id: 3, nombre: 'Alimento 3' },
     ]);
     const f = mock.filtrosLlamados();
-    expect(f.find((x) => x.metodo === 'in')?.args).toEqual(['fuente', ['SARA2', 'VALIDADO']]);
+    expect(f.find((x) => x.metodo === 'in')?.args).toEqual(['fuente', ['SARA2']]);
     expect(f.find((x) => x.metodo === 'order')?.args).toEqual(['id_alimento']);
   });
 

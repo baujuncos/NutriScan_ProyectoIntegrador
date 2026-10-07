@@ -37,8 +37,8 @@ Respuesta 200 — `SaveResponse`: `{ ok: true, savedId, diario: { itemsRegistrad
 Qué hace, por cada alimento:
 
 1. `foodRef` → ese `id_alimento`.
-2. Si no, **match exacto** (nombre normalizado, sin tildes ni mayúsculas) contra el catálogo **automático**: SARA2 + `VALIDADO` (los que aprobaron los investigadores). **ANMAT queda afuera** del matching automático: son productos envasados y un match equivocado es muy probable (ej. "Huevo" → un huevo de chocolate); esos se cargan por código de barras o eligiéndolos a mano en el buscador (`foodRef`). RPC `match_alimentos`, una sola llamada para todos los nombres.
-3. Lo que no tuvo match exacto lo resuelve **Gemini en una sola llamada batch**: **elige** una entrada de la lista de SARA2/`VALIDADO` o, si no hay equivalente razonable, **estima** los valores **por 100 g**. Para gastar pocos tokens no se manda la lista entera sino los **candidatos que comparten una palabra** con lo detectado (~85 % menos); si algún alimento no comparte ninguna palabra (sinónimos), esa llamada va con la lista entera. El servidor valida que el `id` devuelto esté entre los candidatos enviados. Si eligió una entrada, los macros salen del catálogo (`metodo_match = 'sara2_ia'`); si estimó, se validan con zod y con un chequeo de plausibilidad 4/4/9 (`NUTRITION_PROMPT_VERSION`). Si Gemini falla el guardado **no** falla: el ítem queda `sin_datos` (macros 0 marcados, nunca un cero silencioso).
+2. Si no, **match exacto** (nombre normalizado, sin tildes ni mayúsculas) contra el catálogo **automático**: **sólo SARA2**. **ANMAT queda afuera** del matching automático: son productos envasados y un match equivocado es muy probable (ej. "Huevo" → un huevo de chocolate); esos se cargan por código de barras o eligiéndolos a mano en el buscador (`foodRef`). RPC `match_alimentos`, una sola llamada para todos los nombres.
+3. Lo que no tuvo match exacto lo resuelve **Gemini en una sola llamada batch**: **elige** una entrada de la lista de SARA2 o, si no hay equivalente razonable, **estima** los valores **por 100 g**. Para gastar pocos tokens no se manda la lista entera sino los **candidatos que comparten una palabra** con lo detectado (~85 % menos); si algún alimento no comparte ninguna palabra (sinónimos), esa llamada va con la lista entera. El servidor valida que el `id` devuelto esté entre los candidatos enviados. Si eligió una entrada, los macros salen del catálogo (`metodo_match = 'sara2_ia'`); si estimó, se validan con zod y con un chequeo de plausibilidad 4/4/9 (`NUTRITION_PROMPT_VERSION`). Si Gemini falla el guardado **no** falla: el ítem queda `sin_datos` (macros 0 marcados, nunca un cero silencioso).
 4. Valor del ítem = valor por 100 g × gramos finales / 100. Se persisten el snapshot por 100 g y los totales calculados.
 
 Según el rol (leído en el servidor desde `profiles`, nunca del cliente):
@@ -46,7 +46,7 @@ Según el rol (leído en el servidor desde `profiles`, nunca del cliente):
 | Situación | `deportista_ucc` | `particular` (y cualquier otro rol) |
 |---|---|---|
 | `foodRef` o match exacto del catálogo | `catalogo` | `catalogo` |
-| Gemini eligió una entrada de SARA2/VALIDADO | `catalogo` (no pasa a la cola) | `catalogo` |
+| Gemini eligió una entrada de SARA2 | `catalogo` (no pasa a la cola) | `catalogo` |
 | Sin equivalente, Gemini estima | `pendiente` + fila en la **cola de validación**; el diario lleva los valores de Gemini | `estimado_ia` (nunca pasa a validación) |
 | Sin equivalente, Gemini falla | `pendiente` sin datos + fila en la cola | `sin_datos` |
 | Nombre ya en la cola (pendiente con valores, validado o descartado) | Se reutiliza, **no** se llama a Gemini | — |
@@ -55,7 +55,7 @@ Cada `item` del diario queda vinculado al `detecciones_guardados_items` que lo o
 
 ## Panel de investigadores — `/validacion`
 
-Cola de alimentos de deportistas que no estaban en el catálogo. El investigador (o administrador) puede **modificar** (borrador), **validar** (recalcula los `items` vinculados con sus gramos y, opcionalmente, agrega el alimento al catálogo con `fuente = 'VALIDADO'`, ids desde 2 000 000, o lo vincula a uno existente) o **descartar** (los ítems **no se borran**: se conservan con nombre y gramos, con macros 0 y `origen_macros = 'descartado'`). Todo se ejecuta en RPCs transaccionales (`pendiente_modificar`, `pendiente_validar`, `pendiente_descartar`) con verificación de rol adentro y auditoría append-only (`alimentos_pendientes_auditoria`).
+Cola de alimentos de deportistas que no estaban en el catálogo. El investigador (o administrador) puede **modificar** (borrador), **validar** (recalcula los `items` vinculados con sus gramos y guarda los valores finales en la cola y en cada ítem, `origen_macros = 'validado'`; **no agrega nada al catálogo `alimentos`**; opcionalmente lo vincula a una entrada existente). Lo validado se reutiliza para otros deportistas por la cola, y la vista `v_alimentos_validados` lo lista. En el panel, además, se puede armar un valor a partir de varios alimentos del catálogo (mezcla ponderada por gramos, ej. aceite y vinagre) o **descartar** (los ítems **no se borran**: se conservan con nombre y gramos, con macros 0 y `origen_macros = 'descartado'`). Todo se ejecuta en RPCs transaccionales (`pendiente_modificar`, `pendiente_validar`, `pendiente_descartar`) con verificación de rol adentro y auditoría append-only (`alimentos_pendientes_auditoria`).
 
 **Fuente del dato nutricional.** Tanto la exportación a Excel (columna **"Dato nutricional"**) como el detalle de cada deportista en el panel muestran de dónde salió el dato de cada alimento: `SARA2`, `ANMAT`, `Código de barras`, `IA (Gemini)`, `IA (pendiente de validación)`, `IA pendiente (sin datos)`, `Validado`, `Descartado`, `Sin datos` o `Manual`. El detalle del deportista muestra además kcal y macros (P / C / G) de cada alimento; para `Descartado`, `Sin datos`, `Manual` e `IA pendiente (sin datos)` las celdas de macros del Excel quedan **vacías** (no 0) y el panel dice "Sin datos nutricionales".
 
@@ -82,9 +82,9 @@ Todos los endpoints devuelven `{ error: string, message: string, field?: string 
 ## Versiones de prompt
 
 - `PROMPT_VERSION`: persistido en `detecciones_ia.prompt_version`. Bumpear manualmente cuando cambie la semántica del prompt de reconocimiento (qué se pregunta, cómo se pondera) — no por ajustes de redacción.
-- `NUTRITION_PROMPT_VERSION` (`nut119-sara2-v1`): versión del prompt con el que Gemini elige una entrada de SARA2/VALIDADO o estima los macros por 100 g; se persiste junto al modelo que generó cada resolución (`detecciones_guardados_items`, cola de validación).
+- `NUTRITION_PROMPT_VERSION` (`nut119-sara2-v1`): versión del prompt con el que Gemini elige una entrada de SARA2 o estima los macros por 100 g; se persiste junto al modelo que generó cada resolución (`detecciones_guardados_items`, cola de validación).
 
 ## Notas operativas
 
-- Migraciones: `supabase/013_matching_macros_validacion_nut119.sql` (la primera corrida reescribe `alimentos`: columna generada `nombre_normalizado`) y `supabase/015_matching_solo_sara2_nut119.sql` (el matching automático sólo usa SARA2/VALIDADO y suma el método `sara2_ia`). Todas son idempotentes y tienen la misma sección al final de `schema_consolidado.sql`.
-- Borrar la cuenta borra las fotos del usuario en Storage antes de eliminar al usuario (`borrarFotosDeUsuario`). Los alimentos `VALIDADO` y las filas de la cola no contienen datos personales y se conservan.
+- Migraciones: `supabase/013_matching_macros_validacion_nut119.sql` (la primera corrida reescribe `alimentos`: columna generada `nombre_normalizado`) `supabase/015_matching_solo_sara2_nut119.sql` (el matching automático sólo usa SARA2 y suma el método `sara2_ia`) y `supabase/016_validados_fuera_del_catalogo_nut119.sql` (validar ya no inserta en `alimentos`; vista `v_alimentos_validados`). Todas son idempotentes y tienen la misma sección al final de `schema_consolidado.sql`.
+- Borrar la cuenta borra las fotos del usuario en Storage antes de eliminar al usuario (`borrarFotosDeUsuario`). Las filas de la cola (incluidas las validadas) no contienen datos personales y se conservan.

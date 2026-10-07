@@ -103,7 +103,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [duplicadoId, setDuplicadoId] = useState<number | null>(null);
 
   // Carga del detalle cada vez que se abre otro alimento.
   useEffect(() => {
@@ -114,7 +113,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
     setConfirmando(null);
     setError(null);
     setAviso(null);
-    setDuplicadoId(null);
     setVinculado(null);
     setBusqueda('');
     setResultados([]);
@@ -195,7 +193,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
   const validar = async (idExistente: number | null) => {
     setTrabajando(true);
     setError(null);
-    setDuplicadoId(null);
     const r = await validarPendienteAction({
       ...argsForm(),
       kcal: valores.kcal!,
@@ -208,7 +205,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
     setConfirmando(null);
     if ('error' in r) {
       setError(r.error);
-      setDuplicadoId(r.idAlimentoExistente ?? null);
       return;
     }
     onResuelto();
@@ -403,11 +399,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                 <p role="alert" className="text-red-600">
                   {error}
                 </p>
-              )}
-              {duplicadoId != null && (
-                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void validar(duplicadoId)}>
-                  Vincular al existente
-                </Button>
               )}
               {aviso && <p role="status" className="text-emerald-700">{aviso}</p>}
             </div>

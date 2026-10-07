@@ -281,6 +281,8 @@ Una sola llamada por `/save`. Devuelve una fila por nombre (con `id_alimento` nu
 
 `UMBRAL_MATCH = 0.5` en `src/lib/matchingAlimentos.ts`, pasado como `p_umbral`. Un falso positivo (macros "confiables" de otro alimento y, en deportistas, sin pasar por validación) es peor que un falso negativo (cae a Gemini/cola). Calibración: correr la RPC contra ~30 nombres reales de `detecciones_ia_items.ingredient` y registrar acá la tabla nombre → match → score antes de fijar el valor.
 
+**Estado de la calibración:** pendiente (Task 16) — requiere el catálogo real y detecciones reales (`detecciones_ia_items`), que no están disponibles en el entorno de desarrollo. Hasta entonces `UMBRAL_MATCH = 0.5` es el valor inicial conservador.
+
 ### 4.4 Verificación con EXPLAIN
 
 `set search_path` impide que Postgres "inline" la función, así que `EXPLAIN` sobre `select * from match_alimentos(...)` solo muestra un `Function Scan`. Para ver el plan real, en el SQL Editor de Supabase se corre el **cuerpo** con literales:
@@ -300,11 +302,22 @@ left join lateral (
 
 Esperado: `Bitmap Index Scan on idx_alimentos_nombre_norm_trgm` dentro del loop, sin `Seq Scan on alimentos`, y < 50 ms para 10 nombres.
 
-**Resultado EXPLAIN ANALYZE** (completar en la implementación):
+**Resultado EXPLAIN ANALYZE** — verificado en PGlite (Postgres 17 en WASM) con un catálogo **sintético** de 39 000 filas (nombres repetitivos a propósito: ~270 candidatos por nombre) y los 3 stubs de Supabase usados para probar la migración. 10 nombres:
 
 ```
-(pegar acá el plan y el tiempo total)
+Nested Loop Left Join  (actual time=59.186..518.517 rows=10 loops=1)
+  ->  Function Scan on unnest q
+  ->  Limit
+        ->  Sort  (Sort Method: top-N heapsort)
+              ->  Bitmap Heap Scan on alimentos a
+                    Recheck Cond: (nombre_normalizado OPERATOR(extensions.%) norm_alimento(q.nombre))
+                    ->  Bitmap Index Scan on idx_alimentos_nombre_norm_trgm
+                          Index Cond: (nombre_normalizado OPERATOR(extensions.%) norm_alimento(q.nombre))
+                          Index Searches: 10
+Execution Time: 518.708 ms
 ```
+
+Conclusión: **el índice GIN trigram se usa** (`Bitmap Index Scan on idx_alimentos_nombre_norm_trgm`, sin `Seq Scan on alimentos`). El tiempo **no es representativo**: WASM es varias veces más lento que Postgres nativo y el catálogo sintético es mucho más denso en coincidencias que el real. **Pendiente (Task 16):** repetir el bloque en el SQL Editor de Supabase con el catálogo real y anotar acá el plan y el tiempo (objetivo < 50 ms para 10 nombres).
 
 ### 4.5 TS
 

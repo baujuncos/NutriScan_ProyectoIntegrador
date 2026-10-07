@@ -1868,3 +1868,281 @@ $$;
 
 revoke all on function public.match_alimentos(text[], real) from public, anon;
 grant execute on function public.match_alimentos(text[], real) to authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- Acciones del investigador sobre la cola: modificar / validar / descartar
+-- ------------------------------------------------------------
+--
+-- security definer + chequeo de rol ADENTRO (get_my_role() lee auth.uid() de
+-- los claims del JWT de la sesión, así que funciona igual dentro de un definer).
+-- Dentro de estas funciones current_user es el dueño (no 'authenticated'):
+-- el guard items_proteger_origen las deja pasar y RLS no aplica.
+--
+-- Concurrencia / locks, siempre en este orden: fila de cola → items → ingestas.
+--   * `for update` de la fila de cola serializa a los investigadores entre sí y
+--     contra registrar_guardado_deteccion (que toma la misma fila antes de
+--     insertar la ocurrencia): si el commit gana, el UPDATE de items de acá
+--     (snapshot nuevo, READ COMMITTED) ya ve sus ítems; si gana validar, el
+--     commit ve 'validado'. Nunca queda un ítem 'pendiente' colgado de una
+--     fila resuelta.
+--   * items y después ingestas (ordenadas) se bloquean ANTES del UPDATE: es
+--     el mismo orden que un update/delete del dueño (item → trigger → ingesta)
+--     y evita el deadlock entre dos validaciones que tocan la misma ingesta.
+--
+-- detecciones_guardados_items NO se actualiza (D11): es el log al guardar; el
+-- estado vivo sale de la cola vía id_pendiente.
+--
+-- Errores (message): FORBIDDEN, NOT_FOUND, ESTADO_INVALIDO, INVALID,
+-- DUPLICADO_EN_CATALOGO (detail = id_alimento existente), ALIMENTO_NO_ENCONTRADO.
+
+-- Borrador: guarda final_*/observaciones sin cambiar el estado.
+create or replace function public.pendiente_modificar(
+  p_id bigint,
+  p_nombre text,
+  p_categoria text,
+  p_kcal numeric,
+  p_prot numeric,
+  p_grasas numeric,
+  p_carbs numeric,
+  p_observaciones text
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_antes   public.alimentos_pendientes_validacion%rowtype;
+  v_despues public.alimentos_pendientes_validacion%rowtype;
+begin
+  if coalesce(public.get_my_role() in ('investigador', 'administrador'), false) is false then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  select * into v_antes
+  from public.alimentos_pendientes_validacion c
+  where c.id_pendiente = p_id
+  for update;
+  if not found then
+    raise exception 'NOT_FOUND';
+  end if;
+  if v_antes.estado <> 'pendiente' then
+    raise exception 'ESTADO_INVALIDO';
+  end if;
+
+  update public.alimentos_pendientes_validacion c
+  set nombre_final = nullif(btrim(p_nombre), ''),
+      categoria_final = nullif(btrim(p_categoria), ''),
+      final_kcal_100g = p_kcal,
+      final_proteinas_100g = p_prot,
+      final_grasas_100g = p_grasas,
+      final_carbs_100g = p_carbs,
+      observaciones = p_observaciones
+  where c.id_pendiente = p_id
+  returning * into v_despues;
+
+  insert into public.alimentos_pendientes_auditoria (id_pendiente, accion, id_usuario, antes, despues, items_afectados)
+  values (p_id, 'modificar', auth.uid(), to_jsonb(v_antes), to_jsonb(v_despues), 0);
+end;
+$$;
+
+-- Validar: alta en el catálogo (VALIDADO) o vínculo a un alimento existente,
+-- y re-apunta los ítems del diario. El trigger calculate_item_nutrients
+-- recalcula cada ítem con SU cantidad y recalculate_ingesta_totals las ingestas.
+-- Con p_id_alimento_existente mandan los valores del catálogo (cola, snapshot
+-- e items quedan coherentes con lo que calcula el trigger); p_kcal… se ignoran.
+create or replace function public.pendiente_validar(
+  p_id bigint,
+  p_nombre text,
+  p_categoria text,
+  p_kcal numeric,
+  p_prot numeric,
+  p_grasas numeric,
+  p_carbs numeric,
+  p_observaciones text,
+  p_id_alimento_existente int default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_antes   public.alimentos_pendientes_validacion%rowtype;
+  v_despues public.alimentos_pendientes_validacion%rowtype;
+  v_nombre  text := nullif(btrim(p_nombre), '');
+  v_norm    text := public.norm_alimento(p_nombre);
+  v_id      integer;
+  v_k       numeric;
+  v_p       numeric;
+  v_g       numeric;
+  v_c       numeric;
+  v_n       integer;
+begin
+  if coalesce(public.get_my_role() in ('investigador', 'administrador'), false) is false then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  if v_nombre is null or v_norm is null then
+    raise exception 'INVALID' using detail = 'p_nombre';
+  end if;
+  if p_id_alimento_existente is null
+     and (num_nulls(p_kcal, p_prot, p_grasas, p_carbs) > 0 or least(p_kcal, p_prot, p_grasas, p_carbs) < 0) then
+    raise exception 'INVALID' using detail = 'Los 4 valores por 100 g son obligatorios y >= 0.';
+  end if;
+
+  select * into v_antes
+  from public.alimentos_pendientes_validacion c
+  where c.id_pendiente = p_id
+  for update;
+  if not found then
+    raise exception 'NOT_FOUND';
+  end if;
+  if v_antes.estado <> 'pendiente' then
+    raise exception 'ESTADO_INVALIDO';
+  end if;
+
+  if p_id_alimento_existente is not null then
+    select a.id_alimento, a.kcal_100g, a.proteinas_100g, a.grasas_100g, a.carbs_100g
+    into v_id, v_k, v_p, v_g, v_c
+    from public.alimentos a
+    where a.id_alimento = p_id_alimento_existente;
+    if not found then
+      raise exception 'ALIMENTO_NO_ENCONTRADO' using detail = p_id_alimento_existente::text;
+    end if;
+  else
+    -- Serializa altas con el mismo nombre desde filas de cola distintas.
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('alimentos_validados:' || v_norm));
+
+    select a.id_alimento into v_id
+    from public.alimentos a
+    where a.nombre_normalizado = v_norm
+    order by a.id_alimento
+    limit 1;
+    if found then
+      raise exception 'DUPLICADO_EN_CATALOGO' using detail = v_id::text;
+    end if;
+
+    v_k := p_kcal; v_p := p_prot; v_g := p_grasas; v_c := p_carbs;
+    insert into public.alimentos (id_alimento, nombre, categoria, fuente, kcal_100g, proteinas_100g, grasas_100g, carbs_100g)
+    values (nextval('public.alimentos_validados_seq'), v_nombre, nullif(btrim(p_categoria), ''), 'VALIDADO', v_k, v_p, v_g, v_c)
+    returning id_alimento into v_id;
+  end if;
+
+  update public.alimentos_pendientes_validacion c
+  set estado = 'validado',
+      nombre_final = v_nombre,
+      categoria_final = nullif(btrim(p_categoria), ''),
+      final_kcal_100g = v_k,
+      final_proteinas_100g = v_p,
+      final_grasas_100g = v_g,
+      final_carbs_100g = v_c,
+      id_alimento_vinculado = v_id,
+      observaciones = p_observaciones,
+      resuelto_por = auth.uid(),
+      resuelto_at = now()
+  where c.id_pendiente = p_id
+  returning * into v_despues;
+
+  -- Locks en orden (ver encabezado). nombre_manual se conserva (trazabilidad).
+  perform 1 from public.items it
+  where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id)
+  order by it.id_item
+  for update;
+  perform 1 from public.ingestas g
+  where g.id_ingesta in (
+    select it.id_ingesta from public.items it
+    where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id)
+  )
+  order by g.id_ingesta
+  for update;
+
+  update public.items it
+  set id_alimento = v_id,
+      kcal_100g = v_k,
+      proteinas_100g = v_p,
+      grasas_100g = v_g,
+      carbs_100g = v_c,
+      origen_macros = 'validado'
+  where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id);
+  get diagnostics v_n = row_count;
+
+  insert into public.alimentos_pendientes_auditoria (id_pendiente, accion, id_usuario, antes, despues, items_afectados)
+  values (p_id, 'validar', auth.uid(), to_jsonb(v_antes), to_jsonb(v_despues), v_n);
+
+  return jsonb_build_object('id_alimento', v_id, 'items_afectados', v_n);
+end;
+$$;
+
+-- Descartar: los ítems NO se borran (el deportista sigue viendo qué comió);
+-- origen_macros = 'descartado' y el trigger los pone en 0.
+create or replace function public.pendiente_descartar(p_id bigint, p_observaciones text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_antes   public.alimentos_pendientes_validacion%rowtype;
+  v_despues public.alimentos_pendientes_validacion%rowtype;
+  v_n       integer;
+begin
+  if coalesce(public.get_my_role() in ('investigador', 'administrador'), false) is false then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  select * into v_antes
+  from public.alimentos_pendientes_validacion c
+  where c.id_pendiente = p_id
+  for update;
+  if not found then
+    raise exception 'NOT_FOUND';
+  end if;
+  if v_antes.estado <> 'pendiente' then
+    raise exception 'ESTADO_INVALIDO';
+  end if;
+
+  update public.alimentos_pendientes_validacion c
+  set estado = 'descartado',
+      observaciones = coalesce(p_observaciones, c.observaciones),
+      resuelto_por = auth.uid(),
+      resuelto_at = now()
+  where c.id_pendiente = p_id
+  returning * into v_despues;
+
+  perform 1 from public.items it
+  where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id)
+  order by it.id_item
+  for update;
+  perform 1 from public.ingestas g
+  where g.id_ingesta in (
+    select it.id_ingesta from public.items it
+    where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id)
+  )
+  order by g.id_ingesta
+  for update;
+
+  update public.items it
+  set origen_macros = 'descartado'
+  where it.id_guardado_item in (select gi.id_guardado_item from public.detecciones_guardados_items gi where gi.id_pendiente = p_id);
+  get diagnostics v_n = row_count;
+
+  insert into public.alimentos_pendientes_auditoria (id_pendiente, accion, id_usuario, antes, despues, items_afectados)
+  values (p_id, 'descartar', auth.uid(), to_jsonb(v_antes), to_jsonb(v_despues), v_n);
+
+  return jsonb_build_object('items_afectados', v_n);
+end;
+$$;
+
+revoke all on function public.pendiente_modificar(bigint, text, text, numeric, numeric, numeric, numeric, text)
+  from public, anon, authenticated;
+grant execute on function public.pendiente_modificar(bigint, text, text, numeric, numeric, numeric, numeric, text)
+  to authenticated;
+revoke all on function public.pendiente_validar(bigint, text, text, numeric, numeric, numeric, numeric, text, int)
+  from public, anon, authenticated;
+grant execute on function public.pendiente_validar(bigint, text, text, numeric, numeric, numeric, numeric, text, int)
+  to authenticated;
+revoke all on function public.pendiente_descartar(bigint, text)
+  from public, anon, authenticated;
+grant execute on function public.pendiente_descartar(bigint, text)
+  to authenticated;

@@ -70,3 +70,32 @@ export async function urlsFirmadas(client: StorageClient, paths: string[]): Prom
   }
   return urls;
 }
+
+/**
+ * Borra TODAS las fotos de un usuario (carpeta `{userId}/`). Se llama ANTES de
+ * `deleteUser`: el cascade de la DB no borra objetos de Storage. Si algo falla
+ * se loguea y se sigue — no se bloquea el derecho a borrar la cuenta.
+ */
+export async function borrarFotosDeUsuario(admin: StorageClient, userId: string): Promise<void> {
+  const MAX_VUELTAS = 100; // 100 × 1000 archivos: techo de seguridad contra loops
+  try {
+    const bucket = admin.storage.from(BUCKET_FOTOS);
+    for (let i = 0; i < MAX_VUELTAS; i++) {
+      // Siempre desde el inicio: lo ya borrado desaparece del listado (con offset se saltearían archivos).
+      const { data, error } = await bucket.list(userId, { limit: 1000 });
+      if (error) {
+        console.error('No se pudieron listar las fotos del usuario:', error);
+        return;
+      }
+      const archivos = (data ?? []) as Array<{ name: string }>;
+      if (archivos.length === 0) return;
+      const { error: removeError } = await bucket.remove(archivos.map((a) => `${userId}/${a.name}`));
+      if (removeError) {
+        console.error('No se pudieron borrar las fotos del usuario:', removeError);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('No se pudieron borrar las fotos del usuario:', err);
+  }
+}

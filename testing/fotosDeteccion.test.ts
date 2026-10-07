@@ -2,7 +2,7 @@
  * NUT-119 — Helper de fotos en Storage privado (storage mockeado).
  */
 import { describe, expect, it, vi } from 'vitest';
-import { BUCKET_FOTOS, borrarFoto, subirFotoDeteccion, urlsFirmadas } from '@/lib/fotosDeteccion';
+import { BUCKET_FOTOS, borrarFoto, borrarFotosDeUsuario, subirFotoDeteccion, urlsFirmadas } from '@/lib/fotosDeteccion';
 import { createSupabaseFromMock } from './supabaseMock';
 
 describe('subirFotoDeteccion', () => {
@@ -70,6 +70,45 @@ describe('urlsFirmadas', () => {
     expect(mock.storageLlamadas()).toHaveLength(0);
     mock.mockStorage('createSignedUrls', { data: null, error: { message: 'boom' } });
     expect((await urlsFirmadas(mock, ['u/1.jpg'])).size).toBe(0);
+    spy.mockRestore();
+  });
+});
+
+describe('borrarFotosDeUsuario', () => {
+  it('lista la carpeta del usuario y borra todos sus archivos hasta vaciarla', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockStorage('list', { data: [{ name: 'a.jpg' }, { name: 'b.jpg' }], error: null });
+    mock.mockStorage('remove', { data: null, error: null });
+    mock.mockStorage('list', { data: [{ name: 'c.jpg' }], error: null });
+    mock.mockStorage('remove', { data: null, error: null });
+    mock.mockStorage('list', { data: [], error: null });
+
+    await borrarFotosDeUsuario(mock, 'user-1');
+
+    const llamadas = mock.storageLlamadas();
+    expect(llamadas.map((l) => l.metodo)).toEqual(['list', 'remove', 'list', 'remove', 'list']);
+    expect(llamadas[0].args[0]).toBe('user-1');
+    expect(llamadas[1].args).toEqual([['user-1/a.jpg', 'user-1/b.jpg']]);
+    expect(llamadas[3].args).toEqual([['user-1/c.jpg']]);
+  });
+
+  it('sin fotos: solo lista', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockStorage('list', { data: [], error: null });
+    await borrarFotosDeUsuario(mock, 'user-1');
+    expect(mock.storageLlamadas().map((l) => l.metodo)).toEqual(['list']);
+  });
+
+  it('nunca lanza y no entra en loop infinito si el borrado falla', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mock = createSupabaseFromMock();
+    mock.mockStorage('list', { data: [{ name: 'a.jpg' }], error: null });
+    mock.mockStorage('remove', { data: null, error: { message: 'boom' } });
+    await expect(borrarFotosDeUsuario(mock, 'user-1')).resolves.toBeUndefined();
+    expect(mock.storageLlamadas().map((l) => l.metodo)).toEqual(['list', 'remove']);
+
+    const roto = { storage: { from: () => ({ list: () => Promise.reject(new Error('red')) }) } };
+    await expect(borrarFotosDeUsuario(roto as never, 'user-1')).resolves.toBeUndefined();
     spy.mockRestore();
   });
 });

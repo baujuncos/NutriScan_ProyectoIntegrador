@@ -52,7 +52,7 @@ type RawItemRow = {
   grasas_g: number;
   carbs_g: number;
   nombre_manual: string | null;
-  alimentos: { nombre: string } | null;
+  alimentos: { nombre: string; fuente?: string | null } | null;
   alimentos_barcode: { nombre: string } | null;
 };
 type RawIngestaWithItems = {
@@ -111,7 +111,7 @@ export async function generateExcelAction(
       .select('user_id, respuestas, completed_at')
       .in('user_id', userIds),
     supabase.from('ingestas')
-      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, id_alimento, id_alimento_barcode, origen_macros, kcal_100g, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))')
+      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, id_alimento, id_alimento_barcode, origen_macros, kcal_100g, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre, fuente), alimentos_barcode(nombre))')
       .in('id_usuario', userIds).order('fecha', { ascending: true }),
     supabase.from('hidratacion')
       .select('id_usuario, fecha, ml_total')
@@ -403,7 +403,8 @@ export async function generateExcelAction(
             } else {
               for (const item of ing.items) {
                 // NUT-119: descartados / sin datos / manuales salen con macros vacíos (no 0) y su origen explícito.
-                const macros = macrosExportables(item);
+                const itemConFuente = { ...item, fuente_alimento: item.alimentos?.fuente ?? null };
+                const macros = macrosExportables(itemConFuente);
                 writeRow(
                   fecha, tipoLabel,
                   item.alimentos_barcode?.nombre ?? item.alimentos?.nombre ?? item.nombre_manual ?? 'Alimento desconocido',
@@ -414,7 +415,7 @@ export async function generateExcelAction(
                   macros.carbs,
                   isFirstOfDate ? (hydration || '') : '',
                   isFirstOfAthlete,
-                  etiquetaDatoNutricional(item),
+                  etiquetaDatoNutricional(itemConFuente),
                 );
                 isFirstOfAthlete = false;
                 isFirstOfDate = false;
@@ -597,6 +598,10 @@ export interface MealItem {
   nombre: string;
   cantidad: number;
   kcal: number;
+  /** kcal y macros del ítem; null si no hay dato (descartado, sin datos, manual): nunca se muestran como 0. */
+  macros: { kcal: number; proteinas: number; grasas: number; carbs: number } | null;
+  /** De dónde salió el dato nutricional: SARA2, ANMAT, IA (Gemini), Validado, etc. (NUT-119) */
+  fuente: string;
 }
 
 export interface IngestaDetail {
@@ -708,7 +713,7 @@ export async function getAthleteDetailAction(
       .lte('fecha', week.today),
     supabase
       .from('ingestas')
-      .select(`id_ingesta, tipo, fecha, kcal_total, items(id_item, cantidad, kcal, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))`)
+      .select(`id_ingesta, tipo, fecha, kcal_total, items(id_item, id_alimento, id_alimento_barcode, origen_macros, kcal_100g, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre, fuente), alimentos_barcode(nombre))`)
       .eq('id_usuario', athleteId)
       .in('fecha', [todayStr, yesterdayStr])
       .order('fecha', { ascending: false })
@@ -753,7 +758,21 @@ export async function getAthleteDetailAction(
     tipo: string;
     fecha: string;
     kcal_total: number;
-    items: { id_item: number; cantidad: number; kcal: number; nombre_manual: string | null; alimentos: { nombre: string } | null; alimentos_barcode: { nombre: string } | null }[];
+    items: {
+      id_item: number;
+      id_alimento: number | null;
+      id_alimento_barcode: number | null;
+      origen_macros: string | null;
+      kcal_100g: number | null;
+      cantidad: number;
+      kcal: number;
+      proteinas_g: number;
+      grasas_g: number;
+      carbs_g: number;
+      nombre_manual: string | null;
+      alimentos: { nombre: string; fuente?: string | null } | null;
+      alimentos_barcode: { nombre: string } | null;
+    }[];
   };
 
   const recentIngestas: IngestaDetail[] = ((recentIngeRes.data ?? []) as unknown as RawIngesta[]).map((ing) => ({
@@ -761,11 +780,32 @@ export async function getAthleteDetailAction(
     tipo: ing.tipo,
     fecha: ing.fecha,
     kcal_total: Number(ing.kcal_total) || 0,
-    items: (ing.items ?? []).map((it) => ({
-      nombre: it.alimentos_barcode?.nombre ?? it.alimentos?.nombre ?? it.nombre_manual ?? 'Alimento desconocido',
-      cantidad: Number(it.cantidad) || 0,
-      kcal: Number(it.kcal) || 0,
-    })),
+    items: (ing.items ?? []).map((it) => {
+      const exportable = {
+        id_alimento: it.id_alimento,
+        id_alimento_barcode: it.id_alimento_barcode,
+        nombre_manual: it.nombre_manual,
+        origen_macros: it.origen_macros,
+        kcal_100g: it.kcal_100g,
+        fuente_alimento: it.alimentos?.fuente ?? null,
+        kcal: it.kcal,
+        proteinas_g: it.proteinas_g,
+        grasas_g: it.grasas_g,
+        carbs_g: it.carbs_g,
+      };
+      const m = macrosExportables(exportable);
+      return {
+        nombre: it.alimentos_barcode?.nombre ?? it.alimentos?.nombre ?? it.nombre_manual ?? 'Alimento desconocido',
+        cantidad: Number(it.cantidad) || 0,
+        kcal: Number(it.kcal) || 0,
+        // macrosExportables devuelve '' cuando no hay dato (descartado / sin datos / manual).
+        macros:
+          m.kcal === '' || m.proteinas === '' || m.grasas === '' || m.carbs === ''
+            ? null
+            : { kcal: m.kcal, proteinas: m.proteinas, grasas: m.grasas, carbs: m.carbs },
+        fuente: etiquetaDatoNutricional(exportable),
+      };
+    }),
   }));
 
   return {

@@ -51,10 +51,12 @@ beforeEach(() => {
         tipo: 'almuerzo',
         fecha: '2026-10-06',
         items: [
-          item({ id_item: 1, id_alimento: 4, alimentos: { nombre: 'Arroz' }, kcal: 130, proteinas_g: 2.7, grasas_g: 0.3, carbs_g: 28 }),
+          item({ id_item: 1, id_alimento: 4, alimentos: { nombre: 'Arroz', fuente: 'SARA2' }, kcal: 130, proteinas_g: 2.7, grasas_g: 0.3, carbs_g: 28 }),
           item({ id_item: 2, nombre_manual: 'Flan', origen_macros: 'descartado' }),
           item({ id_item: 3, nombre_manual: 'Budín', origen_macros: 'sin_datos' }),
           item({ id_item: 4, nombre_manual: 'Tarta', origen_macros: 'pendiente', kcal_100g: 200, kcal: 300, proteinas_g: 10, grasas_g: 12, carbs_g: 30 }),
+          item({ id_item: 5, id_alimento: 1000001, alimentos: { nombre: 'Galletitas', fuente: 'ANMAT' }, kcal: 450, proteinas_g: 6, grasas_g: 18, carbs_g: 65 }),
+          item({ id_item: 6, nombre_manual: 'Yogur', origen_macros: 'estimado_ia', kcal_100g: 60, kcal: 90, proteinas_g: 4, grasas_g: 3, carbs_g: 9 }),
         ],
       },
     ],
@@ -81,13 +83,13 @@ describe('exportación a Excel — Dato nutricional (NUT-119)', () => {
     expect(ws.getRow(3).getCell(40).value).toBe('HIDRATACIÓN');
   });
 
-  it('cada ítem lleva su origen y los descartados / sin datos salen con macros vacíos (no 0)', async () => {
+  it('cada ítem lleva su fuente (SARA2, ANMAT, IA…) y los descartados / sin datos salen con macros vacíos (no 0)', async () => {
     const ws = await leerHoja();
     const fila = (n: number) => ws.getRow(n);
     // filas de datos desde la 5: arroz, flan, budín, tarta
     expect(fila(5).getCell(33).value).toBe('Arroz');
     expect(fila(5).getCell(35).value).toBe(130);
-    expect(fila(5).getCell(39).value).toBe('Catálogo');
+    expect(fila(5).getCell(39).value).toBe('SARA2');
 
     expect(fila(6).getCell(33).value).toBe('Flan');
     expect(fila(6).getCell(35).value ?? '').toBe('');
@@ -97,7 +99,13 @@ describe('exportación a Excel — Dato nutricional (NUT-119)', () => {
     expect(fila(7).getCell(36).value ?? '').toBe('');
 
     expect(fila(8).getCell(35).value).toBe(300);
-    expect(fila(8).getCell(39).value).toBe('Pendiente');
+    expect(fila(8).getCell(39).value).toBe('IA (pendiente de validación)');
+
+    // la fuente real de cada dato: catálogo ANMAT y estimación de la IA
+    expect(fila(9).getCell(33).value).toBe('Galletitas');
+    expect(fila(9).getCell(39).value).toBe('ANMAT');
+    expect(fila(10).getCell(39).value).toBe('IA (Gemini)');
+    expect(fila(10).getCell(35).value).toBe(90);
   });
 
   it('la hidratación sigue en su celda (col 40) del día', async () => {

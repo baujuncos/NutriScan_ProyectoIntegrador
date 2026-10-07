@@ -76,6 +76,9 @@ function DateLabel({ fecha, todayStr, yesterdayStr }: { fecha: string; todayStr:
   return <span className="text-xs text-slate-400">{fecha}</span>;
 }
 
+/** 1 decimal como máximo, con coma (es-AR): 0,5 / 42 / 7,2 */
+const num = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+
 function IngestaCard({ ingesta, todayStr, yesterdayStr }: { ingesta: IngestaDetail; todayStr: string; yesterdayStr: string }) {
   const colorClass = MEAL_COLOR[ingesta.tipo] ?? 'bg-slate-50 text-slate-700 border-slate-100';
   return (
@@ -93,9 +96,26 @@ function IngestaCard({ ingesta, todayStr, yesterdayStr }: { ingesta: IngestaDeta
       {ingesta.items.length > 0 ? (
         <ul className="space-y-0.5">
           {ingesta.items.map((it, i) => (
-            <li key={i} className="flex items-center justify-between text-xs opacity-80">
-              <span className="truncate">{it.nombre}</span>
-              <span className="ml-2 shrink-0 font-medium">{it.cantidad} g</span>
+            <li key={i} className="text-xs opacity-90">
+              <div className="flex items-center justify-between">
+                <span className="truncate">{it.nombre}</span>
+                <span className="ml-2 flex shrink-0 items-center gap-1.5">
+                  <span
+                    title="Fuente del dato nutricional"
+                    className={`rounded-full px-1.5 py-px text-[10px] font-semibold ${
+                      it.fuente.startsWith('IA') ? 'bg-amber-100 text-amber-800' : 'bg-white/70 text-slate-700'
+                    }`}
+                  >
+                    {it.fuente}
+                  </span>
+                  <span className="font-medium">{it.cantidad} g</span>
+                </span>
+              </div>
+              <p className="mb-1 text-[11px] opacity-70">
+                {it.macros
+                  ? `${num(it.macros.kcal)} kcal · P ${num(it.macros.proteinas)} g · C ${num(it.macros.carbs)} g · G ${num(it.macros.grasas)} g`
+                  : 'Sin datos nutricionales'}
+              </p>
             </li>
           ))}
         </ul>

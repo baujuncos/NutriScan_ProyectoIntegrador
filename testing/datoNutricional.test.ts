@@ -11,6 +11,7 @@ const base: ItemExportable = {
   nombre_manual: null,
   origen_macros: null,
   kcal_100g: null,
+  fuente_alimento: null,
   kcal: 100,
   proteinas_g: 5,
   grasas_g: 3,
@@ -19,16 +20,20 @@ const base: ItemExportable = {
 
 const item = (over: Partial<ItemExportable>): ItemExportable => ({ ...base, ...over });
 
-describe('etiquetaDatoNutricional', () => {
+describe('etiquetaDatoNutricional — de dónde salió el dato', () => {
   it.each([
-    ['legado con id_alimento', { id_alimento: 4 }, 'Catálogo'],
+    ['legado del catálogo SARA2', { id_alimento: 4, fuente_alimento: 'SARA2' }, 'SARA2'],
+    ['legado del catálogo ANMAT', { id_alimento: 1000001, fuente_alimento: 'ANMAT' }, 'ANMAT'],
+    ['legado del catálogo, fuente desconocida', { id_alimento: 4 }, 'Catálogo'],
     ['legado con código de barras', { id_alimento_barcode: 9 }, 'Código de barras'],
     ['legado manual', { nombre_manual: 'algo' }, 'Manual'],
-    ['catalogo', { origen_macros: 'catalogo', id_alimento: 4 }, 'Catálogo'],
-    ['estimado_ia', { origen_macros: 'estimado_ia', kcal_100g: 200 }, 'Estimado IA'],
-    ['pendiente con valores', { origen_macros: 'pendiente', kcal_100g: 200 }, 'Pendiente'],
-    ['pendiente sin valores', { origen_macros: 'pendiente', kcal_100g: null }, 'Pendiente (sin datos)'],
-    ['validado', { origen_macros: 'validado', id_alimento: 2000000 }, 'Validado'],
+    ['catalogo SARA2 (detección)', { origen_macros: 'catalogo', id_alimento: 4, fuente_alimento: 'SARA2' }, 'SARA2'],
+    ['catalogo ANMAT (detección)', { origen_macros: 'catalogo', id_alimento: 9, fuente_alimento: 'ANMAT' }, 'ANMAT'],
+    ['estimado_ia', { origen_macros: 'estimado_ia', kcal_100g: 200 }, 'IA (Gemini)'],
+    ['pendiente con valores de IA', { origen_macros: 'pendiente', kcal_100g: 200 }, 'IA (pendiente de validación)'],
+    ['pendiente sin valores', { origen_macros: 'pendiente', kcal_100g: null }, 'IA pendiente (sin datos)'],
+    ['validado por un investigador', { origen_macros: 'validado', id_alimento: 2000000, fuente_alimento: 'VALIDADO' }, 'Validado'],
+    ['validado y vinculado a SARA2 sigue siendo Validado', { origen_macros: 'validado', id_alimento: 7, fuente_alimento: 'SARA2' }, 'Validado'],
     ['descartado', { origen_macros: 'descartado' }, 'Descartado'],
     ['sin_datos', { origen_macros: 'sin_datos' }, 'Sin datos'],
   ] as const)('%s → %s', (_n, over, esperado) => {
@@ -40,9 +45,10 @@ describe('macrosExportables', () => {
   const NUMEROS = { kcal: 100, proteinas: 5, grasas: 3, carbs: 12 };
   const VACIO = { kcal: '', proteinas: '', grasas: '', carbs: '' };
 
-  it('catálogo, barcode, estimado IA, validado y pendiente con valores → números', () => {
+  it('SARA2, ANMAT, barcode, IA, IA pendiente con valores y validado → números', () => {
     for (const over of [
-      { id_alimento: 4 },
+      { id_alimento: 4, fuente_alimento: 'SARA2' },
+      { id_alimento: 4, fuente_alimento: 'ANMAT' },
       { id_alimento_barcode: 9 },
       { origen_macros: 'estimado_ia', kcal_100g: 200 },
       { origen_macros: 'validado', id_alimento: 2000000 },

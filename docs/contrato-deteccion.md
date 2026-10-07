@@ -56,7 +56,7 @@ Cada `item` del diario queda vinculado al `detecciones_guardados_items` que lo o
 
 Cola de alimentos de deportistas que no estaban en el catálogo. El investigador (o administrador) puede **modificar** (borrador), **validar** (recalcula los `items` vinculados con sus gramos y, opcionalmente, agrega el alimento al catálogo con `fuente = 'VALIDADO'`, ids desde 2 000 000, o lo vincula a uno existente) o **descartar** (los ítems **no se borran**: se conservan con nombre y gramos, con macros 0 y `origen_macros = 'descartado'`). Todo se ejecuta en RPCs transaccionales (`pendiente_modificar`, `pendiente_validar`, `pendiente_descartar`) con verificación de rol adentro y auditoría append-only (`alimentos_pendientes_auditoria`).
 
-La exportación a Excel suma la columna **"Dato nutricional"** (Catálogo / Código de barras / Manual / Estimado IA / Pendiente / Pendiente (sin datos) / Validado / Descartado / Sin datos); las celdas de macros de los ítems descartados, sin datos o manuales quedan **vacías** (no 0).
+**Fuente del dato nutricional.** Tanto la exportación a Excel (columna **"Dato nutricional"**) como el detalle de cada deportista en el panel muestran de dónde salió el dato de cada alimento: `SARA2`, `ANMAT`, `Código de barras`, `IA (Gemini)`, `IA (pendiente de validación)`, `IA pendiente (sin datos)`, `Validado`, `Descartado`, `Sin datos` o `Manual`. El detalle del deportista muestra además kcal y macros (P / C / G) de cada alimento; para `Descartado`, `Sin datos`, `Manual` e `IA pendiente (sin datos)` las celdas de macros del Excel quedan **vacías** (no 0) y el panel dice "Sin datos nutricionales".
 
 ## Códigos de error
 

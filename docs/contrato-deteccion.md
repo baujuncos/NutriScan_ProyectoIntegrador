@@ -37,17 +37,18 @@ Respuesta 200 — `SaveResponse`: `{ ok: true, savedId, diario: { itemsRegistrad
 Qué hace, por cada alimento:
 
 1. `foodRef` → ese `id_alimento`.
-2. Si no, **matching** contra `public.alimentos` en Postgres (RPC `match_alimentos`, `pg_trgm` + `unaccent`, una sola llamada para todos los nombres): exacto normalizado → similitud trigram ≥ `UMBRAL_MATCH` (0.5). A igual similitud se prefiere `fuente = 'SARA2'`, salvo que el nombre traiga la marca explícita del candidato (ANMAT).
-3. Si no hay match, **fallback de Gemini** (una sola llamada batch, valores **por 100 g**, validados con zod y chequeo de plausibilidad 4/4/9; `NUTRITION_PROMPT_VERSION`). Si Gemini falla el guardado **no** falla: el ítem queda `sin_datos` (macros 0 marcados, nunca un cero silencioso).
+2. Si no, **match exacto** (nombre normalizado, sin tildes ni mayúsculas) contra el catálogo **automático**: SARA2 + `VALIDADO` (los que aprobaron los investigadores). **ANMAT queda afuera** del matching automático: son productos envasados y un match equivocado es muy probable (ej. "Huevo" → un huevo de chocolate); esos se cargan por código de barras o eligiéndolos a mano en el buscador (`foodRef`). RPC `match_alimentos`, una sola llamada para todos los nombres.
+3. Lo que no tuvo match exacto lo resuelve **Gemini en una sola llamada batch**: **elige** una entrada de la lista de SARA2/`VALIDADO` o, si no hay equivalente razonable, **estima** los valores **por 100 g**. Para gastar pocos tokens no se manda la lista entera sino los **candidatos que comparten una palabra** con lo detectado (~85 % menos); si algún alimento no comparte ninguna palabra (sinónimos), esa llamada va con la lista entera. El servidor valida que el `id` devuelto esté entre los candidatos enviados. Si eligió una entrada, los macros salen del catálogo (`metodo_match = 'sara2_ia'`); si estimó, se validan con zod y con un chequeo de plausibilidad 4/4/9 (`NUTRITION_PROMPT_VERSION`). Si Gemini falla el guardado **no** falla: el ítem queda `sin_datos` (macros 0 marcados, nunca un cero silencioso).
 4. Valor del ítem = valor por 100 g × gramos finales / 100. Se persisten el snapshot por 100 g y los totales calculados.
 
 Según el rol (leído en el servidor desde `profiles`, nunca del cliente):
 
 | Situación | `deportista_ucc` | `particular` (y cualquier otro rol) |
 |---|---|---|
-| `foodRef` o match del catálogo | `catalogo` | `catalogo` |
-| Sin match, Gemini OK | `pendiente` + fila en la **cola de validación**; el diario lleva los valores de Gemini | `estimado_ia` (nunca pasa a validación) |
-| Sin match, Gemini falla | `pendiente` sin datos + fila en la cola | `sin_datos` |
+| `foodRef` o match exacto del catálogo | `catalogo` | `catalogo` |
+| Gemini eligió una entrada de SARA2/VALIDADO | `catalogo` (no pasa a la cola) | `catalogo` |
+| Sin equivalente, Gemini estima | `pendiente` + fila en la **cola de validación**; el diario lleva los valores de Gemini | `estimado_ia` (nunca pasa a validación) |
+| Sin equivalente, Gemini falla | `pendiente` sin datos + fila en la cola | `sin_datos` |
 | Nombre ya en la cola (pendiente con valores, validado o descartado) | Se reutiliza, **no** se llama a Gemini | — |
 
 Cada `item` del diario queda vinculado al `detecciones_guardados_items` que lo originó (`items.id_guardado_item`), y `items.origen_macros` indica el origen del dato: `catalogo`, `estimado_ia`, `pendiente`, `validado`, `descartado` o `sin_datos`.
@@ -81,9 +82,9 @@ Todos los endpoints devuelven `{ error: string, message: string, field?: string 
 ## Versiones de prompt
 
 - `PROMPT_VERSION`: persistido en `detecciones_ia.prompt_version`. Bumpear manualmente cuando cambie la semántica del prompt de reconocimiento (qué se pregunta, cómo se pondera) — no por ajustes de redacción.
-- `NUTRITION_PROMPT_VERSION` (`nut119-macros-v1`): versión del prompt de estimación de macros por 100 g; se persiste junto al modelo que generó cada estimación (`detecciones_guardados_items`, cola de validación).
+- `NUTRITION_PROMPT_VERSION` (`nut119-sara2-v1`): versión del prompt con el que Gemini elige una entrada de SARA2/VALIDADO o estima los macros por 100 g; se persiste junto al modelo que generó cada resolución (`detecciones_guardados_items`, cola de validación).
 
 ## Notas operativas
 
-- Migración: `supabase/013_matching_macros_validacion_nut119.sql` (misma sección al final de `schema_consolidado.sql`). Es idempotente. La primera corrida reescribe `alimentos` (columna generada `nombre_normalizado`).
+- Migraciones: `supabase/013_matching_macros_validacion_nut119.sql` (la primera corrida reescribe `alimentos`: columna generada `nombre_normalizado`) y `supabase/015_matching_solo_sara2_nut119.sql` (el matching automático sólo usa SARA2/VALIDADO y suma el método `sara2_ia`). Todas son idempotentes y tienen la misma sección al final de `schema_consolidado.sql`.
 - Borrar la cuenta borra las fotos del usuario en Storage antes de eliminar al usuario (`borrarFotosDeUsuario`). Los alimentos `VALIDADO` y las filas de la cola no contienen datos personales y se conservan.

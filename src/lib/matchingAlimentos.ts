@@ -6,15 +6,7 @@
  */
 import type { Macros100 } from './macros';
 
-/**
- * Similitud mínima (0–1) para aceptar un match por trigram. Un falso positivo
- * (macros "confiables" de otro alimento, sin validación en deportistas) es
- * peor que un falso negativo (cae a Gemini/cola). Calibrar contra nombres
- * reales — ver spec §4.3.
- */
-export const UMBRAL_MATCH = 0.5;
-
-export type MetodoMatchCatalogo = 'exacto' | 'trigram';
+export type MetodoMatchCatalogo = 'exacto';
 
 export interface MatchResultado {
   /** Clave normalizada calculada por SQL (null si el nombre no tiene caracteres útiles). */
@@ -63,7 +55,7 @@ const num = (v: number | string | null): number => Number(v ?? 0);
 export async function matchearAlimentos(client: RpcClient, nombres: string[]): Promise<MatchResultado[]> {
   if (nombres.length === 0) return [];
 
-  const { data, error } = await client.rpc('match_alimentos', { p_nombres: nombres, p_umbral: UMBRAL_MATCH });
+  const { data, error } = await client.rpc('match_alimentos', { p_nombres: nombres });
   if (error) throw new Error(`match_alimentos falló: ${error.message}`);
 
   // La RPC numera desde 1 (with ordinality) y no garantiza orden en el cliente.

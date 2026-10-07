@@ -116,4 +116,4 @@ export function esBoundingBoxValida(bbox: BoundingBox): boolean {
  * Gemini cuando el alimento no está en la DB). Se persiste junto a cada
  * estimación. Bumpear cuando cambie la semántica del prompt.
  */
-export const NUTRITION_PROMPT_VERSION = 'nut119-macros-v1';
+export const NUTRITION_PROMPT_VERSION = 'nut119-sara2-v1';

@@ -20,7 +20,8 @@ import {
   type SaveRequest,
   type SaveResponse,
 } from '@/lib/deteccion';
-import { estimarMacrosPor100g } from '@/lib/geminiNutritionFallback';
+import { cargarCatalogoAutomatico, type EntradaCatalogo } from '@/lib/catalogoAutomatico';
+import { resolverAlimentosConIA, type ResolucionIA, type ResultadoIA } from '@/lib/geminiNutritionFallback';
 import { errorResponse } from '@/lib/httpErrors';
 import type { Macros100 } from '@/lib/macros';
 import { matchearAlimentos, type MatchResultado } from '@/lib/matchingAlimentos';
@@ -70,7 +71,7 @@ interface ItemParaRpc {
   answers: FinalItem['answers'];
   food_ref: string | null;
   id_alimento: number | null;
-  metodo_match: 'food_ref' | 'exacto' | 'trigram' | 'gemini' | 'cola' | 'ninguno';
+  metodo_match: 'food_ref' | 'exacto' | 'sara2_ia' | 'gemini' | 'cola' | 'ninguno';
   score_match: number | null;
   ia: Macros100 | null;
 }
@@ -217,11 +218,23 @@ export async function POST(req: NextRequest) {
   }
 
   const clavesAEstimar = claves.filter((c) => !enCola.has(c));
-  const estimacion =
-    clavesAEstimar.length > 0
-      ? await estimarMacrosPor100g(clavesAEstimar.map((c) => unicos.get(c)!))
-      : { valores: [], modelo: null };
-  const iaPorClave = new Map<string, Macros100 | null>(clavesAEstimar.map((c, k) => [c, estimacion.valores[k] ?? null]));
+
+  // 2c) La IA resuelve el resto en UNA llamada: ELIGE de la lista de SARA2/VALIDADO (nunca ANMAT: son
+  // productos envasados y un match equivocado, ej. "Huevo" → un huevo de chocolate, es muy probable)
+  // o, si no hay equivalente, estima los macros por 100 g.
+  let resolucion: ResolucionIA = { resultados: [], modelo: null };
+  if (clavesAEstimar.length > 0) {
+    let catalogo: EntradaCatalogo[] = [];
+    try {
+      catalogo = await cargarCatalogoAutomatico(supabase);
+    } catch (err) {
+      console.error('No se pudo cargar el catálogo automático (se estiman sólo los macros):', err);
+    }
+    resolucion = await resolverAlimentosConIA(clavesAEstimar.map((c) => unicos.get(c)!), catalogo);
+  }
+  const resultadoPorClave = new Map<string, ResultadoIA>(
+    clavesAEstimar.map((c, k) => [c, resolucion.resultados[k] ?? null]),
+  );
 
   // 3) Ítems para la RPC.
   const itemsRpc: ItemParaRpc[] = saveRequest.items.map((it, i) => {
@@ -240,12 +253,17 @@ export async function POST(req: NextRequest) {
     }
     const m = matchPorItem.get(i)!;
     if (m.idAlimento != null) {
-      return { ...base, id_alimento: m.idAlimento, metodo_match: m.metodo ?? 'trigram', score_match: m.score, ia: null };
+      return { ...base, id_alimento: m.idAlimento, metodo_match: m.metodo ?? 'exacto', score_match: m.score, ia: null };
     }
     if (enCola.has(claveDe(i))) {
       return { ...base, id_alimento: null, metodo_match: 'cola', score_match: null, ia: null };
     }
-    const ia = iaPorClave.get(claveDe(i)) ?? null;
+    const r = resultadoPorClave.get(claveDe(i)) ?? null;
+    if (r && 'idCatalogo' in r) {
+      // Elegido de la lista por la IA (el id ya se validó contra esa lista): los macros salen del catálogo.
+      return { ...base, id_alimento: r.idCatalogo, metodo_match: 'sara2_ia', score_match: null, ia: null };
+    }
+    const ia = r && 'macros' in r ? r.macros : null;
     return { ...base, id_alimento: null, metodo_match: ia ? 'gemini' : 'ninguno', score_match: null, ia };
   });
 
@@ -257,7 +275,7 @@ export async function POST(req: NextRequest) {
     p_tipo: tipo,
     p_removed: saveRequest.removedItemIds,
     p_items: itemsRpc,
-    p_modelo_nutricion: estimacion.modelo,
+    p_modelo_nutricion: resolucion.modelo,
     p_nutrition_prompt_version: NUTRITION_PROMPT_VERSION,
   });
 

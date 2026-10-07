@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 import { createSupabaseFromMock } from './supabaseMock';
 
-const { getUserMock, estimarMock } = vi.hoisted(() => ({ getUserMock: vi.fn(), estimarMock: vi.fn() }));
+const { getUserMock, resolverMock, catalogoMock } = vi.hoisted(() => ({
+  getUserMock: vi.fn(),
+  resolverMock: vi.fn(),
+  catalogoMock: vi.fn(),
+}));
 const userDb = createSupabaseFromMock();
 const adminDb = createSupabaseFromMock();
 
@@ -17,11 +21,11 @@ vi.mock('@/lib/supabase/server', () => ({
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({ rpc: adminDb.rpc, from: adminDb.from }),
 }));
-vi.mock('@/lib/geminiNutritionFallback', () => ({ estimarMacrosPor100g: estimarMock }));
+vi.mock('@/lib/geminiNutritionFallback', () => ({ resolverAlimentosConIA: resolverMock }));
+vi.mock('@/lib/catalogoAutomatico', () => ({ cargarCatalogoAutomatico: catalogoMock }));
 
 import { POST } from '@/app/api/food-recognition/save/route';
 import { NUTRITION_PROMPT_VERSION, type FinalItem, type SaveRequest } from '@/lib/deteccion';
-import { UMBRAL_MATCH } from '@/lib/matchingAlimentos';
 import { daysAgoAR, todayAR } from '@/lib/date';
 
 const ITEM_UUID = '11111111-1111-1111-1111-111111111111';
@@ -70,12 +74,17 @@ const catalogo = (idx: number, id = 10, score = 0.8) =>
     nombre: 'X',
     fuente: 'SARA2',
     score,
-    metodo: 'trigram',
+    metodo: 'exacto',
     kcal_100g: 200,
     proteinas_100g: 10,
     grasas_100g: 5,
     carbs_100g: 20,
   });
+
+const CATALOGO = [
+  { id: 886, nombre: 'Huevo de gallina, entero, hervido' },
+  { id: 425, nombre: 'Arroz blanco, crudo' },
+];
 
 const IA = { kcal_100g: 250, proteinas_100g: 20, grasas_100g: 15, carbs_100g: 10 };
 
@@ -97,7 +106,8 @@ const itemsDeLaRpc = (n = 0) =>
 
 beforeEach(() => {
   getUserMock.mockReset().mockResolvedValue({ data: { user: { id: 'user-1', email: 'test@example.com' } } });
-  estimarMock.mockReset().mockResolvedValue({ valores: [], modelo: null });
+  resolverMock.mockReset().mockResolvedValue({ resultados: [], modelo: null });
+  catalogoMock.mockReset().mockResolvedValue(CATALOGO);
   userDb.reset();
   adminDb.reset();
 });
@@ -224,7 +234,7 @@ describe('POST /save — ownership y guardado previo', () => {
     const res = await POST(makeRequest(makeSaveRequest()));
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('ALREADY_SAVED');
-    expect(estimarMock).not.toHaveBeenCalled();
+    expect(resolverMock).not.toHaveBeenCalled();
     expect(adminDb.rpcLlamadas()).toHaveLength(0);
   });
 
@@ -248,10 +258,10 @@ describe('POST /save — resolución de alimentos', () => {
       ),
     );
 
-    expect(userDb.rpcLlamadas()[0].args).toEqual({ p_nombres: ['Otro'], p_umbral: UMBRAL_MATCH });
+    expect(userDb.rpcLlamadas()[0].args).toEqual({ p_nombres: ['Otro'] });
     const items = itemsDeLaRpc();
     expect(items[0]).toMatchObject({ id_alimento: 42, metodo_match: 'food_ref', food_ref: '42' });
-    expect(items[1]).toMatchObject({ id_alimento: 77, metodo_match: 'trigram', score_match: 0.8 });
+    expect(items[1]).toMatchObject({ id_alimento: 77, metodo_match: 'exacto', score_match: 0.8 });
   });
 
   it('todos con foodRef: no llama a match_alimentos', async () => {
@@ -267,18 +277,18 @@ describe('POST /save — resolución de alimentos', () => {
       grams: 220,
       ai_grams: 150,
       id_alimento: 10,
-      metodo_match: 'trigram',
+      metodo_match: 'exacto',
       ia: null,
     });
-    expect(estimarMock).not.toHaveBeenCalled();
+    expect(resolverMock).not.toHaveBeenCalled();
   });
 
   it('sin match: una sola llamada a Gemini y los valores viajan en ia', async () => {
     escenario();
-    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'gemini-x' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }], modelo: 'gemini-x' });
     await POST(makeRequest(makeSaveRequest()));
-    expect(estimarMock).toHaveBeenCalledTimes(1);
-    expect(estimarMock).toHaveBeenCalledWith([{ nombre: 'Milanesa de pollo', categoria: 'proteína animal' }]);
+    expect(resolverMock).toHaveBeenCalledTimes(1);
+    expect(resolverMock).toHaveBeenCalledWith([{ nombre: 'Milanesa de pollo', categoria: 'proteína animal' }], CATALOGO);
     const args = adminDb.rpcLlamadas()[0].args as Record<string, unknown>;
     expect(itemsDeLaRpc()[0]).toMatchObject({ id_alimento: null, metodo_match: 'gemini', ia: IA });
     expect(args.p_modelo_nutricion).toBe('gemini-x');
@@ -287,7 +297,7 @@ describe('POST /save — resolución de alimentos', () => {
 
   it('Gemini falla (null) → ia null, metodo_match ninguno y el guardado responde 200', async () => {
     escenario();
-    estimarMock.mockResolvedValue({ valores: [null], modelo: null });
+    resolverMock.mockResolvedValue({ resultados: [null], modelo: null });
     const res = await POST(makeRequest(makeSaveRequest()));
     expect(res.status).toBe(200);
     expect(itemsDeLaRpc()[0]).toMatchObject({ ia: null, metodo_match: 'ninguno' });
@@ -298,7 +308,7 @@ describe('POST /save — resolución de alimentos', () => {
       uuids: [ITEM_UUID, ITEM_UUID_2],
       match: [filaMatch(1, { nombre_normalizado: 'flan' }), filaMatch(2, { nombre_normalizado: 'flan' })],
     });
-    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }], modelo: 'm' });
     await POST(
       makeRequest(
         makeSaveRequest({
@@ -306,7 +316,7 @@ describe('POST /save — resolución de alimentos', () => {
         }),
       ),
     );
-    expect(estimarMock.mock.calls[0][0]).toHaveLength(1);
+    expect(resolverMock.mock.calls[0][0]).toHaveLength(1);
     const items = itemsDeLaRpc();
     expect(items.map((i) => i.ia)).toEqual([IA, IA]);
     expect(items.map((i) => i.grams)).toEqual([150, 80]);
@@ -346,13 +356,13 @@ describe('POST /save — cola de validación: reuso para deportistas (NUT-119)',
     dos();
     deportista();
     adminDb.mockRpc('cola_lookup', { data: [filaCola(1, 'flan', false), filaCola(2, 'budin', true)], error: null });
-    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }], modelo: 'm' });
 
     const res = await POST(makeRequest(reqDos()));
 
     expect(res.status).toBe(200);
     expect(adminDb.rpcLlamadas()[0]).toEqual({ nombre: 'cola_lookup', args: { p_nombres: ['Flan', 'Budín'] } });
-    expect(estimarMock).toHaveBeenCalledWith([{ nombre: 'Budín', categoria: 'proteína animal' }]);
+    expect(resolverMock).toHaveBeenCalledWith([{ nombre: 'Budín', categoria: 'proteína animal' }], CATALOGO);
     const items = itemsDeLaRpc();
     expect(items[0]).toMatchObject({ metodo_match: 'cola', ia: null, id_alimento: null });
     expect(items[1]).toMatchObject({ metodo_match: 'gemini', ia: IA });
@@ -363,22 +373,22 @@ describe('POST /save — cola de validación: reuso para deportistas (NUT-119)',
     deportista();
     adminDb.mockRpc('cola_lookup', { data: [filaCola(1, 'flan', false)], error: null });
     await POST(makeRequest(makeSaveRequest({ items: [baseItem({ name: 'Flan' })] })));
-    expect(estimarMock).not.toHaveBeenCalled();
+    expect(resolverMock).not.toHaveBeenCalled();
     expect(itemsDeLaRpc()[0].metodo_match).toBe('cola');
   });
 
   it('particular: nunca llama a cola_lookup', async () => {
     dos();
     userDb.mockTable('profiles', { data: { role: 'particular' }, error: null });
-    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }, { macros: IA }], modelo: 'm' });
     await POST(makeRequest(reqDos()));
     expect(adminDb.rpcLlamadas().map((l) => l.nombre)).toEqual(['registrar_guardado_deteccion']);
-    expect(estimarMock.mock.calls[0][0]).toHaveLength(2);
+    expect(resolverMock.mock.calls[0][0]).toHaveLength(2);
   });
 
   it('sin perfil legible: se trata como no-deportista (no consulta la cola)', async () => {
     dos();
-    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }, { macros: IA }], modelo: 'm' });
     await POST(makeRequest(reqDos()));
     expect(adminDb.rpcLlamadas().map((l) => l.nombre)).not.toContain('cola_lookup');
   });
@@ -388,10 +398,10 @@ describe('POST /save — cola de validación: reuso para deportistas (NUT-119)',
     dos();
     deportista();
     adminDb.mockRpc('cola_lookup', { data: null, error: { message: 'boom' } });
-    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }, { macros: IA }], modelo: 'm' });
     const res = await POST(makeRequest(reqDos()));
     expect(res.status).toBe(200);
-    expect(estimarMock.mock.calls[0][0]).toHaveLength(2);
+    expect(resolverMock.mock.calls[0][0]).toHaveLength(2);
     expect(itemsDeLaRpc().map((i) => i.metodo_match)).toEqual(['gemini', 'gemini']);
     spy.mockRestore();
   });
@@ -400,6 +410,43 @@ describe('POST /save — cola de validación: reuso para deportistas (NUT-119)',
     escenario({ match: [catalogo(1, 10)] });
     await POST(makeRequest(makeSaveRequest()));
     expect(userDb.tablasLlamadas()).not.toContain('profiles');
+  });
+});
+
+describe('POST /save — la IA elige de la lista SARA2 (NUT-119)', () => {
+  it('la IA elige una entrada: viaja el id con metodo_match sara2_ia y SIN macros de IA (salen del catálogo)', async () => {
+    escenario();
+    resolverMock.mockResolvedValue({ resultados: [{ idCatalogo: 886 }], modelo: 'gemini-x' });
+    const res = await POST(makeRequest(makeSaveRequest({ items: [baseItem({ name: 'Huevo' })] })));
+    expect(res.status).toBe(200);
+    expect(itemsDeLaRpc()[0]).toMatchObject({ id_alimento: 886, metodo_match: 'sara2_ia', score_match: null, ia: null });
+  });
+
+  it('le pasa al resolutor el catálogo cargado (SARA2 + VALIDADO) para que elija', async () => {
+    escenario();
+    resolverMock.mockResolvedValue({ resultados: [{ idCatalogo: 886 }], modelo: 'm' });
+    await POST(makeRequest(makeSaveRequest({ items: [baseItem({ name: 'Huevo' })] })));
+    expect(catalogoMock).toHaveBeenCalledTimes(1);
+    expect(resolverMock.mock.calls[0][1]).toBe(CATALOGO);
+  });
+
+  it('si no se puede cargar el catálogo, igual se estima con la IA (sólo macros) y el guardado no falla', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    escenario();
+    catalogoMock.mockRejectedValue(new Error('boom'));
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }], modelo: 'm' });
+    const res = await POST(makeRequest(makeSaveRequest()));
+    expect(res.status).toBe(200);
+    expect(resolverMock.mock.calls[0][1]).toEqual([]);
+    expect(itemsDeLaRpc()[0]).toMatchObject({ metodo_match: 'gemini', ia: IA });
+    spy.mockRestore();
+  });
+
+  it('si todo se resuelve por match exacto / foodRef no se carga el catálogo ni se llama a la IA', async () => {
+    escenario({ match: [catalogo(1, 10)] });
+    await POST(makeRequest(makeSaveRequest()));
+    expect(catalogoMock).not.toHaveBeenCalled();
+    expect(resolverMock).not.toHaveBeenCalled();
   });
 });
 
@@ -483,7 +530,7 @@ describe('POST /save — la respuesta nunca lleva kcal/macros', () => {
 
   it('devuelve savedId y contadores, sin ninguna clave de kcal/macros', async () => {
     escenario();
-    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+    resolverMock.mockResolvedValue({ resultados: [{ macros: IA }], modelo: 'm' });
     adminDb.reset();
     adminDb.mockRpc('registrar_guardado_deteccion', {
       data: { id_guardado: 7, items_registrados: 1, sin_datos: 0, kcal: 999 },

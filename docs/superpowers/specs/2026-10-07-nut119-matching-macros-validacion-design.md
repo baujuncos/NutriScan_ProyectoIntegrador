@@ -327,6 +327,18 @@ Conclusión: **el índice GIN trigram se usa** (`Bitmap Index Scan on idx_alimen
 
 Los nombres cambian con las respuestas y los reemplazos del usuario, el endpoint ya consume 25–30 s de presupuesto con Gemini, y el único valor sería mostrar kcal reales en `AIRecognitionResult`/`ChangeFoodSheet`, que hoy usan `nutritionProviderMock`. Eso queda como follow-up (D13).
 
+## 4b. Cambio posterior: matching sólo SARA2 + elección por IA (migración 015)
+
+> Reemplaza lo descrito en §4.1–4.3 (umbral y trigram sobre todo el catálogo). Motivo: "huevo" matcheaba un producto ANMAT que se llama exactamente "Huevo" (un huevo de chocolate); el matching por similitud de texto no distingue productos envasados de alimentos genéricos ni entiende la preparación ("crudo", "hervido").
+
+- **Alcance automático:** sólo `fuente in ('SARA2','VALIDADO')`. ANMAT queda para el código de barras y la elección manual (`foodRef`).
+- **Orden:** `foodRef` → match **exacto** en SQL (`match_alimentos`, sin trigram ni umbral) → Gemini **elige** de la lista (o estima) en **una sola** llamada → cola (deportistas) / `estimado_ia` (particulares).
+- **Tokens:** a Gemini no se le manda toda la lista (~8 900 tokens, ya sólo `id|nombre`; acortar los nombres ahorra apenas un 4 %) sino los **candidatos que comparten una palabra** con lo detectado (~1 400 tokens en un plato de 12 alimentos, −85 %). Si algún alimento no comparte ninguna palabra con el catálogo (sinónimos: aguacate/palta) la llamada va con la lista entera. El servidor sólo acepta ids que estaban entre los candidatos enviados.
+- **Catálogo:** `cargarCatalogoAutomatico` (paginado de a 1000, cacheado 5 min). Los alimentos que validan los investigadores (`VALIDADO`) entran solos a la lista.
+- **Método de match:** nuevo valor `sara2_ia` (el `trigram` se conserva sólo para guardados anteriores).
+- **Prompt:** `NUTRITION_PROMPT_VERSION = 'nut119-sara2-v1'`.
+- **Sin medir:** la precisión de la elección de la IA no se midió (no hay `GEMINI_API_KEY` en el entorno de desarrollo). Se decidió no armar un set de evaluación por ahora.
+
 ## 5. Fallback Gemini
 
 ### 5.1 Refactor previo de `geminiClient.ts`

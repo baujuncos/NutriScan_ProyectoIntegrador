@@ -2,7 +2,7 @@
  * NUT-119 — Wrapper TS de la RPC match_alimentos (RPC mockeada).
  */
 import { describe, expect, it } from 'vitest';
-import { matchearAlimentos, UMBRAL_MATCH } from '@/lib/matchingAlimentos';
+import { matchearAlimentos } from '@/lib/matchingAlimentos';
 import { createSupabaseFromMock } from './supabaseMock';
 
 describe('matchearAlimentos', () => {
@@ -11,7 +11,7 @@ describe('matchearAlimentos', () => {
     mock.mockRpc('match_alimentos', { data: [], error: null });
     await matchearAlimentos(mock, ['Arroz', 'X']);
     expect(mock.rpcLlamadas()).toEqual([
-      { nombre: 'match_alimentos', args: { p_nombres: ['Arroz', 'X'], p_umbral: UMBRAL_MATCH } },
+      { nombre: 'match_alimentos', args: { p_nombres: ['Arroz', 'X'] } },
     ]);
   });
 

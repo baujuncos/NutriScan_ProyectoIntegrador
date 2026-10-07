@@ -43,12 +43,16 @@ export async function searchAlimentosAction(
   // Los query builders de supabase-js son "thenables" (PromiseLike), no Promise
   // real — no tienen .catch/.finally — por eso el array se tipa como PromiseLike.
   const promises: Array<PromiseLike<{ data: AlimentoOption[] | null }>> = [];
+  // SARA2 (genéricos, ~900) va primero y después ANMAT (marcas, ~38 mil): sólo ordenando por
+  // nombre, el corte de 100 se llenaba con productos ANMAT ("Aderezo…", "Alfajor…") y el
+  // filtro de fuente (del lado del cliente) no encontraba ningún SARA2. 'SARA2' > 'ANMAT'
+  // alfabéticamente, por eso el orden de `fuente` es descendente.
 
   // Tier 1 (mayor relevancia): matches por nombre.
   if (campos.nombre) {
     let q1 = supabase.from('alimentos').select(SEL).ilike('nombre', `%${q}%`);
     q1 = aplicarFiltroSuplemento(q1, isSuplemento);
-    promises.push(q1.order('nombre', { ascending: true }).limit(100));
+    promises.push(q1.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
   // Tier 2: matches por marca/denominacion que no vinieron ya por nombre.
@@ -57,7 +61,7 @@ export async function searchAlimentosAction(
     let q2 = supabase.from('alimentos').select(SEL).or(marcaDenomOr);
     if (campos.nombre) q2 = q2.not('nombre', 'ilike', `%${q}%`);
     q2 = aplicarFiltroSuplemento(q2, isSuplemento);
-    promises.push(q2.order('nombre', { ascending: true }).limit(100));
+    promises.push(q2.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
   const resultados = await Promise.all(promises);

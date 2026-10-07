@@ -56,6 +56,21 @@ describe('searchAlimentosAction', () => {
     expect(resultado).toHaveLength(150);
   });
 
+  it('ordena con SARA2 primero (fuente desc) y luego por nombre, en AMBAS consultas: con 38 mil productos ANMAT, el corte alfabético dejaba afuera a los genéricos SARA2', async () => {
+    supabaseFromMock.mockTable('alimentos', { data: [], error: null });
+    supabaseFromMock.mockTable('alimentos', { data: [], error: null });
+
+    await searchAlimentosAction('arroz', 'almuerzo');
+
+    const orders = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'order');
+    expect(orders.map((o) => [o.args[0], (o.args[1] as { ascending: boolean }).ascending])).toEqual([
+      ['fuente', false],
+      ['nombre', true],
+      ['fuente', false],
+      ['nombre', true],
+    ]);
+  });
+
   it('aplica el filtro de categoría, nombre O denominación "suplemento" en las consultas reales cuando tipoIngesta es suplemento', async () => {
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });

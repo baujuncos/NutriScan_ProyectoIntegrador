@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { todayAR, daysAgoAR } from '@/lib/date';
 
 function formatFechaTitle(fecha: string): string {
@@ -122,6 +123,7 @@ export default function AlimentacionClient({
   fecha: string;
   hideNutrition: boolean;
 }) {
+  const router = useRouter();
   const [selectedAlimento, setSelectedAlimento] = useState<AlimentoOption | null>(null);
   const [manualQuery, setManualQuery] = useState('');
   const [cantidadValue, setCantidadValue] = useState('50');
@@ -252,6 +254,10 @@ export default function AlimentacionClient({
         }}
         mealType={tipoIngesta}
         mealLabel={MEAL_LABEL[tipoIngesta]}
+        fecha={fecha}
+        hideNutrition={hideNutrition}
+        // NUT-119: /save ya registró los alimentos en el diario; refrescar la página los muestra.
+        onSaved={() => router.refresh()}
       />
 
       {/* Chat food registration modal (NUT-187) */}

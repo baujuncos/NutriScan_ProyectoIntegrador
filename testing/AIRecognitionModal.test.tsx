@@ -258,12 +258,14 @@ describe('AIRecognitionModal — guardado (NUT-172) y "Repetir"', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
-    const { user } = renderModal();
+    const onSaved = vi.fn();
+    const { user } = renderModal({ fecha: '2026-10-06', onSaved });
 
     await llegarAlResultadoListo(user);
     await user.click(screen.getByRole('button', { name: /Guardar en Desayuno/ }));
 
     expect(await screen.findByText('Guardado en Desayuno')).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalledTimes(1);
 
     const saveCall = fetchMock.mock.calls.find(([url]) => url === '/api/food-recognition/save');
     expect(saveCall).toBeTruthy();
@@ -271,12 +273,52 @@ describe('AIRecognitionModal — guardado (NUT-172) y "Repetir"', () => {
     expect(body.predictionId).toBe('1');
     expect(body.mealType).toBe('desayuno');
     expect(body.items[0]).toMatchObject({ sourceItemId: 'item-1', origin: 'ai', grams: 150 });
+    expect(body.fecha).toBe('2026-10-06');
 
     for (const [url] of fetchMock.mock.calls) {
       expect(url).not.toContain('ingestas');
       expect(url).not.toContain('/items');
     }
 
+    vi.unstubAllGlobals();
+  });
+
+  it('avisa de los alimentos sin datos nutricionales solo a quien puede ver nutrición', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === '/api/food-recognition'
+            ? RESPUESTA_SIN_DUDAS
+            : { ok: true, savedId: '9', diario: { itemsRegistrados: 1, sinDatos: 1 } },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal({ hideNutrition: false });
+    await llegarAlResultadoListo(user);
+    await user.click(screen.getByRole('button', { name: /Guardar en Desayuno/ }));
+    expect(await screen.findByText(/1 alimento sin datos nutricionales/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('a un deportista (hideNutrition) no le dice nada de datos nutricionales', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url === '/api/food-recognition'
+            ? RESPUESTA_SIN_DUDAS
+            : { ok: true, savedId: '9', diario: { itemsRegistrados: 1, sinDatos: 1 } },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    mockGetUserMedia(() => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }));
+    const { user } = renderModal({ hideNutrition: true });
+    await llegarAlResultadoListo(user);
+    await user.click(screen.getByRole('button', { name: /Guardar en Desayuno/ }));
+    await screen.findByText('Guardado en Desayuno');
+    expect(screen.queryByText(/datos nutricionales/)).not.toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 

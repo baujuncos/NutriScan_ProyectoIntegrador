@@ -23,6 +23,7 @@ vi.mock('@/app/alimentacion/actions', () => ({
   updateItemAction:             vi.fn(),
 }));
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('@/app/alimentacion/AIRecognitionModal', () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/ChatFoodModal',      () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/BarcodeScannerModal', () => ({ default: () => null }));

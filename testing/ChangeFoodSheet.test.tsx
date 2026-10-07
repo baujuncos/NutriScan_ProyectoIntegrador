@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChangeFoodSheet from '@/app/alimentacion/ChangeFoodSheet';
-import { nutritionProviderMock } from '@/lib/nutritionMock';
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
 
 vi.mock('@/app/alimentacion/actions', () => ({
@@ -23,7 +22,6 @@ describe('ChangeFoodSheet — modo "replace"', () => {
         target={{ name: 'Topping blanco', grams: 35, boundingBox: null, dudaOptions: [] }}
         photoUrl="blob:foto"
         mealType="desayuno"
-        provider={nutritionProviderMock}
         onConfirm={vi.fn()}
       />,
     );
@@ -44,7 +42,6 @@ describe('ChangeFoodSheet — modo "replace"', () => {
         }}
         photoUrl={null}
         mealType="desayuno"
-        provider={nutritionProviderMock}
         onConfirm={vi.fn()}
       />,
     );
@@ -53,7 +50,7 @@ describe('ChangeFoodSheet — modo "replace"', () => {
     expect(screen.getByLabelText('Buscar alimento')).toHaveValue('Yogur griego');
   });
 
-  it('busca con debounce, muestra resultados con kcal/macros del provider mock y confirma la elección', async () => {
+  it('busca con debounce, confirma la elección con el id del catálogo y NO muestra kcal/macros', async () => {
     mockedSearch.mockResolvedValue([
       { id_alimento: 1, nombre: 'Yogur griego natural', categoria: 'Lácteo', fuente: 'SARA2', marca: null, denominacion: null },
       { id_alimento: 2, nombre: 'Yogur griego descremado', categoria: 'Lácteo', fuente: 'SARA2', marca: null, denominacion: null },
@@ -66,20 +63,20 @@ describe('ChangeFoodSheet — modo "replace"', () => {
         target={{ name: 'Topping blanco', grams: 35, boundingBox: null, dudaOptions: [] }}
         photoUrl={null}
         mealType="desayuno"
-        provider={nutritionProviderMock}
         onConfirm={onConfirm}
       />,
     );
 
     await user.type(screen.getByLabelText('Buscar alimento'), 'yogur');
     expect(await screen.findByText('Yogur griego natural')).toBeInTheDocument();
-    expect(screen.getByText('97 kcal')).toBeInTheDocument();
+    expect(screen.queryByText(/kcal/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/P \d+ · C \d+ · G \d+/)).not.toBeInTheDocument();
     expect(mockedSearch).toHaveBeenCalledWith('yogur', 'desayuno');
 
     await user.click(screen.getByText('Yogur griego natural'));
     await user.click(screen.getByRole('button', { name: 'Usar Yogur griego natural' }));
 
-    expect(onConfirm).toHaveBeenCalledWith({ nombre: 'Yogur griego natural', categoria: 'Lácteo' });
+    expect(onConfirm).toHaveBeenCalledWith({ nombre: 'Yogur griego natural', categoria: 'Lácteo', idAlimento: 1 });
   });
 
   it('el botón de confirmar está deshabilitado hasta elegir un resultado', async () => {
@@ -93,7 +90,6 @@ describe('ChangeFoodSheet — modo "replace"', () => {
         target={{ name: 'Topping blanco', grams: 35, boundingBox: null, dudaOptions: [] }}
         photoUrl={null}
         mealType="desayuno"
-        provider={nutritionProviderMock}
         onConfirm={vi.fn()}
       />,
     );
@@ -111,7 +107,6 @@ describe('ChangeFoodSheet — modo "add"', () => {
         mode="add"
         photoUrl={null}
         mealType="desayuno"
-        provider={nutritionProviderMock}
         onConfirm={vi.fn()}
       />,
     );

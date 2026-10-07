@@ -26,6 +26,7 @@ import type { Macros100 } from '@/lib/macros';
 import { matchearAlimentos, type MatchResultado } from '@/lib/matchingAlimentos';
 import { MAX_CANTIDAD, isValidDateInput, normalizarTipoIngesta } from '@/lib/nutrition';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { ATHLETE_ROLE } from '@/lib/researcher/athletes';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -69,9 +70,16 @@ interface ItemParaRpc {
   answers: FinalItem['answers'];
   food_ref: string | null;
   id_alimento: number | null;
-  metodo_match: 'food_ref' | 'exacto' | 'trigram' | 'gemini' | 'ninguno';
+  metodo_match: 'food_ref' | 'exacto' | 'trigram' | 'gemini' | 'cola' | 'ninguno';
   score_match: number | null;
   ia: Macros100 | null;
+}
+
+/** ¿El usuario es deportista UCC? Se lee de `profiles` en el servidor, nunca del cliente. Ante cualquier duda, no. */
+async function esDeportista(supabase: Awaited<ReturnType<typeof createClient>>, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('profiles').select('role').eq('user_id', userId).single();
+  if (error) console.error('No se pudo leer el rol del usuario:', error);
+  return data?.role === ATHLETE_ROLE;
 }
 
 export async function POST(req: NextRequest) {
@@ -188,8 +196,32 @@ export async function POST(req: NextRequest) {
     if (!unicos.has(clave)) unicos.set(clave, { nombre: saveRequest.items[i].name, categoria: saveRequest.items[i].category });
   }
   const claves = [...unicos.keys()];
-  const estimacion = claves.length > 0 ? await estimarMacrosPor100g([...unicos.values()]) : { valores: [], modelo: null };
-  const iaPorClave = new Map<string, Macros100 | null>(claves.map((c, k) => [c, estimacion.valores[k] ?? null]));
+
+  // 2b) Deportistas: lo que ya está en la cola de validación (pendiente con valores, validado o descartado)
+  // no se vuelve a estimar con Gemini — la RPC de commit lo vincula a la fila existente.
+  const enCola = new Set<string>();
+  if (claves.length > 0 && (await esDeportista(supabase, user.id))) {
+    const normalizadas = claves.filter((c) => sinMatch.some((i) => matchPorItem.get(i)?.nombreNormalizado === c));
+    if (normalizadas.length > 0) {
+      const { data: filas, error: colaError } = await createAdminClient().rpc('cola_lookup', {
+        p_nombres: normalizadas.map((c) => unicos.get(c)!.nombre),
+      });
+      if (colaError) {
+        console.error('Falló cola_lookup (se estima todo con Gemini):', colaError);
+      } else {
+        for (const f of (filas ?? []) as Array<{ nombre_normalizado: string | null; necesita_ia: boolean }>) {
+          if (f.nombre_normalizado && f.necesita_ia === false) enCola.add(f.nombre_normalizado);
+        }
+      }
+    }
+  }
+
+  const clavesAEstimar = claves.filter((c) => !enCola.has(c));
+  const estimacion =
+    clavesAEstimar.length > 0
+      ? await estimarMacrosPor100g(clavesAEstimar.map((c) => unicos.get(c)!))
+      : { valores: [], modelo: null };
+  const iaPorClave = new Map<string, Macros100 | null>(clavesAEstimar.map((c, k) => [c, estimacion.valores[k] ?? null]));
 
   // 3) Ítems para la RPC.
   const itemsRpc: ItemParaRpc[] = saveRequest.items.map((it, i) => {
@@ -209,6 +241,9 @@ export async function POST(req: NextRequest) {
     const m = matchPorItem.get(i)!;
     if (m.idAlimento != null) {
       return { ...base, id_alimento: m.idAlimento, metodo_match: m.metodo ?? 'trigram', score_match: m.score, ia: null };
+    }
+    if (enCola.has(claveDe(i))) {
+      return { ...base, id_alimento: null, metodo_match: 'cola', score_match: null, ia: null };
     }
     const ia = iaPorClave.get(claveDe(i)) ?? null;
     return { ...base, id_alimento: null, metodo_match: ia ? 'gemini' : 'ninguno', score_match: null, ia };

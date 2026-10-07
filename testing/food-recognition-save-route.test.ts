@@ -323,6 +323,86 @@ describe('POST /save — resolución de alimentos', () => {
   });
 });
 
+describe('POST /save — cola de validación: reuso para deportistas (NUT-119)', () => {
+  const deportista = () => userDb.mockTable('profiles', { data: { role: 'deportista_ucc' }, error: null });
+  const filaCola = (idx: number, norm: string, necesitaIa: boolean) => ({
+    idx,
+    nombre_normalizado: norm,
+    id_pendiente: necesitaIa ? null : 3,
+    estado: necesitaIa ? null : 'validado',
+    necesita_ia: necesitaIa,
+  });
+  const dos = () =>
+    escenario({
+      uuids: [ITEM_UUID, ITEM_UUID_2],
+      match: [filaMatch(1, { nombre_normalizado: 'flan' }), filaMatch(2, { nombre_normalizado: 'budin' })],
+    });
+  const reqDos = () =>
+    makeSaveRequest({
+      items: [baseItem({ name: 'Flan' }), baseItem({ sourceItemId: ITEM_UUID_2, name: 'Budín' })],
+    });
+
+  it('deportista: consulta cola_lookup con el cliente admin; lo que ya está en la cola no va a Gemini y viaja como "cola"', async () => {
+    dos();
+    deportista();
+    adminDb.mockRpc('cola_lookup', { data: [filaCola(1, 'flan', false), filaCola(2, 'budin', true)], error: null });
+    estimarMock.mockResolvedValue({ valores: [IA], modelo: 'm' });
+
+    const res = await POST(makeRequest(reqDos()));
+
+    expect(res.status).toBe(200);
+    expect(adminDb.rpcLlamadas()[0]).toEqual({ nombre: 'cola_lookup', args: { p_nombres: ['Flan', 'Budín'] } });
+    expect(estimarMock).toHaveBeenCalledWith([{ nombre: 'Budín', categoria: 'proteína animal' }]);
+    const items = itemsDeLaRpc();
+    expect(items[0]).toMatchObject({ metodo_match: 'cola', ia: null, id_alimento: null });
+    expect(items[1]).toMatchObject({ metodo_match: 'gemini', ia: IA });
+  });
+
+  it('deportista con todo en la cola: no se llama a Gemini', async () => {
+    escenario({ match: [filaMatch(1, { nombre_normalizado: 'flan' })] });
+    deportista();
+    adminDb.mockRpc('cola_lookup', { data: [filaCola(1, 'flan', false)], error: null });
+    await POST(makeRequest(makeSaveRequest({ items: [baseItem({ name: 'Flan' })] })));
+    expect(estimarMock).not.toHaveBeenCalled();
+    expect(itemsDeLaRpc()[0].metodo_match).toBe('cola');
+  });
+
+  it('particular: nunca llama a cola_lookup', async () => {
+    dos();
+    userDb.mockTable('profiles', { data: { role: 'particular' }, error: null });
+    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    await POST(makeRequest(reqDos()));
+    expect(adminDb.rpcLlamadas().map((l) => l.nombre)).toEqual(['registrar_guardado_deteccion']);
+    expect(estimarMock.mock.calls[0][0]).toHaveLength(2);
+  });
+
+  it('sin perfil legible: se trata como no-deportista (no consulta la cola)', async () => {
+    dos();
+    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    await POST(makeRequest(reqDos()));
+    expect(adminDb.rpcLlamadas().map((l) => l.nombre)).not.toContain('cola_lookup');
+  });
+
+  it('si cola_lookup falla se sigue con Gemini para todos (degrada, no rompe)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    dos();
+    deportista();
+    adminDb.mockRpc('cola_lookup', { data: null, error: { message: 'boom' } });
+    estimarMock.mockResolvedValue({ valores: [IA, IA], modelo: 'm' });
+    const res = await POST(makeRequest(reqDos()));
+    expect(res.status).toBe(200);
+    expect(estimarMock.mock.calls[0][0]).toHaveLength(2);
+    expect(itemsDeLaRpc().map((i) => i.metodo_match)).toEqual(['gemini', 'gemini']);
+    spy.mockRestore();
+  });
+
+  it('todo resuelto por catálogo: ni siquiera se lee el rol', async () => {
+    escenario({ match: [catalogo(1, 10)] });
+    await POST(makeRequest(makeSaveRequest()));
+    expect(userDb.tablasLlamadas()).not.toContain('profiles');
+  });
+});
+
 describe('POST /save — commit transaccional', () => {
   it('usa el cliente admin con p_user_id = user.id y los datos del guardado', async () => {
     escenario();

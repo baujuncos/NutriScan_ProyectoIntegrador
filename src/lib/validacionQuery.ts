@@ -56,21 +56,38 @@ export interface FromClient {
   from: (tabla: string) => any;
 }
 
+/** Aplica estado + búsqueda (comunes a la página y al conteo). */
+function filtrar(query: any, params: ValidacionParams) {
+  if (params.estado !== 'todos') query = query.eq('estado', params.estado);
+  if (params.q) query = query.ilike('nombre_original', `%${params.q}%`);
+  return query;
+}
+
 /** Una página de la cola desde `v_alimentos_pendientes` (security_invoker: solo investigadores ven filas). */
 export async function consultarPendientes(
   client: FromClient,
   params: ValidacionParams,
 ): Promise<{ rows: unknown[]; total: number }> {
-  let query = client.from('v_alimentos_pendientes').select('*', { count: 'exact' });
-  if (params.estado !== 'todos') query = query.eq('estado', params.estado);
-  if (params.q) query = query.ilike('nombre_original', `%${params.q}%`);
+  let query = filtrar(client.from('v_alimentos_pendientes').select('*', { count: 'exact' }), params);
 
-  // Orden estable: el criterio elegido y, de desempate, lo más reciente primero.
+  // Orden estable: el criterio elegido, lo más reciente y, de desempate final, el id.
   if (params.orden === 'ocurrencias') query = query.order('ocurrencias', { ascending: false });
-  query = query.order('ultima_ocurrencia', { ascending: false, nullsFirst: false });
+  query = query.order('ultima_ocurrencia', { ascending: false, nullsFirst: false }).order('id_pendiente');
 
   const desde = (params.page - 1) * PAGE_SIZE;
   const { data, error, count } = await query.range(desde, desde + PAGE_SIZE - 1);
-  if (error) throw new Error(`No se pudo leer la cola de validación: ${error.message}`);
+  if (error) {
+    // PostgREST responde 416 si el offset supera el total (ej. se validó el último de la última página):
+    // no es un error — devolvemos 0 filas con el total real y la página redirige a la última válida.
+    if (error.code === 'PGRST103') {
+      const { count: total, error: errorConteo } = await filtrar(
+        client.from('v_alimentos_pendientes').select('id_pendiente', { count: 'exact', head: true }),
+        params,
+      );
+      if (errorConteo) throw new Error(`No se pudo leer la cola de validación: ${errorConteo.message}`);
+      return { rows: [], total: total ?? 0 };
+    }
+    throw new Error(`No se pudo leer la cola de validación: ${error.message}`);
+  }
   return { rows: (data ?? []) as unknown[], total: count ?? 0 };
 }

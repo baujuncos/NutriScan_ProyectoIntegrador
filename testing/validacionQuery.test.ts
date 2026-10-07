@@ -57,7 +57,7 @@ describe('consultarPendientes', () => {
     expect(mock.tablasLlamadas()).toEqual(['v_alimentos_pendientes']);
     const f = mock.filtrosLlamados();
     expect(f.find((x) => x.metodo === 'ilike')?.args).toEqual(['nombre_original', '%flan%']);
-    expect(f.filter((x) => x.metodo === 'order').map((x) => x.args[0])).toEqual(['ocurrencias', 'ultima_ocurrencia']);
+    expect(f.filter((x) => x.metodo === 'order').map((x) => x.args[0])).toEqual(['ocurrencias', 'ultima_ocurrencia', 'id_pendiente']);
     expect(f.find((x) => x.metodo === 'range')?.args).toEqual([PAGE_SIZE, PAGE_SIZE * 2 - 1]);
   });
 
@@ -66,6 +66,25 @@ describe('consultarPendientes', () => {
     mock.mockTable('v_alimentos_pendientes', { data: [], error: null, count: 0 } as never);
     await consultarPendientes(mock, { estado: 'todos', q: '', orden: 'fecha', page: 1 });
     expect(mock.filtrosLlamados().some((x) => x.metodo === 'ilike')).toBe(false);
+  });
+
+  it('página fuera de rango (PostgREST 416 / PGRST103): no lanza, devuelve 0 filas y el total real', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockTable('v_alimentos_pendientes', { data: null, error: { code: 'PGRST103', message: 'Requested range not satisfiable' } });
+    mock.mockTable('v_alimentos_pendientes', { data: null, error: null, count: 21 } as never);
+
+    const r = await consultarPendientes(mock, { estado: 'pendiente', q: '', orden: 'fecha', page: 2 });
+
+    expect(r).toEqual({ rows: [], total: 21 });
+    expect(mock.tablasLlamadas()).toEqual(['v_alimentos_pendientes', 'v_alimentos_pendientes']);
+  });
+
+  it('desempata por id_pendiente para que la paginación sea estable', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockTable('v_alimentos_pendientes', { data: [], error: null, count: 0 } as never);
+    await consultarPendientes(mock, { estado: 'todos', q: '', orden: 'fecha', page: 1 });
+    const orders = mock.filtrosLlamados().filter((x) => x.metodo === 'order').map((x) => x.args[0]);
+    expect(orders).toEqual(['ultima_ocurrencia', 'id_pendiente']);
   });
 
   it('lanza si la consulta falla', async () => {

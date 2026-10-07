@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { searchAlimentosAction, getAlimentosRecientesAction, type AlimentoOption } from './actions';
 import { CAMPOS_DEFAULT, campoDeCoincidencia, rangoCoincidencia, type CamposBusqueda } from './searchQuery';
 import { type IngestaTipo } from '@/lib/nutrition';
+import { useBodyScrollLock, useEsMobile, useVisualViewportBox } from '@/lib/overlayMovil';
 
 export type BusquedaAlimentoHandle = { focus: () => void; clear: () => void };
 
@@ -103,6 +104,13 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   const ningunCampoTildado = !campos.nombre && !campos.marca && !campos.denominacion;
   // Con un alimento ya elegido no hay nada que buscar: el panel se reabre recién al tipear.
   const abierto = showDropdown && !selectedAlimento;
+
+  // iOS: al abrirse el teclado, Safari desplaza la página y la barra (fixed, arriba) se va de la
+  // zona visible. En mobile se bloquea el scroll del fondo y el overlay se ajusta al área visible.
+  const esMobile = useEsMobile();
+  const overlayMovil = abierto && esMobile;
+  useBodyScrollLock(overlayMovil);
+  const areaVisible = useVisualViewportBox(overlayMovil);
 
   useImperativeHandle(ref, () => ({
     focus: () => searchInputRef.current?.focus(),
@@ -215,8 +223,9 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
               className="hidden sm:block fixed inset-0 z-30 bg-slate-900/10"
             />
           )}
-          {/* ponytail: sin bloqueo de scroll del body en la pantalla completa mobile; reusar el de Modal si el fondo llega a scrollear en iOS. */}
           <div
+            data-testid="busqueda-overlay"
+            style={areaVisible ? { top: areaVisible.top, height: areaVisible.height, bottom: 'auto' } : undefined}
             className={abierto
               ? 'fixed inset-0 z-[60] flex flex-col bg-[#F8FAFC] sm:relative sm:inset-auto sm:z-40 sm:block sm:bg-transparent'
               : 'relative'}

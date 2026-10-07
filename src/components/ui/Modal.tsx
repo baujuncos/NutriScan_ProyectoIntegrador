@@ -12,9 +12,11 @@ interface ModalProps {
   onBack?: () => void;
   /** Ícono opcional antes del título (reemplaza a poner un emoji dentro del string de `title`). */
   icon?: React.ReactNode;
+  /** Panel ancho (detalles con foto + formulario). Por defecto `max-w-lg`. */
+  wide?: boolean;
 }
 
-export default function Modal({ open, onClose, title, children, onBack, icon }: ModalProps) {
+export default function Modal({ open, onClose, title, children, onBack, icon, wide }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -63,7 +65,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl my-auto"
+        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-white p-6 shadow-xl my-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

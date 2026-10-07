@@ -44,6 +44,8 @@ export interface WorkingItem {
   originalQuestions: ClarifyingQuestion[];
   /** Respuestas ya aplicadas, incluidas las omitidas ("No sé"). */
   answers: ItemAnswer[];
+  /** NUT-119: `id_alimento` (string) elegido en el buscador; null si el nombre es el de la IA. Evita el matching en el servidor. */
+  foodRef: string | null;
 }
 
 export function crearWorkingItems(deteccion: DetectionResponse): WorkingItem[] {
@@ -60,10 +62,11 @@ export function crearWorkingItems(deteccion: DetectionResponse): WorkingItem[] {
     pendingQuestions: [...item.questions],
     originalQuestions: [...item.questions],
     answers: [],
+    foodRef: null,
   }));
 }
 
-export function crearItemManual(nombre: string, categoria: string): WorkingItem {
+export function crearItemManual(nombre: string, categoria: string, idAlimento?: number | null): WorkingItem {
   return {
     uiId: crypto.randomUUID(),
     sourceItemId: null,
@@ -77,6 +80,7 @@ export function crearItemManual(nombre: string, categoria: string): WorkingItem 
     pendingQuestions: [],
     originalQuestions: [],
     answers: [],
+    foodRef: idAlimento != null ? String(idAlimento) : null,
   };
 }
 
@@ -122,14 +126,22 @@ export function aplicarRespuesta(item: WorkingItem, respuesta: string | null, cu
     pendingQuestions: resto,
     answers: [...item.answers, answer],
     origin: respuesta == null ? item.origin : 'answered',
+    // Una respuesta "identity" cambia QUÉ es el alimento: el id del buscador ya no vale.
+    foodRef: pregunta.kind === 'identity' && respuesta != null ? null : item.foodRef,
   };
 }
 
 export function reemplazarAlimento(
   item: WorkingItem,
-  nuevo: { nombre: string; categoria: string },
+  nuevo: { nombre: string; categoria: string; idAlimento?: number | null },
 ): WorkingItem {
-  return { ...item, name: nuevo.nombre, category: nuevo.categoria, origin: 'replaced' };
+  return {
+    ...item,
+    name: nuevo.nombre,
+    category: nuevo.categoria,
+    origin: 'replaced',
+    foodRef: nuevo.idAlimento != null ? String(nuevo.idAlimento) : null,
+  };
 }
 
 export function ajustarPeso(item: WorkingItem, gramos: number): WorkingItem {
@@ -154,7 +166,7 @@ function aFinalItem(item: WorkingItem): FinalItem {
     aiGrams: item.aiGrams,
     origin: item.origin,
     answers: item.answers,
-    foodRef: null,
+    foodRef: item.foodRef,
   };
 }
 
@@ -163,11 +175,13 @@ export function armarSaveRequest(
   mealType: string,
   items: WorkingItem[],
   removedItemIds: string[],
+  fecha?: string,
 ): SaveRequest {
   return {
     predictionId,
     mealType,
     items: items.map(aFinalItem),
     removedItemIds,
+    ...(fecha ? { fecha } : {}),
   };
 }

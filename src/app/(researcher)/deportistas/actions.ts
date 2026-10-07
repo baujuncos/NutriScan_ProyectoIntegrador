@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ATHLETE_ROLE } from '@/lib/researcher/athletes';
 import { getWeekWindow } from '@/lib/researcher/compliance';
 import ExcelJS from 'exceljs';
+import { etiquetaDatoNutricional, macrosExportables } from '@/lib/datoNutricional';
 
 type ProfileRow = {
   user_id: string;
@@ -40,6 +41,11 @@ type AcademicRow = {
 type SurveyRow = { user_id: string; respuestas: number[] | null; completed_at: string | null };
 type RawItemRow = {
   id_item: number;
+  id_alimento: number | null;
+  id_alimento_barcode: number | null;
+  /** NUT-119: de dónde salió el dato nutricional (null = ítem legado). */
+  origen_macros: string | null;
+  kcal_100g: number | null;
   cantidad: number;
   kcal: number;
   proteinas_g: number;
@@ -70,8 +76,8 @@ const MEAL_ORDER = ['desayuno', 'almuerzo', 'merienda', 'cena', 'colacion', 'sup
 // 5-15  PERFIL FÍSICO
 // 16-23 PERFIL ACADÉMICO / DEPORTIVO
 // 24-30 VALORACIÓN PSICOLÓGICA
-// 31-38 REGISTRO ALIMENTARIO (one row per food item)
-// 39    HIDRATACIÓN (ml total)
+// 31-39 REGISTRO ALIMENTARIO (one row per food item; 39 = Dato nutricional, NUT-119)
+// 40    HIDRATACIÓN (ml total)
 
 export async function generateExcelAction(
   userIds: string[]
@@ -105,7 +111,7 @@ export async function generateExcelAction(
       .select('user_id, respuestas, completed_at')
       .in('user_id', userIds),
     supabase.from('ingestas')
-      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))')
+      .select('id_ingesta, id_usuario, tipo, fecha, items(id_item, id_alimento, id_alimento_barcode, origen_macros, kcal_100g, cantidad, kcal, proteinas_g, grasas_g, carbs_g, nombre_manual, alimentos(nombre), alimentos_barcode(nombre))')
       .in('id_usuario', userIds).order('fecha', { ascending: true }),
     supabase.from('hidratacion')
       .select('id_usuario, fecha, ml_total')
@@ -186,7 +192,9 @@ export async function generateExcelAction(
   }
 
   // ── Build workbook ──────────────────────────────────────────────────────────
-  const TOTAL_COLS = 39;
+  const COL_DATO_NUTRICIONAL = 39;
+  const COL_HIDRATACION = 40;
+  const TOTAL_COLS = COL_HIDRATACION;
   const STATIC_COLS = 30; // cols 1–30 merged vertically per athlete block
 
   const wb = new ExcelJS.Workbook();
@@ -223,8 +231,8 @@ export async function generateExcelAction(
     { label: 'PERFIL FÍSICO',                start: 5,  end: 15, argb: 'FF047857' },
     { label: 'PERFIL ACADÉMICO / DEPORTIVO', start: 16, end: 23, argb: 'FF6D28D9' },
     { label: 'VALORACIÓN PSICOLÓGICA',       start: 24, end: 30, argb: 'FFB91C1C' },
-    { label: 'REGISTRO ALIMENTARIO',         start: 31, end: 38, argb: 'FFD97706' },
-    { label: 'HIDRATACIÓN',                  start: 39, end: 39, argb: 'FF0891B2' },
+    { label: 'REGISTRO ALIMENTARIO',         start: 31, end: COL_DATO_NUTRICIONAL, argb: 'FFD97706' },
+    { label: 'HIDRATACIÓN',                  start: COL_HIDRATACION, end: COL_HIDRATACION, argb: 'FF0891B2' },
   ];
 
   const r3 = ws.getRow(3);
@@ -251,8 +259,8 @@ export async function generateExcelAction(
     // valoración psicológica (7)
     'Confianza', 'Concentración', 'Ansiedad', 'Resiliencia', 'Motivación',
     'Puntaje Total', 'Fecha Encuesta',
-    // registro alimentario (8)
-    'Fecha', 'Ingesta', 'Alimento', 'Cantidad (g)', 'Kcal', 'Prot. (g)', 'Grasas (g)', 'Carbs. (g)',
+    // registro alimentario (9)
+    'Fecha', 'Ingesta', 'Alimento', 'Cantidad (g)', 'Kcal', 'Prot. (g)', 'Grasas (g)', 'Carbs. (g)', 'Dato nutricional',
     // hidratación (1)
     'Hidratación (ml)',
   ];
@@ -262,7 +270,7 @@ export async function generateExcelAction(
     ...Array(11).fill('FF047857'),
     ...Array(8).fill('FF6D28D9'),
     ...Array(7).fill('FFB91C1C'),
-    ...Array(8).fill('FFD97706'),
+    ...Array(9).fill('FFD97706'),
     'FF0891B2',
   ];
 
@@ -345,6 +353,7 @@ export async function generateExcelAction(
       carbs: number | '',
       hydration: number | '',
       isFirstOfAthlete: boolean,
+      datoNutricional = '',
     ) => {
       const row = ws.getRow(ri);
       row.height = 16;
@@ -359,7 +368,8 @@ export async function generateExcelAction(
       applyCell(row, 36, prot, userBg);
       applyCell(row, 37, grasas, userBg);
       applyCell(row, 38, carbs, userBg);
-      applyCell(row, 39, hydration, userBg);
+      applyCell(row, COL_DATO_NUTRICIONAL, datoNutricional, userBg);
+      applyCell(row, COL_HIDRATACION, hydration, userBg);
       ri++;
     };
 
@@ -392,16 +402,19 @@ export async function generateExcelAction(
               isFirstOfDate = false;
             } else {
               for (const item of ing.items) {
+                // NUT-119: descartados / sin datos / manuales salen con macros vacíos (no 0) y su origen explícito.
+                const macros = macrosExportables(item);
                 writeRow(
                   fecha, tipoLabel,
                   item.alimentos_barcode?.nombre ?? item.alimentos?.nombre ?? item.nombre_manual ?? 'Alimento desconocido',
                   Number(item.cantidad) || 0,
-                  Number(item.kcal) || 0,
-                  Number(item.proteinas_g) || 0,
-                  Number(item.grasas_g) || 0,
-                  Number(item.carbs_g) || 0,
+                  macros.kcal,
+                  macros.proteinas,
+                  macros.grasas,
+                  macros.carbs,
                   isFirstOfDate ? (hydration || '') : '',
                   isFirstOfAthlete,
+                  etiquetaDatoNutricional(item),
                 );
                 isFirstOfAthlete = false;
                 isFirstOfDate = false;
@@ -413,8 +426,8 @@ export async function generateExcelAction(
         // Merge hydration cell vertically across all rows of this date
         const dateEndRow = ri - 1;
         if (dateEndRow > dateStartRow) {
-          ws.mergeCells(dateStartRow, 39, dateEndRow, 39);
-          const hydCell = ws.getCell(dateStartRow, 39);
+          ws.mergeCells(dateStartRow, COL_HIDRATACION, dateEndRow, COL_HIDRATACION);
+          const hydCell = ws.getCell(dateStartRow, COL_HIDRATACION);
           hydCell.alignment = { horizontal: 'center', vertical: 'middle' };
         }
       }
@@ -447,7 +460,7 @@ export async function generateExcelAction(
     9, 9, 13, 6, 6, 11, 7, 11, 14, 14, 13, // físico
     22, 20, 10, 12, 12, 12, 11, 18,          // académico
     11, 14, 11, 12, 12, 13, 13,              // psych
-    13, 14, 28, 10, 9, 9, 9, 9,              // alimentario
+    13, 14, 28, 10, 9, 9, 9, 9, 18,          // alimentario (+ Dato nutricional)
     14,                                        // hidratación
   ];
   COL_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w; });

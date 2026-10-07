@@ -43,6 +43,18 @@ select,
   touch-action: manipulation;
 }
 
+/* iOS Safari hace zoom automático al enfocar un campo con letra menor a 16px.
+   En pantallas táctiles se fuerza 16px (sin tocar el zoom del usuario ni el
+   viewport: bloquearlo perjudica la accesibilidad). Va sin @layer a propósito:
+   así le gana a las utilidades de Tailwind (text-sm, etc.). En desktop no aplica. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 button:active,
 a:active,
 [role="button"]:active {

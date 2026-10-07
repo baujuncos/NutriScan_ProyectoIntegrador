@@ -2,7 +2,7 @@
  * NUT-119 — Escalado de macros por 100 g al gramaje y chequeo de plausibilidad.
  */
 import { describe, expect, it } from 'vitest';
-import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
+import { macrosItem, macrosMezcla, macrosPlausibles, type Macros100 } from '@/lib/macros';
 
 const ARROZ: Macros100 = { kcal_100g: 130, proteinas_100g: 2.7, grasas_100g: 0.3, carbs_100g: 28 };
 const POLLO: Macros100 = { kcal_100g: 165, proteinas_100g: 31, grasas_100g: 3.6, carbs_100g: 0 };
@@ -47,5 +47,44 @@ describe('macrosPlausibles', () => {
   it('tolera diferencias chicas (fibra, alcohol): 25 kcal absolutas', () => {
     // 4*0 + 4*10 + 9*0 = 40 kcal calculadas, declara 60 → diferencia 20 ≤ 25.
     expect(macrosPlausibles({ kcal_100g: 60, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 10 })).toBe(true);
+  });
+});
+
+describe('macrosMezcla — varios alimentos del catálogo combinados en uno ("aceite y vinagre")', () => {
+  const VINAGRE: Macros100 = { kcal_100g: 19, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 0.6 };
+
+  it('promedia ponderando por los gramos y devuelve los valores POR 100 g de mezcla', () => {
+    // 70 g de aceite + 30 g de vinagre = 100 g de mezcla
+    const r = macrosMezcla([
+      { macros: ACEITE, gramos: 70 },
+      { macros: VINAGRE, gramos: 30 },
+    ])!;
+    expect(r.kcal_100g).toBeCloseTo(624.5, 1);
+    expect(r.grasas_100g).toBeCloseTo(70, 1);
+    expect(r.carbs_100g).toBeCloseTo(0.18, 2);
+    expect(macrosPlausibles(r)).toBe(true);
+  });
+
+  it('los gramos son proporciones: 7 + 3 da lo mismo que 70 + 30 (se normaliza a 100 g)', () => {
+    const a = macrosMezcla([{ macros: ACEITE, gramos: 7 }, { macros: VINAGRE, gramos: 3 }]);
+    const b = macrosMezcla([{ macros: ACEITE, gramos: 70 }, { macros: VINAGRE, gramos: 30 }]);
+    expect(a).toEqual(b);
+  });
+
+  it('con 200 g (no suman 100) igual devuelve por 100 g', () => {
+    const r = macrosMezcla([{ macros: ARROZ, gramos: 100 }, { macros: POLLO, gramos: 100 }])!;
+    expect(r.kcal_100g).toBeCloseTo((130 + 165) / 2, 1);
+    expect(r.proteinas_100g).toBeCloseTo((2.7 + 31) / 2, 1);
+  });
+
+  it('un solo componente devuelve ese mismo alimento', () => {
+    expect(macrosMezcla([{ macros: POLLO, gramos: 40 }])).toEqual(POLLO);
+  });
+
+  it('sin componentes, con gramos 0, negativos o no numéricos → null (no inventa)', () => {
+    expect(macrosMezcla([])).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 0 }])).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 10 }, { macros: ARROZ, gramos: -5 }])).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: NaN }])).toBeNull();
   });
 });

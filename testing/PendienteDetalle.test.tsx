@@ -238,3 +238,98 @@ describe('PendienteDetalle — buscar en catálogo', () => {
     expect(onResuelto).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PendienteDetalle — mezcla de varios alimentos ("Aceite y vinagre")', () => {
+  const ACEITE = { id_alimento: 31, nombre: 'Aceite de oliva', categoria: 'aceites', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 884, proteinas_100g: 0, grasas_100g: 100, carbs_100g: 0 };
+  const VINAGRE = { id_alimento: 32, nombre: 'Vinagre de alcohol', categoria: 'aderezos', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 19, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 0.6 };
+
+  async function agregarIngrediente(user: ReturnType<typeof userEvent.setup>, busqueda: string, nombre: string) {
+    await user.type(screen.getByLabelText('Agregar ingrediente a la mezcla'), busqueda);
+    await user.click(await screen.findByRole('button', { name: new RegExp(`Agregar ${nombre}`) }));
+  }
+
+  function mockBusqueda() {
+    vi.mocked(searchAlimentosAction).mockImplementation(async (q: string) =>
+      q.startsWith('acei') ? [ACEITE] : q.startsWith('vina') ? [VINAGRE] : [],
+    );
+  }
+
+  it('se pueden sumar varios alimentos del catálogo, indicar los gramos de cada uno y ver los macros por 100 g de la mezcla', async () => {
+    mockBusqueda();
+    const { user } = await abrir();
+    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
+    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
+
+    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
+    await user.type(screen.getByLabelText('Gramos de Aceite de oliva'), '70');
+    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
+    await user.type(screen.getByLabelText('Gramos de Vinagre de alcohol'), '30');
+
+    const resultado = screen.getByRole('region', { name: 'Resultado de la mezcla' });
+    expect(within(resultado).getByText(/624\.5 kcal/)).toBeInTheDocument(); // (884×70 + 19×30) / 100
+    expect(within(resultado).getByText(/G 70 g/)).toBeInTheDocument();
+  });
+
+  it('"Usar estos valores" los vuelca al formulario (que sigue siendo editable) y suelta el vínculo a un alimento único', async () => {
+    mockBusqueda();
+    const { user } = await abrir();
+    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
+    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
+    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
+    await user.type(screen.getByLabelText('Gramos de Aceite de oliva'), '70');
+    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
+    await user.type(screen.getByLabelText('Gramos de Vinagre de alcohol'), '30');
+
+    await user.click(screen.getByRole('button', { name: 'Usar estos valores' }));
+
+    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(624.5);
+    expect(screen.getByLabelText('Grasas (g / 100 g)')).toHaveValue(70);
+    expect(screen.getByLabelText('Carbohidratos (g / 100 g)')).toHaveValue(0.2);
+    expect(screen.getByLabelText('Nombre')).toHaveValue('Flan casero'); // el nombre no se toca
+    expect(screen.getByText(/Valores de la mezcla aplicados/)).toBeInTheDocument();
+
+    // y se valida como un alimento NUEVO con esos valores (sin vincular a uno existente)
+    await user.click(screen.getByRole('button', { name: 'Validar' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
+    expect(validarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kcal: 624.5, grasas: 70, carbs: 0.2, idAlimentoExistente: null }),
+    );
+  });
+
+  it('hacen falta al menos 2 ingredientes; con uno solo el botón está deshabilitado', async () => {
+    mockBusqueda();
+    const { user } = await abrir();
+    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
+    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
+    expect(screen.getByText(/al menos 2 ingredientes/i)).toBeInTheDocument();
+  });
+
+  it('se puede quitar un ingrediente, y un gramaje vacío o 0 bloquea el resultado', async () => {
+    mockBusqueda();
+    const { user } = await abrir();
+    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
+    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
+
+    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
+    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar Vinagre de alcohol' }));
+    expect(screen.queryByLabelText('Gramos de Vinagre de alcohol')).not.toBeInTheDocument();
+  });
+
+  it('un ingrediente sin datos nutricionales en el catálogo avisa y no permite usar la mezcla', async () => {
+    vi.mocked(searchAlimentosAction).mockImplementation(async (q: string) =>
+      q.startsWith('acei') ? [ACEITE] : q.startsWith('misterio') ? [{ ...VINAGRE, id_alimento: 99, nombre: 'Misterio', kcal_100g: null }] : [],
+    );
+    const { user } = await abrir();
+    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
+    await agregarIngrediente(user, 'misterio', 'Misterio');
+    expect(screen.getByText(/Misterio no tiene datos nutricionales/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
+  });
+
+  it('un alimento ya resuelto (solo lectura) no muestra el armador de mezclas', async () => {
+    await abrir({ estado: 'validado' });
+    expect(screen.queryByLabelText('Agregar ingrediente a la mezcla')).not.toBeInTheDocument();
+  });
+});

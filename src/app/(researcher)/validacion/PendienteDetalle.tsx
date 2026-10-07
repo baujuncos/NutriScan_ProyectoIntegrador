@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
+import MezclaCatalogo from './MezclaCatalogo';
 import { searchAlimentosAction, type AlimentoOption } from '@/app/alimentacion/actions';
 import { formatFechaCorta } from '@/lib/date';
 import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
@@ -43,7 +44,7 @@ const plural = (n: number) => `${n} ítem${n === 1 ? '' : 's'}`;
 function FotoOcurrencia({ o }: { o: OcurrenciaDetalle }) {
   if (!o.fotoUrl) {
     return (
-      <div className="flex h-40 w-full items-center justify-center rounded-xl bg-slate-100 text-xs text-slate-500 sm:w-40">
+      <div className="flex h-40 w-full items-center justify-center rounded-xl bg-slate-100 text-xs text-slate-600 sm:w-40">
         Sin foto
       </div>
     );
@@ -76,7 +77,7 @@ function FotoOcurrencia({ o }: { o: OcurrenciaDetalle }) {
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-600">{label}</p>
       {children}
     </div>
   );
@@ -229,7 +230,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
   return (
     <Modal open={idPendiente != null} onClose={onClose} title="Revisar alimento" wide>
       {errorCarga && <p className="text-sm text-red-600">{errorCarga}</p>}
-      {!datos && !errorCarga && <p className="text-sm text-slate-500">Cargando…</p>}
+      {!datos && !errorCarga && <p className="text-sm text-slate-600">Cargando…</p>}
 
       {datos && p && (
         <div className="space-y-6">
@@ -241,16 +242,16 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
           )}
 
           <section aria-label="Estimación original de Gemini" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
               Estimación original de Gemini (por 100 g)
             </h3>
             {p.gemini_kcal_100g == null ? (
-              <p className="text-slate-500">Gemini no pudo estimar este alimento: cargá los valores a mano.</p>
+              <p className="text-slate-600">Gemini no pudo estimar este alimento: cargá los valores a mano.</p>
             ) : (
               <p className="text-slate-700">
                 {p.gemini_kcal_100g} kcal · P {p.gemini_proteinas_100g} g · C {p.gemini_carbs_100g} g · G{' '}
                 {p.gemini_grasas_100g} g
-                {p.gemini_modelo ? <span className="text-slate-400"> · {p.gemini_modelo}</span> : null}
+                {p.gemini_modelo ? <span className="text-slate-600"> · {p.gemini_modelo}</span> : null}
               </p>
             )}
           </section>
@@ -264,7 +265,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                 <li key={o.idGuardadoItem} className="flex flex-col gap-3 rounded-xl border border-slate-100 p-3 sm:flex-row">
                   <FotoOcurrencia o={o} />
                   <div className="min-w-0 flex-1 space-y-2 text-sm">
-                    <div className="flex flex-wrap items-center gap-x-3 text-slate-500">
+                    <div className="flex flex-wrap items-center gap-x-3 text-slate-600">
                       <span className="font-medium text-slate-800">{o.deportista ?? 'Deportista'}</span>
                       <span>{formatFechaCorta(o.fecha)}</span>
                     </div>
@@ -280,7 +281,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                       IA: {o.gramosIa != null ? `${redondear1(o.gramosIa)} g` : '—'} · final: {redondear1(o.gramosFinal)} g
                     </p>
                     {o.respuestas.length > 0 && (
-                      <ul className="space-y-0.5 text-xs text-slate-500">
+                      <ul className="space-y-0.5 text-xs text-slate-600">
                         {o.respuestas.map((r, i) => (
                           <li key={i}>
                             <span>{r.question}</span> → <span className="font-medium text-slate-700">{r.answer ?? 'No sé'}</span>
@@ -293,7 +294,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
               ))}
             </ul>
             {total > datos.ocurrencias.length && (
-              <p className="mt-2 text-xs text-slate-500">y {total - datos.ocurrencias.length} más</p>
+              <p className="mt-2 text-xs text-slate-600">y {total - datos.ocurrencias.length} más</p>
             )}
           </section>
 
@@ -323,7 +324,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
             )}
 
             <section aria-label="Vista previa por ocurrencia" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Cómo quedan los totales en cada ocurrencia
               </h3>
               {macros ? (
@@ -339,7 +340,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                   })}
                 </ul>
               ) : (
-                <p className="text-slate-500">Completá los cuatro valores para ver la vista previa.</p>
+                <p className="text-slate-600">Completá los cuatro valores para ver la vista previa.</p>
               )}
             </section>
 
@@ -365,7 +366,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                           }}
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50"
                         >
-                          {a.nombre} <span className="text-xs text-slate-400">{a.fuente}</span>
+                          {a.nombre} <span className="text-xs text-slate-600">{a.fuente}</span>
                         </button>
                       </li>
                     ))}
@@ -380,6 +381,21 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                   </p>
                 )}
               </div>
+            )}
+
+            {!soloLectura && (
+              <MezclaCatalogo
+                onUsar={(m) => {
+                  // Es un alimento NUEVO con estos valores: se suelta el vínculo a uno existente.
+                  setKcal(String(redondear1(m.kcal_100g)));
+                  setProt(String(redondear1(m.proteinas_100g)));
+                  setGrasas(String(redondear1(m.grasas_100g)));
+                  setCarbs(String(redondear1(m.carbs_100g)));
+                  setVinculado(null);
+                  setError(null);
+                  setAviso('Valores de la mezcla aplicados al formulario. Revisalos antes de validar.');
+                }}
+              />
             )}
 
             <div aria-live="polite" className="min-h-5 text-sm">

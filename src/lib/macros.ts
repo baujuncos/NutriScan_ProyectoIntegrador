@@ -49,3 +49,23 @@ export function macrosPlausibles(m: Macros100): boolean {
   const calculado = 4 * p + 4 * c + 9 * g;
   return Math.abs(kcal - calculado) <= Math.max(25, 0.35 * kcal);
 }
+
+/**
+ * Macros por 100 g de una MEZCLA de varios alimentos del catálogo (ej. "aceite y
+ * vinagre", un aderezo que no existe como entrada propia). Los gramos son
+ * proporciones: se promedia ponderando por ellos y el resultado queda siempre
+ * por 100 g de mezcla. null si no hay componentes o algún gramaje no es válido.
+ */
+export function macrosMezcla(componentes: { macros: Macros100; gramos: number }[]): Macros100 | null {
+  if (componentes.length === 0) return null;
+  if (!componentes.every((c) => Number.isFinite(c.gramos) && c.gramos > 0)) return null;
+  const total = componentes.reduce((acc, c) => acc + c.gramos, 0);
+  const prom = (campo: keyof Macros100) =>
+    redondear2(componentes.reduce((acc, c) => acc + c.macros[campo] * c.gramos, 0) / total);
+  return {
+    kcal_100g: prom('kcal_100g'),
+    proteinas_100g: prom('proteinas_100g'),
+    grasas_100g: prom('grasas_100g'),
+    carbs_100g: prom('carbs_100g'),
+  };
+}

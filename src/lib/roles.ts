@@ -28,16 +28,19 @@ export function determineRoleFromEmail(email: string): UserRole {
 
 /**
  * ¿Este alta es de investigador? No se confía en un query param (cualquiera lo
- * puede agregar a /auth/callback, y Supabase puede descartarlo del redirectTo):
- * vale el rol que /api/register dejó en user_metadata (alta por email) o la
- * cookie del código de invitación ya validado (alta con Google).
+ * puede agregar a /auth/callback, y Supabase puede descartarlo del redirectTo)
+ * NI en `user_metadata` (el propio usuario lo puede escribir al registrarse
+ * contra el endpoint público de Supabase Auth). Vale:
+ *  - `app_metadata.role` (alta por email): solo se puede escribir con el
+ *    service role, y lo deja /api/register después de validar el código; o
+ *  - la cookie del código de invitación ya validado (alta con Google).
  */
 export function esAltaInvestigador(opts: {
-  metaRole: unknown;
+  appRole: unknown;
   cookieToken?: string;
   validCode?: string;
 }): boolean {
-  if (opts.metaRole === 'investigador') return true;
+  if (opts.appRole === 'investigador') return true;
   const valid = opts.validCode?.trim();
   return !!valid && opts.cookieToken === valid;
 }

@@ -25,9 +25,18 @@ vi.mock('sharp', () => ({ default: sharpMock }));
 
 const { getUserMock } = vi.hoisted(() => ({ getUserMock: vi.fn() }));
 const supabaseFromMock = createSupabaseFromMock();
+// Cliente admin (service role) solo para la limpieza de fotos huérfanas.
+const adminMock = createSupabaseFromMock();
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { getUser: getUserMock }, from: supabaseFromMock.from }),
+  createClient: async () => ({
+    auth: { getUser: getUserMock },
+    from: supabaseFromMock.from,
+    storage: supabaseFromMock.storage,
+  }),
+}));
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ storage: adminMock.storage }),
 }));
 
 vi.mock('@google/generative-ai', () => {
@@ -115,6 +124,7 @@ beforeEach(() => {
   // Por defecto, persistencia exitosa — los tests que prueban fallos de
   // persistencia lo pisan explícitamente después de este reset.
   supabaseFromMock.reset();
+  adminMock.reset();
   supabaseFromMock.mockTable('detecciones_ia', { data: { id_deteccion: 1 }, error: null });
   supabaseFromMock.mockTable('detecciones_ia_items', { data: null, error: null });
 });
@@ -259,6 +269,89 @@ describe('POST /api/food-recognition — persistencia de la predicción (NUT-172
 
     expect(res.status).toBe(502);
     expect(body.error).toBe('PERSISTENCE_ERROR');
+  });
+});
+
+describe('POST /api/food-recognition — foto del plato en Storage privado (NUT-119)', () => {
+  it('sube la imagen procesada a {uid}/{uuid}.jpg y guarda el path en detecciones_ia.imagen_path', async () => {
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+    supabaseFromMock.mockStorage('upload', { data: { path: 'x' }, error: null });
+
+    const res = await POST(makeRequest(makeForm()));
+
+    expect(res.status).toBe(200);
+    const subida = supabaseFromMock.storageLlamadas().find((l) => l.metodo === 'upload')!;
+    expect(subida.bucket).toBe('detecciones-fotos');
+    const path = subida.args[0] as string;
+    expect(path).toMatch(/^user-1\/[0-9a-f-]{36}\.jpg$/);
+    // Es la misma imagen comprimida que se manda a Gemini (coherente con los bounding boxes).
+    expect(Buffer.isBuffer(subida.args[1])).toBe(true);
+    expect((subida.args[1] as Buffer).toString()).toBe('fake-compressed-jpeg');
+    const insert = supabaseFromMock.insertsLlamados().find((i) => i.tabla === 'detecciones_ia')!;
+    expect(insert.payload).toMatchObject({ imagen_path: path });
+    expect(insert.payload).not.toHaveProperty('imagen_url', expect.anything());
+  });
+
+  it('si la subida falla la detección NO falla: 200 con imagen_path null', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+    supabaseFromMock.mockStorage('upload', { data: null, error: { message: 'storage caído' } });
+
+    const res = await POST(makeRequest(makeForm()));
+
+    expect(res.status).toBe(200);
+    const insert = supabaseFromMock.insertsLlamados().find((i) => i.tabla === 'detecciones_ia')!;
+    expect(insert.payload).toMatchObject({ imagen_path: null });
+    spy.mockRestore();
+  });
+
+  it('la subida corre en paralelo con Gemini (ya inició cuando se llama a Gemini)', async () => {
+    let subidasAlLlamarGemini = -1;
+    generateContentMock.mockImplementationOnce(async () => {
+      subidasAlLlamarGemini = supabaseFromMock.storageLlamadas().filter((l) => l.metodo === 'upload').length;
+      return jsonResponse(VALID_RESULT);
+    });
+    supabaseFromMock.mockStorage('upload', { data: { path: 'x' }, error: null });
+
+    await POST(makeRequest(makeForm()));
+
+    expect(subidasAlLlamarGemini).toBe(1);
+  });
+
+  it('si Gemini falla después de subir, borra la foto huérfana con el cliente admin', async () => {
+    generateContentMock.mockRejectedValue(new GoogleGenerativeAIFetchError('cuota', 429));
+    supabaseFromMock.mockStorage('upload', { data: { path: 'x' }, error: null });
+
+    const res = await POST(makeRequest(makeForm()));
+
+    expect(res.status).toBe(502);
+    const path = supabaseFromMock.storageLlamadas().find((l) => l.metodo === 'upload')!.args[0];
+    expect(adminMock.storageLlamadas()).toEqual([{ bucket: 'detecciones-fotos', metodo: 'remove', args: [[path]] }]);
+  });
+
+  it('si falla el insert de detecciones_ia después de subir, borra la foto huérfana', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
+    supabaseFromMock.reset();
+    supabaseFromMock.mockTable('detecciones_ia', { data: null, error: { message: 'boom' } });
+    supabaseFromMock.mockStorage('upload', { data: { path: 'x' }, error: null });
+
+    const res = await POST(makeRequest(makeForm()));
+
+    expect(res.status).toBe(502);
+    expect(adminMock.storageLlamadas().map((l) => l.metodo)).toEqual(['remove']);
+    spy.mockRestore();
+  });
+
+  it('si no hubo foto subida no se intenta borrar nada', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    generateContentMock.mockRejectedValue(new GoogleGenerativeAIFetchError('cuota', 429));
+    supabaseFromMock.mockStorage('upload', { data: null, error: { message: 'x' } });
+
+    await POST(makeRequest(makeForm()));
+
+    expect(adminMock.storageLlamadas()).toEqual([]);
+    spy.mockRestore();
   });
 });
 

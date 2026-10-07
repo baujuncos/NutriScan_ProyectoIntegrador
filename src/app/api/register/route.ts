@@ -93,7 +93,9 @@ export async function POST(req: NextRequest) {
     email,
     password,
     email_confirm: false,
-    user_metadata: { nombre, apellido, ...(role ? { role } : {}) },
+    user_metadata: { nombre, apellido },
+    // El rol va en app_metadata: solo se escribe con service role (el usuario no lo puede forjar).
+    ...(role ? { app_metadata: { role } } : {}),
   });
 
   if (createError) {

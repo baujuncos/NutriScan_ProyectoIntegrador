@@ -249,7 +249,7 @@ describe('AIRecognitionModal — guardado (NUT-172) y "Repetir"', () => {
     await screen.findByText('milanesa de pollo');
   }
 
-  it('"Guardar" arma el SaveRequest y lo manda a /api/food-recognition/save; nunca toca el diario real', async () => {
+  it('"Guardar" arma el SaveRequest y lo manda a /api/food-recognition/save (el cliente nunca escribe en el diario: lo hace el backend)', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/food-recognition') {
         return Promise.resolve({ ok: true, json: async () => RESPUESTA_SIN_DUDAS });

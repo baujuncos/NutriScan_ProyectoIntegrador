@@ -1791,3 +1791,80 @@ revoke all on function public.registrar_guardado_deteccion(uuid, bigint, date, t
   from public, anon, authenticated;
 grant execute on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text)
   to service_role;
+
+-- ------------------------------------------------------------
+-- match_alimentos — mejor candidato del catálogo por cada nombre (NUT-119)
+--
+-- Una sola llamada para todos los nombres de una comida (nada de N+1).
+-- `%` usa el índice GIN trigram con el umbral del GUC pg_trgm.similarity_threshold
+-- (0.3 por default); después se filtra por similarity() >= greatest(p_umbral, 0.3).
+-- No se llama set_config desde una función STABLE. Orden: exacto primero, luego
+-- score + bonus (marca explícita en el nombre consultado +0.10, SARA2 +0.08). El
+-- score devuelto es la similitud cruda, sin bonus. Devuelve una fila por nombre
+-- (id_alimento null si no hubo match) y los macros por 100 g del candidato.
+-- ------------------------------------------------------------
+
+create or replace function public.match_alimentos(p_nombres text[], p_umbral real default 0.5)
+returns table (
+  idx int,
+  nombre_normalizado text,
+  id_alimento int,
+  nombre text,
+  fuente text,
+  score real,
+  metodo text,
+  kcal_100g numeric,
+  proteinas_100g numeric,
+  grasas_100g numeric,
+  carbs_100g numeric
+)
+language sql stable security invoker
+set search_path = public, extensions
+as $$
+  select
+    q.idx::int,
+    qn.n,
+    m.id_alimento,
+    m.nombre,
+    m.fuente,
+    m.score,
+    m.metodo,
+    m.kcal_100g,
+    m.proteinas_100g,
+    m.grasas_100g,
+    m.carbs_100g
+  from unnest(p_nombres) with ordinality as q(nombre, idx)
+  cross join lateral (select public.norm_alimento(q.nombre) as n) qn
+  left join lateral (
+    select
+      a.id_alimento,
+      a.nombre,
+      a.fuente,
+      similarity(a.nombre_normalizado, qn.n) as score,
+      case when a.nombre_normalizado = qn.n then 'exacto' else 'trigram' end as metodo,
+      a.kcal_100g,
+      a.proteinas_100g,
+      a.grasas_100g,
+      a.carbs_100g
+    from public.alimentos a
+    where qn.n is not null
+      and a.nombre_normalizado % qn.n
+      and similarity(a.nombre_normalizado, qn.n) >= greatest(p_umbral, 0.3)
+    order by
+      (a.nombre_normalizado = qn.n) desc,
+      similarity(a.nombre_normalizado, qn.n)
+        + case
+            when a.marca is not null
+              and public.norm_alimento(a.marca) is not null
+              and qn.n like '%' || public.norm_alimento(a.marca) || '%' then 0.10
+            when a.fuente = 'SARA2' then 0.08
+            else 0
+          end desc,
+      a.id_alimento
+    limit 1
+  ) m on true
+  order by q.idx
+$$;
+
+revoke all on function public.match_alimentos(text[], real) from public, anon;
+grant execute on function public.match_alimentos(text[], real) to authenticated, service_role;

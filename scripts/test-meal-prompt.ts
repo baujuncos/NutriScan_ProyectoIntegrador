@@ -50,6 +50,15 @@ const noLeak: Check = (r) =>
 const onlyFood = (re: RegExp): Check => (r) =>
   r.detectedIngredients.length > 0 && r.detectedIngredients.every((i) => re.test(i.ingredient)) ? null : 'procesó algo que no es la comida';
 
+/** El ítem que matchea `re` tiene una pregunta que matchea `q` (y no otra cosa). */
+const asksAbout = (re: RegExp, q: RegExp, what: string): Check => (r) => {
+  const i = item(r, re);
+  if (!i) return `falta ${re.source}`;
+  return i.questionForUser && q.test(i.questionForUser) ? null : `${i.ingredient}: no pregunta ${what}`;
+};
+const doesNotAsk = (q: RegExp, what: string): Check => (r) =>
+  r.detectedIngredients.some((i) => i.questionForUser && q.test(i.questionForUser)) ? `pregunta ${what} (no debería)` : null;
+
 const EMPANADAS_Q = '¿Cuántas empanadas comiste, de qué eran y fueron al horno o fritas?';
 
 const CASES: Case[] = [
@@ -89,6 +98,18 @@ const CASES: Case[] = [
   { id: 'idioma-ingles', messages: [u('I had a chicken sandwich')], expect: ['complete', 'needs_clarification'],
     checks: [has(/pollo/, 'pollo'), has(/pan/, 'pan'),
       (r) => (/\b(the|you|what|did)\b/i.test(r.assistantMessage) ? 'respondió en inglés' : null)] },
+  // Alimentos genéricos: preguntar el tipo en vez de asumirlo (ajuste NUT-188)
+  { id: 'generico-tostada-palta', messages: [u('tostadas con queso crema, huevo revuelto y palta')],
+    expect: ['needs_clarification'], checks: [asksAbout(/tostada|pan/, /pan|lactal|integral|blanco|negro|salvado/i, 'tipo de pan'), has(/palta/), has(/huevo/)] },
+  { id: 'generico-arroz-con-pollo', messages: [u('arroz con pollo')],
+    expect: ['needs_clarification'], checks: [asks] },
+  { id: 'generico-arroz-pollo-gramos', messages: [u('200g de arroz con 150g de pollo grillado')],
+    expect: ['needs_clarification'],
+    checks: [asksAbout(/arroz/, /blanco|integral|yaman/i, 'tipo de arroz'), doesNotAsk(/cu[aá]nt|gramo|cantidad|cocci|frit|horno|parrilla/i, 'cantidad o cocción'),
+      (r) => (item(r, /arroz/)?.estimatedWeightGrams === 200 && item(r, /pollo/)?.estimatedWeightGrams === 150 ? null : 'no respeta 200 g / 150 g')] },
+  { id: 'especifico-tostada-integral', messages: [u('dos tostadas de pan integral con queso cremoso')],
+    expect: ['complete'], checks: [has(/integral/), has(/queso/)] },
+  // simple-fernet (arriba) también sirve de regresión: fernet con coca no debería preguntar nada.
   // Multi-turno
   { id: 'multi-empanadas-3-carne', messages: [u('comí empanadas'), a(EMPANADAS_Q), u('3 de carne al horno')],
     expect: ['complete'], items: 1, checks: [weight(/empanada/, 240)] },
@@ -120,7 +141,7 @@ async function main() {
   if (only && cases.length !== only.length) throw new Error(`Casos desconocidos: ${only.filter((id) => !CASES.some((c) => c.id === id))}`);
 
   const llm = getGeminiTransport();
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '', {
+  const supabase = createClient(process.env.SUPABASE_URL ?? '', process.env.SUPABASE_ANON_KEY ?? '', {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const catalog = createSupabaseSara2Catalog(supabase);

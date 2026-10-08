@@ -7,15 +7,23 @@ El endpoint recibe la conversación del chat y devuelve los alimentos detectados
 ## Cómo funciona
 
 1. **Validación (Zod):** si el body es inválido responde 400 sin llamar a Gemini.
-2. **Descomposición (Gemini, prompt de NUT-188):** Gemini separa la comida en alimentos individuales y estima los gramos o ml de cada uno.
-3. **Búsqueda en SARA2:** cada alimento se busca en el catálogo (`alimentos`, fuente SARA2).
-   - Si hay un match obvio (por ejemplo "banana" → `Banana`), se usa directo.
-   - Los dudosos, o los que no tienen candidatos, van en **una sola** llamada chica a Gemini. Ahí Gemini elige el id correcto o, si ninguno sirve, estima los valores cada 100 g.
-4. **Macros:** se calculan con la misma fórmula que el trigger `calculate_item_nutrients()`: `round(valor_100g × gramos / 100, 2)`.
-   - `macroSource: "sara2"` indica que los valores salen del catálogo.
-   - `macroSource: "estimado_ia"` indica que los estimó Gemini.
+2. **Una sola llamada a Gemini (prompt de NUT-188):** descompone la comida en alimentos individuales y, para cada uno, devuelve el gramaje estimado y **su propia estimación de macros** (respaldo).
+3. **Matching contra SARA2, en el backend y sin IA** (`src/lib/chat/sara2Matcher.ts`):
+   - Compara el nombre del ingrediente con cada alimento del catálogo, ignorando mayúsculas, tildes, plural y género ("papas" ~ "papa", "blanca" ~ "blanco"). **No hay comparación difusa**: en comida una letra cambia el alimento ("cerveza" ≠ "cereza").
+   - Puntaje = coeficiente de Dice sobre palabras: `2 × palabras en común / (palabras del ingrediente + palabras del candidato)`. Penaliza lo que el ingrediente dice y el candidato no, y lo que el candidato agrega.
+   - Se acepta solo si el mejor candidato tiene **puntaje ≥ 0,85** y le saca **≥ 0,10** al segundo (salvo que ambos tengan exactamente los mismos valores). Si no, **no hay match**.
+4. **Macros:**
+   - Match confiable → macros de SARA2 para el gramaje, con la misma fórmula que el trigger `calculate_item_nutrients()`: `round(valor_100g × gramos / 100, 2)`. `macroSource: "sara2"`.
+   - Sin match confiable → la estimación que Gemini ya devolvió en la misma respuesta, acotada a lo físicamente posible. `macroSource: "estimado_ia"`.
 
-Por request hay como máximo **2 llamadas** a Gemini, más un reintento por llamada si falla.
+Cada request hace **una sola llamada** a Gemini (más un reintento si falla). El log del servidor muestra cada decisión de matching: `[sara2-match] {"ingredient":..., "result":"accepted|low_score|ambiguous|no_candidates", "best":..., "second":...}`.
+
+Para ver cómo decide el matcher sin gastar cuota (solo lee SARA2 de Supabase) y ajustar los umbrales:
+
+```bash
+npx tsx --env-file=.env.local scripts/preview-sara2-matching.ts "pan blanco" "banana"
+npx tsx --env-file=.env.local scripts/preview-sara2-matching.ts --min-score=0.8 --min-margin=0.05
+```
 
 Archivos: `src/lib/ai/gemini.ts`, `src/lib/chat/*`, `src/app/api/chat/meal/route.ts`.
 
@@ -142,12 +150,12 @@ curl -s localhost:3000/api/chat/meal -H "Authorization: Bearer $TOKEN" -H "Conte
 5. Si aparece 401 más tarde, el token venció (dura 1 hora): repetí el paso 0.
 6. Si aparece 429 `RATE_LIMITED`, esperá un minuto. Si persiste, se agotó la cuota diaria de Gemini: la terminal de `npm run dev` muestra el detalle en las líneas `[gemini] {... "detail": ...}`.
 
-Cada request que llega a Gemini consume 1 o 2 llamadas de la cuota diaria compartida. Los casos 4, 5 y 6 no consumen cuota.
+Cada request que llega a Gemini consume 1 llamada de la cuota diaria compartida (2 si hubo que reintentar). Los casos 4, 5 y 6 no consumen cuota.
 
 ## Script de pruebas del prompt
 
 ```bash
-# Corre contra Gemini real y consume cuota (~1,7 llamadas por caso)
+# Corre contra Gemini real y consume cuota (1 llamada por caso)
 npx tsx --env-file=.env.local scripts/test-meal-prompt.ts
 npx tsx --env-file=.env.local scripts/test-meal-prompt.ts --only=simple-tostadas,ambiguo-empanadas
 

@@ -58,12 +58,24 @@ export type ChatMealMessage = ChatMealRequest['messages'][number];
 // El orden de las claves importa: Gemini genera en ese orden, y armar los ítems
 // antes que el status hace que el status sea coherente con las preguntas.
 
+// Estimación propia del modelo para la cantidad detectada (totales, no cada 100 g).
+// Es un respaldo: el backend la usa solo si el matching contra SARA2 no es confiable.
+// Los topes son holgados a propósito: un ítem que SÍ matchea SARA2 no debe fallar por esto;
+// la verosimilitud se controla recién cuando la estimación se usa (ver mealService.ts).
+export const modelEstimatedMacrosSchema = z.object({
+  kcal: z.number().min(0).max(20000),
+  proteinas_g: z.number().min(0).max(5000),
+  carbs_g: z.number().min(0).max(5000),
+  grasas_g: z.number().min(0).max(5000),
+});
+
 export const modelIngredientSchema = z.object({
   ingredient: z.string().min(1).max(80),
   type: z.enum(INGREDIENT_TYPES),
   confidence: z.number().min(0).max(1),
   estimatedWeightGrams: z.number().positive().max(5000),
   unit: z.enum(['g', 'ml']),
+  estimatedMacros: modelEstimatedMacrosSchema,
   questionForUser: z.string().max(300).nullable(),
 });
 
@@ -77,29 +89,6 @@ export const modelMealOutputSchema = z.object({
 export type ModelIngredient = z.infer<typeof modelIngredientSchema>;
 export type ModelMealOutput = z.infer<typeof modelMealOutputSchema>;
 
-// ---------- Salida del modelo (matching contra SARA2 / estimación) ----------
-
-const per100Schema = z.object({
-  kcal: z.number().min(0).max(1000),
-  proteinas: z.number().min(0).max(100),
-  grasas: z.number().min(0).max(100),
-  carbs: z.number().min(0).max(100),
-});
-
-export const modelMatchOutputSchema = z.object({
-  results: z.array(
-    z.object({
-      ref: z.number().int().min(0).max(50),
-      matchId: z.number().int().min(1).max(10_000_000).nullable(),
-      estimatedPer100: per100Schema.nullable(),
-    }).refine((r) => r.matchId !== null || r.estimatedPer100 !== null, {
-      message: 'Sin match hace falta estimatedPer100.',
-    }),
-  ),
-});
-
-export type ModelMatchOutput = z.infer<typeof modelMatchOutputSchema>;
-
 // ---------- Respuesta del endpoint ----------
 
 export interface Macros {
@@ -109,7 +98,7 @@ export interface Macros {
   grasas_g: number;
 }
 
-export interface MealIngredientResult extends ModelIngredient, Macros {
+export interface MealIngredientResult extends Omit<ModelIngredient, 'estimatedMacros'>, Macros {
   macroSource: 'sara2' | 'estimado_ia';
   sara2Match: { id_alimento: number; nombre: string } | null;
 }

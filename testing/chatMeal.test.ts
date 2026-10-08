@@ -3,9 +3,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AiError, callLlmJson, type LlmRawResponse, type LlmRequest, type LlmTransport } from '@/lib/ai/gemini';
 import { chatMealRequestSchema, modelMealOutputSchema } from '@/lib/chat/mealSchemas';
-import { analyzeMeal, BLOCKED_MESSAGE, INVALID_INPUT_MESSAGES, OFF_TOPIC_MESSAGE } from '@/lib/chat/mealService';
+import { analyzeMeal, BLOCKED_MESSAGE, INVALID_INPUT_MESSAGES, OFF_TOPIC_MESSAGE, sanitizeEstimate } from '@/lib/chat/mealService';
 import { checkRateLimit, RATE_LIMIT_MAX_REQUESTS } from '@/lib/chat/rateLimit';
-import { macrosForQuantity, pickObviousMatch, rankCandidates, type FoodCatalog, type Sara2Food } from '@/lib/chat/sara2Catalog';
+import { macrosForQuantity, type FoodCatalog, type Sara2Food } from '@/lib/chat/sara2Catalog';
+import { matchIngredient, scoreMatch } from '@/lib/chat/sara2Matcher';
 
 type Step = LlmRawResponse | Error | 'hang';
 
@@ -33,9 +34,10 @@ function fakeTransport(steps: Step[]): LlmTransport & { calls: LlmRequest[] } {
 
 const fastOptions = { timeoutMs: 50, retryDelayMs: 0, log: () => {} };
 
+const estimatedMacros = { kcal: 100, proteinas_g: 1, carbs_g: 23, grasas_g: 0.3 };
 const mealOk = {
   detectedIngredients: [
-    { ingredient: 'banana', type: 'fruta', confidence: 0.9, estimatedWeightGrams: 120, unit: 'g', questionForUser: null },
+    { ingredient: 'banana', type: 'fruta', confidence: 0.9, estimatedWeightGrams: 120, unit: 'g', estimatedMacros, questionForUser: null },
   ],
   status: 'complete',
   invalidReason: null,
@@ -49,9 +51,11 @@ const CATALOG_ROWS = [
   food(375, 'Banana', 92),
   food(425, 'Arroz blanco, crudo', 339),
   food(426, 'Arroz blanco, hervido', 126),
+  food(427, 'Arroz yamaní, hervido', 104),
+  food(649, 'Pan blanco, tipo molde, lacteado', 244),
   food(314, 'Café preparado a partir de grano molido (tipo café de filtro)', 1),
 ];
-const catalog: FoodCatalog = { findCandidates: async (ing) => rankCandidates(ing, CATALOG_ROWS) };
+const catalog: FoodCatalog = { getAll: async () => CATALOG_ROWS };
 const userMsg = (content: string) => [{ role: 'user' as const, content }];
 
 describe('callLlmJson — resiliencia', () => {
@@ -146,35 +150,51 @@ describe('analyzeMeal', () => {
     expect(res.assistantMessage).toBe(INVALID_INPUT_MESSAGES.sin_consumo);
   });
 
-  it('match obvio en SARA2: una sola llamada y macros con la fórmula del trigger', async () => {
+  it('match confiable en SARA2: una sola llamada, macros con la fórmula del trigger y sin estimación de IA', async () => {
     const llm = fakeTransport([ok(mealOk)]);
-    const res = await analyzeMeal(userMsg('comí una banana'), { llm, catalog, llmOptions: fastOptions });
+    const res = await analyzeMeal(userMsg('comí una banana'), { llm, catalog, llmOptions: fastOptions, onMatch: () => {} });
     expect(llm.calls).toHaveLength(1);
     expect(res.detectedIngredients[0]).toMatchObject({ macroSource: 'sara2', kcal: 110.4, sara2Match: { id_alimento: 375 } });
+    expect(res.detectedIngredients[0]).not.toHaveProperty('estimatedMacros');
     expect(res.totalMacros.kcal).toBe(110.4);
   });
 
-  it('ambiguo + sin match: una llamada de matching para ambos (sara2 y estimado_ia)', async () => {
+  it('sin match confiable: usa la estimación que vino en la MISMA respuesta (nunca una 2ª llamada)', async () => {
     const meal = {
       ...mealOk,
       detectedIngredients: [
-        { ...mealOk.detectedIngredients[0], ingredient: 'arroz hervido', type: 'cereal', estimatedWeightGrams: 200 },
-        { ...mealOk.detectedIngredients[0], ingredient: 'empanada de carne', type: 'otro', estimatedWeightGrams: 80 },
+        { ...mealOk.detectedIngredients[0], ingredient: 'arroz hervido', type: 'cereal', estimatedWeightGrams: 200,
+          estimatedMacros: { kcal: 260, proteinas_g: 5, carbs_g: 57, grasas_g: 0.5 } },
+        { ...mealOk.detectedIngredients[0], ingredient: 'arroz blanco hervido', type: 'cereal', estimatedWeightGrams: 200 },
       ],
     };
-    const match = {
-      results: [
-        { ref: 0, matchId: 426, estimatedPer100: null },
-        { ref: 1, matchId: null, estimatedPer100: { kcal: 290, proteinas: 10, grasas: 15, carbs: 28 } },
+    const llm = fakeTransport([ok(meal)]);
+    const res = await analyzeMeal(userMsg('arroz'), { llm, catalog, llmOptions: fastOptions, onMatch: () => {} });
+    expect(llm.calls).toHaveLength(1);
+    // "arroz hervido" es ambiguo (blanco / yamaní): estimación del modelo. "arroz blanco hervido" es exacto.
+    expect(res.detectedIngredients.map((i) => i.macroSource)).toEqual(['estimado_ia', 'sara2']);
+    expect(res.detectedIngredients[0]).toMatchObject({ kcal: 260, proteinas_g: 5, sara2Match: null });
+    expect(res.detectedIngredients[1]).toMatchObject({ kcal: 252, sara2Match: { id_alimento: 426 } });
+    expect(res.totalMacros.kcal).toBe(260 + 252);
+    expect(res.totalEstimatedWeightGrams).toBe(400);
+  });
+
+  it('el caso de la tostada: "tostada de pan blanco" ya no se presenta como dato oficial de SARA2', async () => {
+    const meal = {
+      ...mealOk,
+      detectedIngredients: [
+        { ...mealOk.detectedIngredients[0], ingredient: 'tostada de pan blanco', type: 'cereal', estimatedWeightGrams: 50,
+          estimatedMacros: { kcal: 135, proteinas_g: 4.5, carbs_g: 26, grasas_g: 1.5 } },
       ],
     };
-    const llm = fakeTransport([ok(meal), ok(match)]);
-    const res = await analyzeMeal(userMsg('arroz y una empanada'), { llm, catalog, llmOptions: fastOptions });
-    expect(llm.calls.map((c) => c.kind)).toEqual(['meal', 'match']);
-    expect(res.detectedIngredients.map((i) => i.macroSource)).toEqual(['sara2', 'estimado_ia']);
-    expect(res.detectedIngredients[0].kcal).toBe(252);
-    expect(res.totalMacros.kcal).toBe(252 + 232);
-    expect(res.totalEstimatedWeightGrams).toBe(280);
+    const res = await analyzeMeal(userMsg('tostada'), { llm: fakeTransport([ok(meal)]), catalog, llmOptions: fastOptions, onMatch: () => {} });
+    expect(res.detectedIngredients[0]).toMatchObject({ macroSource: 'estimado_ia', sara2Match: null, kcal: 135 });
+  });
+
+  it('informa cada decisión de matching (aceptada o rechazada)', async () => {
+    const onMatch = vi.fn();
+    await analyzeMeal(userMsg('comí una banana'), { llm: fakeTransport([ok(mealOk)]), catalog, llmOptions: fastOptions, onMatch });
+    expect(onMatch).toHaveBeenCalledWith(expect.objectContaining({ ingredient: 'banana', reason: 'accepted' }));
   });
 
   it('status "complete" con una pregunta pendiente se corrige a needs_clarification', async () => {
@@ -217,10 +237,62 @@ describe('SARA2 helpers', () => {
     });
   });
 
-  it('match obvio solo si no hay variantes', () => {
-    expect(pickObviousMatch('banana', rankCandidates('banana', CATALOG_ROWS))?.id_alimento).toBe(375);
-    expect(pickObviousMatch('arroz', rankCandidates('arroz', CATALOG_ROWS))).toBeNull();
-    expect(rankCandidates('cafe', CATALOG_ROWS)[0].id_alimento).toBe(314);
+  it('sanitizeEstimate acota la estimación del modelo a lo físicamente posible', () => {
+    expect(sanitizeEstimate({ kcal: 5000, proteinas_g: 400, carbs_g: 10, grasas_g: -3 }, 100)).toEqual({
+      kcal: 900, proteinas_g: 100, carbs_g: 10, grasas_g: 0,
+    });
+  });
+});
+
+describe('sara2Matcher — matching determinístico', () => {
+  const f = (id: number, nombre: string, kcal = 100): Sara2Food => food(id, nombre, kcal);
+  const rows = [
+    f(1, 'Cereza', 63), f(2, 'Cerveza con alcohol', 43), f(3, 'Papas fritas de copetín', 534), f(4, 'Papa, hervida', 81),
+    f(5, 'Pan blanco, tipo molde, lacteado', 244), f(6, 'Huevo de gallina, entero, hervido', 156),
+    f(7, 'Pollo con piel (horno/parrilla)', 215), f(8, 'Pollo sin piel (horno/parrilla)', 165),
+    f(9, 'Tostadas light', 400), f(10, 'Tostadas de mesa', 430), f(11, 'Banana', 92),
+  ];
+  const decide = (ingredient: string) => matchIngredient(ingredient, rows);
+
+  it('acepta coincidencias exactas ignorando tildes, mayúsculas, plural y género', () => {
+    expect(decide('BANANA').food?.id_alimento).toBe(11);
+    expect(decide('papas  hervidas').food?.id_alimento).toBe(4);
+    expect(decide('pollo sin piel grillado').food?.id_alimento).toBe(8);
+    expect(decide('pollo con piel asado').food?.id_alimento).toBe(7);
+  });
+
+  it('distingue "con piel" de "sin piel" y "cerveza" de "cereza" (sin comparación difusa)', () => {
+    expect(decide('cerveza').food).toBeNull();
+    expect(decide('cereza').food?.id_alimento).toBe(1);
+    expect(scoreMatch('pollo con piel', 'Pollo sin piel')).toBeLessThan(0.85);
+  });
+
+  it('rechaza el match "casi": candidato con palabras de más o ingrediente con palabras de menos', () => {
+    expect(decide('papa frita')).toMatchObject({ food: null, reason: 'low_score' });
+    expect(decide('tostada de pan blanco')).toMatchObject({ food: null, reason: 'low_score' });
+    expect(decide('pan blanco')).toMatchObject({ food: null, reason: 'low_score' });
+    expect(decide('huevo revuelto').food).toBeNull();
+    expect(decide('ñoquis de papa hervidos').food).toBeNull();
+  });
+
+  it('genérico con varias variantes distintas: no hay match', () => {
+    expect(decide('tostada').food).toBeNull();
+    expect(decide('pollo grillado').food).toBeNull();
+  });
+
+  it('dos candidatos exactos con valores distintos son ambiguos; con los mismos valores no', () => {
+    const twins = [f(20, 'Galletitas de agua', 438), f(21, 'Galletitas de agua', 410)];
+    expect(matchIngredient('galletitas de agua', twins)).toMatchObject({ food: null, reason: 'ambiguous' });
+    const sameValues = [f(22, 'Papas grandes', 292), f(23, 'Papas grandes', 292)];
+    expect(matchIngredient('papas grandes', sameValues).food).not.toBeNull();
+  });
+
+  it('los umbrales se pueden ajustar por parámetro', () => {
+    expect(matchIngredient('papa frita', rows, { minScore: 0.8 }).food?.id_alimento).toBe(3);
+  });
+
+  it('sin candidatos: no_candidates', () => {
+    expect(decide('medialuna')).toMatchObject({ food: null, reason: 'no_candidates', best: null });
   });
 });
 

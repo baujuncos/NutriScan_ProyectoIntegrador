@@ -160,3 +160,20 @@ describe('birthDateRange', () => {
     expect(todayYear - minYear).toBe(MAX_AGE);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// estaEnRangoEditable (NUT-119) — misma ventana que usan las cargas manuales
+// ─────────────────────────────────────────────────────────────────────────────
+import { daysAgoAR, estaEnRangoEditable } from '@/lib/date';
+
+describe('estaEnRangoEditable', () => {
+  it('acepta hoy y hasta 7 días atrás', () => {
+    expect(estaEnRangoEditable(todayAR())).toBe(true);
+    expect(estaEnRangoEditable(daysAgoAR(7))).toBe(true);
+  });
+
+  it('rechaza 8 días atrás y el futuro', () => {
+    expect(estaEnRangoEditable(daysAgoAR(8))).toBe(false);
+    expect(estaEnRangoEditable('2999-01-01')).toBe(false);
+  });
+});

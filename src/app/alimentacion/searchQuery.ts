@@ -36,12 +36,17 @@ export interface FiltroEncadenable<T> {
  * mantener una lista de palabras clave a mano.
  */
 export function aplicarFiltroSuplemento<T extends FiltroEncadenable<T>>(builder: T, isSuplemento: boolean): T {
-  return isSuplemento
-    ? builder.or('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%,denominacion.ilike.%suplemento%')
-    : builder
-        .not('categoria', 'ilike', '%suplemento%')
-        .not('nombre', 'ilike', '%suplemento%')
-        .not('denominacion', 'ilike', '%suplemento%');
+  if (isSuplemento) {
+    return builder.or('categoria.ilike.%suplemento%,nombre.ilike.%suplemento%,denominacion.ilike.%suplemento%');
+  }
+  // Exclusión NULL-safe: `col NOT ILIKE x` es NULL (y descarta la fila) cuando col es NULL.
+  // Los 930 alimentos SARA2 tienen `denominacion` NULL, así que con `.not()` simple
+  // desaparecían de TODA búsqueda que no fuera de suplementos. Cada `.or()` es un filtro
+  // aparte (PostgREST los combina con AND).
+  return builder
+    .or('categoria.is.null,categoria.not.ilike.%suplemento%')
+    .or('nombre.is.null,nombre.not.ilike.%suplemento%')
+    .or('denominacion.is.null,denominacion.not.ilike.%suplemento%');
 }
 
 /**

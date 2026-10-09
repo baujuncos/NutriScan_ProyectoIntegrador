@@ -32,8 +32,25 @@ export interface FiltroLlamado {
   args: unknown[];
 }
 
+export interface RpcLlamado {
+  nombre: string;
+  args: unknown;
+}
+
+export interface StorageLlamado {
+  bucket: string;
+  metodo: string;
+  args: unknown[];
+}
+
+const METODOS_STORAGE = ['upload', 'remove', 'list', 'createSignedUrl', 'createSignedUrls', 'download'] as const;
+
 export function createSupabaseFromMock() {
   const colas = new Map<string, TableResult[]>();
+  const colasRpc = new Map<string, TableResult[]>();
+  const colasStorage = new Map<string, TableResult[]>();
+  const rpcs: RpcLlamado[] = [];
+  const storageLlamados: StorageLlamado[] = [];
   const llamadas: string[] = [];
   const inserts: InsertLlamado[] = [];
   const filtros: FiltroLlamado[] = [];
@@ -52,6 +69,11 @@ export function createSupabaseFromMock() {
     chain = new Proxy(
       {
         insert: vi.fn((payload: unknown) => {
+          inserts.push({ tabla, payload });
+          return chain;
+        }),
+        // upsert se registra como insert: para los tests es "una escritura".
+        upsert: vi.fn((payload: unknown) => {
           inserts.push({ tabla, payload });
           return chain;
         }),
@@ -78,8 +100,38 @@ export function createSupabaseFromMock() {
     return chain;
   });
 
+  /** NUT-119 — `supabase.rpc(nombre, args)`: FIFO por función, devuelve `{data:null,error:null}` si no hay nada encolado. */
+  const rpc = vi.fn((nombre: string, args?: unknown) => {
+    rpcs.push({ nombre, args });
+    return Promise.resolve((colasRpc.get(nombre) ?? []).shift() ?? { data: null, error: null });
+  });
+
+  /** NUT-119 — `supabase.storage.from(bucket).<metodo>(...)`: FIFO por método. */
+  const storage = {
+    from: (bucket: string) =>
+      Object.fromEntries(
+        METODOS_STORAGE.map((metodo) => [
+          metodo,
+          vi.fn((...args: unknown[]) => {
+            storageLlamados.push({ bucket, metodo, args });
+            return Promise.resolve((colasStorage.get(metodo) ?? []).shift() ?? { data: null, error: null });
+          }),
+        ]),
+      ) as unknown as Record<(typeof METODOS_STORAGE)[number], (...args: any[]) => Promise<{ data: any; error: any }>>,
+  };
+
   return {
     from,
+    rpc,
+    storage,
+    mockRpc(nombre: string, resultado: TableResult) {
+      colasRpc.set(nombre, [...(colasRpc.get(nombre) ?? []), resultado]);
+    },
+    mockStorage(metodo: (typeof METODOS_STORAGE)[number], resultado: TableResult) {
+      colasStorage.set(metodo, [...(colasStorage.get(metodo) ?? []), resultado]);
+    },
+    rpcLlamadas: () => rpcs,
+    storageLlamadas: () => storageLlamados,
     /** Encola el próximo resultado que devolverá esa tabla (FIFO por tabla). */
     mockTable(tabla: string, resultado: TableResult) {
       const cola = colas.get(tabla) ?? [];
@@ -92,6 +144,11 @@ export function createSupabaseFromMock() {
     filtrosLlamados: () => filtros,
     reset() {
       colas.clear();
+      colasRpc.clear();
+      colasStorage.clear();
+      rpcs.length = 0;
+      storageLlamados.length = 0;
+      rpc.mockClear();
       llamadas.length = 0;
       inserts.length = 0;
       filtros.length = 0;

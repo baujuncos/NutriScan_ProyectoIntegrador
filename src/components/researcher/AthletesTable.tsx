@@ -154,7 +154,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Deportistas</h2>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-500">
               {filtered.length !== athletes.length
                 ? `${filtered.length} de ${athletes.length} deportista${athletes.length !== 1 ? 's' : ''}`
                 : `${athletes.length} deportista${athletes.length !== 1 ? 's' : ''} registrado${athletes.length !== 1 ? 's' : ''}`}
@@ -167,7 +167,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
           </div>
           <div className="relative sm:w-64">
             <svg
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
               width="18"
               height="18"
               fill="none"
@@ -186,7 +186,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar deportista..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
         </div>
@@ -317,7 +317,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
                       <p className="truncate font-medium text-slate-900">
                         {a.nombre} {a.apellido}
                       </p>
-                      <p className="truncate text-xs text-slate-400">{a.email}</p>
+                      <p className="truncate text-xs text-slate-500">{a.email}</p>
                     </div>
                   </div>
                 </td>
@@ -386,7 +386,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
         </table>
 
         {filtered.length === 0 && (
-          <div className="py-10 text-center text-sm text-slate-400">
+          <div className="py-10 text-center text-sm text-slate-500">
             {athletes.length === 0
               ? 'No hay deportistas registrados aún.'
               : 'No se encontraron deportistas con los filtros aplicados.'}

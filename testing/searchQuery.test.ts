@@ -34,13 +34,16 @@ describe('aplicarFiltroSuplemento — fix: mira categoria Y nombre en ambas rama
     expect(builder.not).not.toHaveBeenCalled();
   });
 
-  it('otros tabs: excluye por categoria, nombre Y denominacion conteniendo "suplemento"', () => {
+  it('otros tabs: excluye por categoria, nombre Y denominacion conteniendo "suplemento", PERO conserva las filas con ese campo en NULL', () => {
     const builder = fakeBuilder();
     aplicarFiltroSuplemento(builder, false);
-    expect(builder.not).toHaveBeenCalledWith('categoria', 'ilike', '%suplemento%');
-    expect(builder.not).toHaveBeenCalledWith('nombre', 'ilike', '%suplemento%');
-    expect(builder.not).toHaveBeenCalledWith('denominacion', 'ilike', '%suplemento%');
-    expect(builder.or).not.toHaveBeenCalled();
+    // `col NOT ILIKE x` da NULL (y descarta la fila) cuando col es NULL: los 930 alimentos SARA2
+    // tienen denominacion NULL, así que con un .not() simple desaparecían de toda búsqueda.
+    for (const col of ['categoria', 'nombre', 'denominacion']) {
+      expect(builder.or).toHaveBeenCalledWith(`${col}.is.null,${col}.not.ilike.%suplemento%`);
+    }
+    expect(builder.or).toHaveBeenCalledTimes(3);
+    expect(builder.not).not.toHaveBeenCalled();
   });
 });
 

@@ -64,7 +64,7 @@ function calcEdad(fechaNacimiento: string | null): number | null {
 function InfoCard({ label, value }: { label: string; value: string | number | null }) {
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">{label}</p>
       <p className="mt-0.5 text-sm font-medium text-slate-800">{value ?? '—'}</p>
     </div>
   );
@@ -72,9 +72,12 @@ function InfoCard({ label, value }: { label: string; value: string | number | nu
 
 function DateLabel({ fecha, todayStr, yesterdayStr }: { fecha: string; todayStr: string; yesterdayStr: string }) {
   if (fecha === todayStr) return <span className="text-xs font-semibold text-blue-600">Hoy</span>;
-  if (fecha === yesterdayStr) return <span className="text-xs font-semibold text-slate-500">Ayer</span>;
-  return <span className="text-xs text-slate-400">{fecha}</span>;
+  if (fecha === yesterdayStr) return <span className="text-xs font-semibold text-slate-600">Ayer</span>;
+  return <span className="text-xs text-slate-600">{fecha}</span>;
 }
+
+/** 1 decimal como máximo, con coma (es-AR): 0,5 / 42 / 7,2 */
+const num = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
 
 function IngestaCard({ ingesta, todayStr, yesterdayStr }: { ingesta: IngestaDetail; todayStr: string; yesterdayStr: string }) {
   const colorClass = MEAL_COLOR[ingesta.tipo] ?? 'bg-slate-50 text-slate-700 border-slate-100';
@@ -93,14 +96,31 @@ function IngestaCard({ ingesta, todayStr, yesterdayStr }: { ingesta: IngestaDeta
       {ingesta.items.length > 0 ? (
         <ul className="space-y-0.5">
           {ingesta.items.map((it, i) => (
-            <li key={i} className="flex items-center justify-between text-xs opacity-80">
-              <span className="truncate">{it.nombre}</span>
-              <span className="ml-2 shrink-0 font-medium">{it.cantidad} g</span>
+            <li key={i} className="text-xs">
+              <div className="flex items-center justify-between">
+                <span className="truncate">{it.nombre}</span>
+                <span className="ml-2 flex shrink-0 items-center gap-1.5">
+                  <span
+                    title="Fuente del dato nutricional"
+                    className={`rounded-full px-1.5 py-px text-[11px] font-semibold ${
+                      it.fuente.startsWith('IA') ? 'bg-amber-100 text-amber-800' : 'bg-white/70 text-slate-700'
+                    }`}
+                  >
+                    {it.fuente}
+                  </span>
+                  <span className="font-medium">{it.cantidad} g</span>
+                </span>
+              </div>
+              <p className="mb-1 text-xs">
+                {it.macros
+                  ? `${num(it.macros.kcal)} kcal · P ${num(it.macros.proteinas)} g · C ${num(it.macros.carbs)} g · G ${num(it.macros.grasas)} g`
+                  : 'Sin datos nutricionales'}
+              </p>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs opacity-60">Sin alimentos registrados</p>
+        <p className="text-xs opacity-80">Sin alimentos registrados</p>
       )}
     </div>
   );
@@ -180,13 +200,13 @@ export default function AthleteDetailModal({ athlete, onClose }: Props) {
             <h2 className="text-xl font-bold text-slate-900">
               {athlete.nombre} {athlete.apellido}
             </h2>
-            <p className="truncate text-sm text-slate-400">{athlete.email}</p>
+            <p className="truncate text-sm text-slate-600">{athlete.email}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" />
@@ -259,7 +279,7 @@ export default function AthleteDetailModal({ athlete, onClose }: Props) {
                 <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
                   <h3 className="mb-3 text-sm font-semibold text-slate-700">Valoración psicológica</h3>
                   {detail.psychDimensions.every((d) => d.value === 0) ? (
-                    <div className="flex h-40 items-center justify-center text-xs text-slate-400">
+                    <div className="flex h-40 items-center justify-center text-xs text-slate-600">
                       Sin encuesta completada
                     </div>
                   ) : (
@@ -311,7 +331,7 @@ export default function AthleteDetailModal({ athlete, onClose }: Props) {
               <div>
                 <h3 className="mb-3 text-sm font-semibold text-slate-700">Histórico reciente</h3>
                 {dateGroups.length === 0 ? (
-                  <div className="rounded-xl border-2 border-dashed border-slate-100 py-8 text-center text-sm text-slate-400">
+                  <div className="rounded-xl border-2 border-dashed border-slate-100 py-8 text-center text-sm text-slate-600">
                     Sin comidas registradas hoy o ayer
                   </div>
                 ) : (
@@ -319,11 +339,11 @@ export default function AthleteDetailModal({ athlete, onClose }: Props) {
                     {dateGroups.map((fecha) => (
                       <div key={fecha}>
                         <div className="mb-2 flex items-center gap-2">
-                          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                             {fecha === todayStr ? 'Hoy' : 'Ayer'}
                           </span>
-                          <span className="text-xs text-slate-300">·</span>
-                          <span className="text-xs text-slate-400">{fecha.split('-').reverse().join('-')}</span>
+                          <span className="text-xs text-slate-500">·</span>
+                          <span className="text-xs text-slate-600">{fecha.split('-').reverse().join('-')}</span>
                         </div>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {(ingestasByDate.get(fecha) ?? []).map((ing) => (

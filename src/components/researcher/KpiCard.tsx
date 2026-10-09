@@ -24,7 +24,7 @@ export default function KpiCard({ value, label, sublabel, icon, accent = 'blue' 
       </div>
       <p className="text-3xl font-bold tracking-tight text-slate-900">{value}</p>
       <p className="mt-1 text-sm font-medium text-slate-700">{label}</p>
-      {sublabel && <p className="text-xs text-slate-400">{sublabel}</p>}
+      {sublabel && <p className="text-xs text-slate-500">{sublabel}</p>}
     </div>
   );
 }

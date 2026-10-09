@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AlimentacionClient from '@/app/alimentacion/AlimentacionClient';
 import type { AlimentoOption } from '@/app/alimentacion/actions';
@@ -23,6 +23,7 @@ vi.mock('@/app/alimentacion/actions', () => ({
   updateItemAction:             vi.fn(),
 }));
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('@/app/alimentacion/AIRecognitionModal', () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/ChatFoodModal',      () => ({ default: () => null }));
 vi.mock('@/app/alimentacion/BarcodeScannerModal', () => ({ default: () => null }));
@@ -510,6 +511,64 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       await buscar(user, 'ar', A_SARA2_CON_CATEGORIA.nombre);
       await user.click(screen.getByTestId('busqueda-scrim'));
       expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    });
+
+    describe('mobile con teclado (iOS)', () => {
+      class FakeVisualViewport extends EventTarget {
+        height = 700;
+        offsetTop = 0;
+      }
+      const originalMatchMedia = window.matchMedia;
+
+      afterEach(() => {
+        window.matchMedia = originalMatchMedia;
+        Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true });
+        document.body.removeAttribute('style');
+      });
+
+      function simularMobile() {
+        window.matchMedia = vi.fn().mockImplementation(() => {
+          const t = new EventTarget() as EventTarget & { matches: boolean };
+          t.matches = true;
+          return t;
+        }) as unknown as typeof window.matchMedia;
+        const vv = new FakeVisualViewport();
+        Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
+        return vv;
+      }
+
+      it('la pantalla completa se ajusta al área visible y sigue al teclado, y el fondo no scrollea', async () => {
+        const vv = simularMobile();
+        const { user } = mount();
+        await user.click(screen.getByRole('textbox'));
+
+        const overlay = screen.getByTestId('busqueda-overlay');
+        expect(overlay).toHaveStyle({ top: '0px', height: '700px' });
+        expect(document.body.style.position).toBe('fixed'); // fondo bloqueado
+
+        // se abre el teclado y Safari desplaza el viewport visual: la barra sigue a la vista
+        act(() => {
+          vv.height = 420;
+          vv.offsetTop = 80;
+          vv.dispatchEvent(new Event('resize'));
+        });
+        expect(overlay).toHaveStyle({ top: '80px', height: '420px' });
+      });
+
+      it('al cerrar la búsqueda se libera el fondo', async () => {
+        simularMobile();
+        const { user } = mount();
+        await user.click(screen.getByRole('textbox'));
+        await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+        expect(document.body.style.position).not.toBe('fixed');
+      });
+
+      it('en desktop no bloquea el fondo ni toca el tamaño del popover', async () => {
+        const { user } = mount(); // sin matchMedia mobile
+        await user.click(screen.getByRole('textbox'));
+        expect(document.body.style.position).not.toBe('fixed');
+        expect(screen.getByTestId('busqueda-overlay')).not.toHaveAttribute('style');
+      });
     });
 
     it('"Cancelar" cierra la búsqueda a pantalla completa', async () => {

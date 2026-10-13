@@ -7,7 +7,7 @@ Branch: `feat-nut119-matching-macros-validacion` (continúa NUT-119)
 Rediseñar el detalle de un alimento pendiente (`/validacion`) para que validar sea más simple, no pierda trabajo y permita reutilizar lo que se carga.
 
 **Incluye**
-1. **Una sola sección "Del catálogo"** que reemplaza a "Buscar en el catálogo" y "Armar una mezcla": el investigador agrega 1 o más alimentos del buscador y especifica los **gramos de cada uno por cada 100 g del alimento de la foto**, sin que sumen 100.
+1. **Una sola sección "Del catálogo"** que reemplaza a "Buscar en el catálogo" y "Armar una mezcla": el investigador agrega 1 o más alimentos del buscador e indica los **gramos reales de cada uno que hay en la foto**. Sin proporciones ni "por 100 g": el sistema hace la cuenta.
 2. **Pestañas de origen de los valores:** IA · Del catálogo · A mano. Se ve y se edita una sola a la vez.
 3. **La composición se guarda** (borrador y validación): los alimentos elegidos y sus gramos quedan asociados al alimento de la foto, se restauran al reabrir y quedan en la auditoría.
 4. **Formulario menos cargado:** categoría y observaciones plegadas, "Dónde apareció" plegable, un solo botón por acción y aviso claro de "cambios sin guardar".
@@ -26,7 +26,7 @@ Rediseñar el detalle de un alimento pendiente (`/validacion`) para que validar 
 |---|---|
 | El borrador "pierde" lo que armé con el catálogo | `pendiente_modificar` guarda sólo nombre, categoría, los 4 valores y observaciones. La mezcla (ingredientes y gramos) y el alimento vinculado viven sólo en el estado de React y se pierden al cerrar. |
 | Al vincular un alimento, el formulario sigue mostrando los valores de la IA | El vínculo se aplica recién en el servidor al validar; los 4 campos no se actualizan. |
-| No se puede decir "40 g de palta por cada 100 g" | La mezcla normaliza los gramos a 100 g (son proporciones); con un solo ingrediente siempre da 100 %. |
+| No se puede decir "en la foto hay 40 g de palta" | La mezcla trabaja con proporciones y las normaliza a 100 g; con un solo ingrediente siempre da 100 %. |
 | Dos secciones que parecen lo mismo | "Buscar en el catálogo" (vincula 1 alimento entero) y "Armar una mezcla" (varios) se superponen, con 7+ campos a la vista. |
 | Grises ilegibles | `placeholder-gray-400` en `Input` y `text-gray-400` en los botones de `Modal`: 2,5:1 (mínimo AA 4,5:1). |
 
@@ -54,21 +54,24 @@ El backend del borrador funciona (la base expone `pendiente_modificar` con la fi
 - La pestaña inicial es **IA** si Gemini dio valores y **A mano** si no. Si el borrador guardado tenía composición, abre en **Del catálogo**.
 - Cada pestaña lleva una línea que explica para qué sirve:
   - **IA:** "Usa la estimación de Gemini tal cual. Elegila si te parece razonable."
-  - **Del catálogo:** "Tomá los valores de uno o más alimentos de SARA2 o ANMAT e indicá cuántos gramos de cada uno lleva por cada 100 g de este alimento. Sirve para equivalencias ('esto es palta') y para compuestos ('aceite y vinagre')."
+  - **Del catálogo:** "Tomá los valores de uno o más alimentos de SARA2 o ANMAT e indicá cuántos gramos de cada uno hay en la foto. Sirve para equivalencias ('esto es palta') y para compuestos ('aceite y vinagre')."
   - **A mano:** "Cargá los cuatro valores vos. Podés además crear el alimento para reutilizarlo (se evalúa antes)."
 - **Cambiar de pestaña no borra** lo de las otras: el resultado y lo que se valida salen de la pestaña activa.
 - Los textos usan tonos AA (`slate-600` o más oscuro) y los controles tienen foco visible.
 
 ### 3.2 Pestaña "Del catálogo" (reemplaza a las dos secciones)
 
-1. Buscador (SARA2, ANMAT y, desde la Fase B, alimentos propios). Cada resultado se agrega como un ingrediente.
-2. Por ingrediente: nombre, fuente, campo **"g por cada 100 g"** (por defecto 100 si es el primero, 50 si ya hay otros) y botón quitar. Un ingrediente sin datos nutricionales se marca y bloquea el cálculo.
-3. **Gramos reales, no proporciones.** Valores por 100 g del alimento = Σ (valor_i por 100 g × gramos_i / 100). Ejemplos:
-   - 1 ingrediente a 100 g → **vínculo puro** (los ítems pasan a apuntar a esa entrada del catálogo).
-   - 1 ingrediente a 40 g (palta) → equivalencia parcial: el resto cuenta sin aporte.
-   - 70 g de aceite + 30 g de vinagre → mezcla de 100 g.
-4. **Aviso si el total no es 100 g:** menos de 100 ("los 60 g restantes se cuentan sin aporte") o más ("supera 100 g: revisá"). Un botón **"Ajustar a 100 g"** reescala las proporciones. No bloquea.
-5. Tope de cordura: cada ingrediente ≤ 1 000 g y total ≤ 1 000 g.
+El investigador describe **lo que hay en la foto**, en gramos reales.
+
+1. **Foto de referencia.** Arriba se muestra cuánto pesa el alimento en una de sus ocurrencias ("En la foto de Ana, 6/10, pesa **20 g**"). Por defecto es la más reciente; si hay varias se elige con un selector. Ese peso es el de la ocurrencia (el gramaje final que quedó guardado), no un dato que se tipee.
+2. **Ingredientes.** Un buscador (SARA2, ANMAT y, desde la Fase B, alimentos propios). Cada resultado se agrega como un ingrediente con un campo **"gramos en la foto"**, que el investigador completa (el primero arranca con el peso total de la foto; los siguientes, vacío). Un ingrediente sin datos nutricionales se marca y bloquea el cálculo.
+3. **Cuenta (la hace el sistema).** Aporte de cada ingrediente = valor por 100 g × gramos / 100. Los valores del alimento **por 100 g** (que es lo que se guarda para reutilizarlo con otros pesos) = Σ aportes × 100 / peso de la foto. Ejemplos con un alimento de **20 g** en la foto:
+   - 20 g de aceite → es ese mismo aceite al 100 %: **vínculo puro** (los ítems pasan a apuntar a esa entrada del catálogo).
+   - 15 g de aceite + 5 g de vinagre → mezcla de 20 g.
+   - 8 g de palta → equivalencia parcial: los 12 g restantes se cuentan sin aporte.
+4. **Aviso de suma.** Se muestra "Sumás X g de Y g de la foto". Si falta ("los 12 g restantes se cuentan sin aporte") o si se pasa ("superás el peso de la foto: revisá") se avisa, **sin bloquear**.
+5. **Sin proporciones, sin "por 100 g" y sin "Ajustar a 100 g".** El investigador nunca escribe esos números; sólo ve el resultado por 100 g.
+6. Tope de cordura: cada ingrediente ≤ 1 000 g.
 
 ### 3.3 Borrador y feedback
 
@@ -86,22 +89,24 @@ El backend del borrador funciona (la base expone `pendiente_modificar` con la fi
 ```json
 {
   "modo": "catalogo",                       // 'ia' | 'catalogo' | 'manual'
+  "id_guardado_item": 412,                  // la ocurrencia (foto) de referencia
+  "gramos_foto": 20,                        // peso de esa ocurrencia (lo fija el servidor)
   "componentes": [
     { "origen": "catalogo", "id": 31, "nombre": "Aceite de oliva", "fuente": "SARA2",
-      "gramos": 70, "kcal_100g": 884, "proteinas_100g": 0, "grasas_100g": 100, "carbs_100g": 0 }
+      "gramos": 15, "kcal_100g": 884, "proteinas_100g": 0, "grasas_100g": 100, "carbs_100g": 0 }
   ]
 }
 ```
 
-Se guardan los valores del ingrediente **al momento de elegirlo** (snapshot) para restaurar y auditar sin depender de que el catálogo no cambie. `composicion` entra sola en la auditoría (`to_jsonb(fila)` ya la incluye).
+`gramos` son los gramos reales **en la foto de referencia**. Se guardan los valores del ingrediente **al momento de elegirlo** (snapshot) para restaurar y auditar sin depender de que el catálogo no cambie. `composicion` entra sola en la auditoría (`to_jsonb(fila)` ya la incluye).
 
 ### 4.2 RPCs (migración 017)
 
 `pendiente_modificar` y `pendiente_validar` ganan `p_composicion jsonb default null`. Se hace `drop function` de las firmas viejas para no dejar sobrecargas ambiguas en PostgREST.
 
-- **Integridad:** si `modo = 'catalogo'`, el servidor **recalcula** los 4 valores a partir de `composicion` leyendo `alimentos` (y la tabla de propios), y **descarta** los `p_kcal…` que mande el cliente. Así la composición y los números nunca se contradicen.
-- **Validaciones del servidor:** estructura del JSON, ids existentes, gramos entre 0 (exclusivo) y 1 000, total ≤ 1 000, al menos un componente, valores ≥ 0.
-- **Vínculo puro:** un solo componente de `alimentos` con 100 g equivale al actual `p_id_alimento_existente` (se rellena `id_alimento_vinculado` y los ítems toman esa entrada). Cualquier otra composición valida como alimento nuevo con valores calculados (sin tocar `alimentos`).
+- **Integridad:** si `modo = 'catalogo'`, el servidor lee de la base el peso de la ocurrencia de referencia (`detecciones_guardados_items.grams` de `id_guardado_item`, que debe pertenecer a esa fila de cola), lee los valores de cada ingrediente en `alimentos` (y propios), **recalcula** los 4 valores por 100 g con la cuenta de §3.2 y **descarta** los `p_kcal…` y el `gramos_foto` que mande el cliente. Así la composición y los números nunca se contradicen y nadie puede falsear el peso.
+- **Validaciones del servidor:** estructura del JSON, ocurrencia de referencia válida, ids existentes, gramos de cada ingrediente entre 0 (exclusivo) y 1 000, al menos un componente, valores ≥ 0. Que la suma no coincida con el peso de la foto **no** es un error (sólo un aviso de la interfaz).
+- **Vínculo puro:** un solo componente de `alimentos` cuyos gramos igualan el peso de la foto (tolerancia 0,5 g) equivale al actual `p_id_alimento_existente` (se rellena `id_alimento_vinculado` y los ítems toman esa entrada). Cualquier otra composición valida como alimento nuevo con valores calculados (sin tocar `alimentos`).
 - `p_id_alimento_existente` se mantiene por compatibilidad pero la interfaz deja de usarlo.
 - Las vistas `v_alimentos_pendientes` y `v_alimentos_validados` usan `p.*`: se **recrean** (`drop view` + `create`) para incluir la columna nueva.
 
@@ -109,7 +114,7 @@ Se guardan los valores del ingrediente **al momento de elegirlo** (snapshot) par
 
 - `getPendienteDetalleAction` devuelve `composicion`; el formulario la restaura.
 - `modificarPendienteAction` y `validarPendienteAction` reciben `composicion` (zod: mismo esquema que el servidor).
-- `macrosMezcla` cambia: **ya no normaliza**; devuelve Σ(valor × gramos / 100) y un `total` de gramos para los avisos. Se agrega `ajustarA100g(componentes)`.
+- `macrosMezcla` cambia: recibe los gramos reales y el **peso de la foto** y devuelve los valores por 100 g = Σ(valor × gramos / 100) × 100 / peso de la foto, más la suma de gramos para los avisos. Desaparece la normalización a 100 g (no hay "Ajustar a 100 g").
 
 ## 5. Contraste
 
@@ -174,7 +179,7 @@ El servidor exige fuente y justificación; las confirmaciones quedan registradas
 
 **Fase A**
 - `supabase/017_composicion_validacion_nut119.sql` + sección en `schema_consolidado.sql`
-- `src/lib/macros.ts` (`macrosMezcla` sin normalizar, `ajustarA100g`) · `src/lib/composicion.ts` (esquema, restaurar, resumen)
+- `src/lib/macros.ts` (`macrosMezcla` con gramos reales sobre el peso de la foto) · `src/lib/composicion.ts` (esquema, restaurar, resumen)
 - `src/app/(researcher)/validacion/actions.ts`, `PendienteDetalle.tsx` (se reordena), `MezclaCatalogo.tsx` → `ComposicionCatalogo.tsx`, `ValidacionClient.tsx` (refresco)
 - `src/components/ui/Input.tsx`, `src/components/ui/Modal.tsx`
 - `testing/*` correspondientes
@@ -188,17 +193,18 @@ El servidor exige fuente y justificación; las confirmaciones quedan registradas
 
 | Área | Casos |
 |---|---|
-| `macrosMezcla` / `ajustarA100g` | gramos reales (40 g de palta → 40 % del aporte); totales; ajustar a 100; gramos inválidos → null |
-| Composición | esquema válido/ inválido; restaurar desde el borrador; un solo componente a 100 g es vínculo puro |
-| Detalle (jsdom) | pestañas (una a la vez, cambiar no pierde), explicación por pestaña, aviso de total ≠ 100, "Ajustar a 100", indicador de cambios sin guardar, borrador restaura la composición, plegables |
+| `macrosMezcla` | gramos reales sobre el peso de la foto (8 g de palta en 20 g → 40 % del aporte; 15 g de aceite + 5 g de vinagre en 20 g); suma distinta del peso (falta y sobra); peso 0 o gramos inválidos → null |
+| Composición | esquema válido/inválido; restaurar desde el borrador; un solo componente que iguala el peso de la foto es vínculo puro |
+| Detalle (jsdom) | pestañas (una a la vez, cambiar no pierde), explicación por pestaña, aviso de "sumás X g de Y g", selector de foto de referencia, indicador de cambios sin guardar, borrador restaura la composición, plegables |
 | Acciones | `composicion` viaja a la RPC; el servidor no confía en los números del cliente (PGlite) |
-| SQL (PGlite) | modificar/validar con composición; recálculo desde `alimentos`; vínculo puro; sobrecargas viejas eliminadas; vistas con la columna nueva; idempotencia |
+| SQL (PGlite) | modificar/validar con composición; recálculo desde `alimentos` y desde el peso real de la ocurrencia (se ignora el que manda el cliente); vínculo puro; sobrecargas viejas eliminadas; vistas con la columna nueva; idempotencia |
 | Contraste | clases de `Input` y `Modal` |
 | Fase B | todas las reglas de §6.2 (bloqueos y advertencias), exigir fuente y justificación, duplicado exacto, retirar, RLS (sólo investigadores leen, nadie escribe directo), aparece en el buscador, atomicidad |
 
 ## 9. Riesgos y limitaciones
 
-- **Cambio de semántica de la mezcla:** los borradores no existen con composición (es nuevo), así que no hay datos viejos que migrar; los validados anteriores no tienen composición (queda `null`).
+- **Cambio de semántica de la mezcla:** antes eran proporciones, ahora son gramos reales sobre el peso de la foto. No hay datos viejos que migrar: los borradores no tenían composición y los validados anteriores quedan con `composicion = null`.
+- **El peso de la foto es una estimación** (de la IA o corregida por el deportista); si es incorrecto, los valores por 100 g salen distintos. Se muestra siempre a la vista y el investigador puede elegir otra ocurrencia de referencia.
 - **Snapshot de ingredientes:** si SARA2/ANMAT cambian, el borrador conserva lo elegido; sólo se recalcula al volver a elegir el ingrediente.
 - **Catálogo propio y calidad:** la verificación y la evaluación reducen los errores pero no los eliminan. Mitigación: auditoría completa, "Retirar", y fuera del matching automático en v1.
 - **Componentes compartidos:** el cambio de contraste de `Input`/`Modal` afecta toda la app.

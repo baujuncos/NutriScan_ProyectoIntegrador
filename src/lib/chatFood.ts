@@ -1,5 +1,7 @@
 // NUT-187 — Modelos de datos del chat de registro de comida por texto.
 
+import type { ConfirmRequest } from '@/lib/chat/confirmSchemas';
+
 export type ChatSender = 'user' | 'assistant';
 
 export interface ChatMessage {
@@ -32,6 +34,10 @@ export interface FoodChatEntry {
   confidence?: number;
   macroSource?: MacroSource;
   macros?: FoodMacros;
+  /** Categoría del ingrediente según el modelo ("bebida", "fruta", ...). */
+  tipo?: string;
+  /** Alimento de SARA2 que matcheó (solo con macroSource "sara2"). */
+  idAlimento?: number | null;
 }
 
 /** Payload final que el chat entrega al módulo de desglose/confirmación (NUT-191). */
@@ -66,6 +72,7 @@ export type MealChatErrorCode =
   | 'RATE_LIMITED'
   | 'AI_UNAVAILABLE'
   | 'AI_INVALID_RESPONSE'
+  | 'PERSISTENCE_ERROR'
   | 'NETWORK';
 
 /** Error con un mensaje ya apto para mostrarle al usuario (sin detalles técnicos). */
@@ -92,4 +99,19 @@ export function createChatMessage(sender: ChatSender, content: string): ChatMess
     content,
     timestamp: new Date().toISOString(),
   };
+}
+
+// ---------- NUT-191: guardado ("Confirmar y guardar registro") ----------
+
+export interface MealSaveResult {
+  ok: true;
+  /** ml de agua que se sumaron a hidratación (0 si no había agua). */
+  mlAgua: number;
+  itemsDiario: number;
+  /** true si ya se había guardado (reintento con el mismo requestId). */
+  yaGuardado: boolean;
+}
+
+export interface MealSaveService {
+  save(request: ConfirmRequest, signal?: AbortSignal): Promise<MealSaveResult>;
 }

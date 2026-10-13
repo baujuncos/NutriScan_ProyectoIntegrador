@@ -162,3 +162,86 @@ npx tsx --env-file=.env.local scripts/test-meal-prompt.ts --only=simple-tostadas
 # Manejo de errores con un cliente Gemini falso (sin cuota)
 npx vitest run testing/chatMeal.test.ts
 ```
+
+---
+
+# Guardado: `POST /api/chat/meal/confirm` (NUT-191)
+
+Es lo que hace el botón **"Confirmar y guardar registro"**. Guarda **todo en una sola transacción** (función SQL `confirmar_chat_ia_registro`): si algo falla, no queda nada guardado a medias.
+
+| Dónde | Qué se guarda |
+|---|---|
+| **Diario** (`ingestas` / `items`) | Todos los alimentos confirmados, **excepto el agua**. Los líquidos que no son agua (café, mate, jugo, gaseosa) van acá como cualquier alimento. |
+| **Hidratación** (`hidratacion`) | El agua, sumada a los `ml_total` del día. Se considera agua solo si el nombre es: agua, agua mineral, agua con/sin gas, agua de la canilla/red/potable/filtrada o soda. *Agua saborizada*, *agua de coco*, etc. **no** cuentan. |
+| **Auditoría** (`chat_ia_registros` / `chat_ia_registros_items`) | Una cabecera por confirmación y una fila por alimento, incluidos los **quitados**: lo que estimó la IA (`*_ia`), lo que quedó (`*_final`), `origin`, `destino`, fuente de macros, confianza y alimento del catálogo. Solo INSERT; el usuario ve lo suyo e investigadores/administradores ven todo. |
+
+**Macros de un ítem sin catálogo (`estimado_ia`):** el trigger `calculate_item_nutrients` los deja en 0 al insertar. La función hace, justo después, un `UPDATE` **solo de kcal/proteínas/grasas/carbs** sobre esa fila recién insertada (por `id_item`). Ese UPDATE no nombra `id_alimento`, `id_alimento_barcode` ni `cantidad`, que son las columnas que disparan el trigger, así que los valores reales quedan guardados. *Ojo:* si después el usuario edita la cantidad de ese ítem desde `/alimentacion`, el trigger vuelve a ponerlo en 0 (ya pasa hoy con los ítems de carga manual).
+
+## Antes de usarlo: aplicar el SQL
+
+Correr `supabase/012_chat_ia_registros_nut191.sql` en el SQL Editor de Supabase (es re-ejecutable). Sin eso, el endpoint responde `500 PERSISTENCE_ERROR` y el log del servidor dice `Could not find the function ... confirmar_chat_ia_registro`.
+
+## Request
+
+```json
+{
+  "requestId": "3f2b8c1e-7d4a-4e0b-9a55-0c1d2e3f4a5b",
+  "fecha": "2026-10-08",
+  "tipoIngesta": "almuerzo",
+  "items": [
+    { "ingrediente": "Empanada de carne", "tipo": "otro", "unidad": "g", "origin": "edited",
+      "macroSource": "estimado_ia", "idAlimento": null, "confidence": 0.7,
+      "gramosIa": 240, "gramosFinal": 120,
+      "macrosIa": { "kcal": 600, "proteinas_g": 25.2, "carbs_g": 64.8, "grasas_g": 26.4 } },
+    { "ingrediente": "Banana", "tipo": "fruta", "unidad": "g", "origin": "removed",
+      "macroSource": "sara2", "idAlimento": 375, "confidence": 0.9,
+      "gramosIa": 120, "gramosFinal": null,
+      "macrosIa": { "kcal": 110.4, "proteinas_g": 1.44, "carbs_g": 24.48, "grasas_g": 0.24 } },
+    { "ingrediente": "Agua", "tipo": "bebida", "unidad": "ml", "origin": "ai",
+      "macroSource": "estimado_ia", "idAlimento": null, "confidence": 0.9,
+      "gramosIa": 250, "gramosFinal": 250,
+      "macrosIa": { "kcal": 0, "proteinas_g": 0, "carbs_g": 0, "grasas_g": 0 } }
+  ]
+}
+```
+
+- `tipoIngesta`: `desayuno | almuerzo | merienda | cena | colacion | suplemento` (el mismo enum que `ingestas.tipo`). `fecha`: de hoy hasta 7 días atrás.
+- `origin`: `ai` (sin tocar, `gramosFinal` = `gramosIa`) · `edited` (cambió la cantidad) · `removed` (`gramosFinal` = `null`) · `added_manually` (sin datos de IA).
+- `requestId` se genera **una vez por confirmación**. Reintentar con el mismo id no duplica nada (`yaGuardado: true`).
+- Los macros finales **los recalcula el servidor**: los de SARA2 con el catálogo (misma fórmula que el trigger) y los `estimado_ia` escalando proporcionalmente `macrosIa`. Lo que mande el cliente como "final" no se usa.
+
+## Respuesta
+
+`200` → `{ "ok": true, "idRegistro": 7, "idIngesta": 3, "itemsDiario": 1, "mlAgua": 250, "yaGuardado": false }`
+
+Errores (`{ "error": { "code", "message" } }`): `400 BAD_REQUEST` (payload inválido, fecha fuera de rango, ítem > 2000), `401 UNAUTHORIZED`, `500 PERSISTENCE_ERROR`.
+
+## Probarlo de punta a punta con el mock (sin gastar cuota de Gemini)
+
+1. Aplicá `supabase/012_chat_ia_registros_nut191.sql`.
+2. En `.env.local`: `NEXT_PUBLIC_CHAT_SERVICE=mock` y reiniciá `npm run dev`.
+3. En `/alimentacion` (elegí fecha y comida) → **Registrar por chat** → escribí cualquier cosa, y al preguntar, otra. El mock devuelve 3 ítems: **Empanada de carne** (240 g, sin catálogo → `estimado_ia`), **Banana** (120 g, de SARA2) y **Agua** (250 ml).
+4. Probá: **Editar** la empanada a 120 g, **Quitar** la banana, **Confirmar y guardar registro**.
+5. Verificá en el SQL Editor (reemplazá el uuid por el de tu usuario, en Authentication → Users):
+
+```sql
+-- Diario: la empanada (id_alimento nulo) debe tener kcal = 300 (no 0). La banana no debe estar. El agua tampoco.
+select i.fecha, i.tipo, i.kcal_total, it.nombre_manual, it.id_alimento, it.cantidad, it.kcal, it.proteinas_g, it.grasas_g, it.carbs_g
+from public.ingestas i join public.items it using (id_ingesta)
+where i.id_usuario = 'TU-UUID' order by it.id_item desc limit 5;
+
+-- Hidratación: ml_total del día debe haber subido 250.
+select * from public.hidratacion where id_usuario = 'TU-UUID' order by fecha desc limit 3;
+
+-- Auditoría: cabecera + 3 filas (edited / removed / ai) con lo de la IA y lo final.
+select * from public.chat_ia_registros where id_usuario = 'TU-UUID' order by id_registro desc limit 1;
+select ingrediente, origin, destino, gramos_ia, gramos_final, kcal_ia, kcal_final, macro_source, id_alimento
+from public.chat_ia_registros_items
+where id_registro = (select max(id_registro) from public.chat_ia_registros where id_usuario = 'TU-UUID');
+```
+
+Para confirmar el comportamiento del trigger en tu base (la versión vigente debe ser `before insert or update of id_alimento, id_alimento_barcode, cantidad`):
+
+```sql
+select tgname, pg_get_triggerdef(oid) from pg_trigger where tgrelid = 'public.items'::regclass and not tgisinternal;
+```

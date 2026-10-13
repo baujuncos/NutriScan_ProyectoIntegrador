@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AiError, callLlmJson, type LlmRawResponse, type LlmRequest, type LlmTransport } from '@/lib/ai/gemini';
 import { chatMealRequestSchema, modelMealOutputSchema } from '@/lib/chat/mealSchemas';
-import { analyzeMeal, BLOCKED_MESSAGE, INVALID_INPUT_MESSAGES, OFF_TOPIC_MESSAGE, sanitizeEstimate } from '@/lib/chat/mealService';
+import { analyzeMeal, BLOCKED_MESSAGE, INVALID_INPUT_MESSAGES, OFF_TOPIC_MESSAGE, buildMealJsonSchema, sanitizeEstimate } from '@/lib/chat/mealService';
 import { checkRateLimit, RATE_LIMIT_MAX_REQUESTS } from '@/lib/chat/rateLimit';
 import { macrosForQuantity, type FoodCatalog, type Sara2Food } from '@/lib/chat/sara2Catalog';
 import { matchIngredient, scoreMatch } from '@/lib/chat/sara2Matcher';
@@ -241,6 +241,23 @@ describe('SARA2 helpers', () => {
     expect(sanitizeEstimate({ kcal: 5000, proteinas_g: 400, carbs_g: 10, grasas_g: -3 }, 100)).toEqual({
       kcal: 900, proteinas_g: 100, carbs_g: 10, grasas_g: 0,
     });
+  });
+});
+
+describe('schema que se le manda a Gemini', () => {
+  it('no lleva minimum/maximum dentro de estimatedMacros (Gemini lo rechaza con 400), pero conserva el resto de los topes', () => {
+    const item = (buildMealJsonSchema() as any).properties.detectedIngredients.items.properties; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const field of Object.values<Record<string, unknown>>(item.estimatedMacros.properties)) {
+      expect(field).not.toHaveProperty('minimum');
+      expect(field).not.toHaveProperty('maximum');
+    }
+    expect(item.estimatedMacros.required).toEqual(['kcal', 'proteinas_g', 'carbs_g', 'grasas_g']);
+    expect(item.confidence).toMatchObject({ minimum: 0, maximum: 1 });
+  });
+
+  it('la validación Zod del servidor sigue rechazando estimaciones absurdas', () => {
+    const bad = { ...mealOk, detectedIngredients: [{ ...mealOk.detectedIngredients[0], estimatedMacros: { ...estimatedMacros, kcal: 99999 } }] };
+    expect(modelMealOutputSchema.safeParse(bad).success).toBe(false);
   });
 });
 

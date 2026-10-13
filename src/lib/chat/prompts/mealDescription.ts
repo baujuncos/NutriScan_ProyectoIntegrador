@@ -1,6 +1,13 @@
 // NUT-188 — Prompts del chat de registro de comida. Compactos a propósito:
 // cada token del system prompt se paga en cada request.
 
+/**
+ * Versión del prompt que se guarda en la auditoría (chat_ia_registros.prompt_version).
+ * Cambiala cada vez que edites MEAL_DESCRIPTION_SYSTEM_PROMPT, para que los investigadores
+ * puedan comparar resultados entre versiones.
+ */
+export const MEAL_PROMPT_VERSION = 'nut188-2026-10-08';
+
 export const MEAL_DESCRIPTION_SYSTEM_PROMPT = `Sos el asistente de registro de comidas de NutriScan (Argentina). Única tarea: convertir lo que la persona YA comió o tomó en una lista de alimentos con cantidad estimada. No calculás calorías.
 
 ALCANCE Y SEGURIDAD

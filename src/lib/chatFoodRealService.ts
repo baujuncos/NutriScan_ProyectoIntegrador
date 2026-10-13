@@ -25,6 +25,7 @@ const ERROR_MESSAGES: Record<MealChatErrorCode, { message: string; retryable: bo
   },
   AI_UNAVAILABLE: { message: 'El asistente no está disponible en este momento. Probá de nuevo en un rato.', retryable: true },
   AI_INVALID_RESPONSE: { message: 'No pude entender la respuesta del asistente. Probá de nuevo.', retryable: true },
+  PERSISTENCE_ERROR: { message: 'Algo salió mal. Probá de nuevo.', retryable: true },
   NETWORK: { message: 'No pudimos conectarnos. Revisá tu conexión y reintentá.', retryable: true },
 };
 
@@ -50,6 +51,8 @@ function toEntry(item: MealIngredientResult): FoodChatEntry {
     unidad: item.unit,
     confidence: item.confidence,
     macroSource: item.macroSource,
+    tipo: item.type,
+    idAlimento: item.sara2Match?.id_alimento ?? null,
     macros: { kcal: item.kcal, proteinas_g: item.proteinas_g, carbs_g: item.carbs_g, grasas_g: item.grasas_g },
   };
 }

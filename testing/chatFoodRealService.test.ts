@@ -47,6 +47,7 @@ describe('realMealChatService', () => {
       result: {
         alimentos: [{
           alimento: 'Banana', cantidad: '120 g', gramos: 120, unidad: 'g', confidence: 0.9, macroSource: 'sara2',
+          tipo: 'fruta', idAlimento: 375,
           macros: { kcal: 110.4, proteinas_g: 1.44, carbs_g: 24.48, grasas_g: 0.24 },
         }],
         totalGramos: 120,

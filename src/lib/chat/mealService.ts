@@ -34,8 +34,23 @@ export const BLOCKED_MESSAGE = 'No pude procesar ese mensaje. Contame solo qué 
 
 const MEAL_MAX_OUTPUT_TOKENS = 2500;
 
-// JSON Schema para la salida estructurada nativa de Gemini (derivado del mismo Zod).
-const MEAL_JSON_SCHEMA = z.toJSONSchema(modelMealOutputSchema);
+/**
+ * JSON Schema para la salida estructurada nativa de Gemini, derivado del mismo Zod.
+ * Gemini rechaza con 400 INVALID_ARGUMENT los topes `minimum`/`maximum` dentro del objeto
+ * anidado `estimatedMacros` (verificado con gemini-3.6-flash), así que se quitan SOLO del
+ * schema que se le manda. Los topes siguen validándose en el servidor con Zod.
+ */
+export function buildMealJsonSchema(): Record<string, unknown> {
+  const schema = z.toJSONSchema(modelMealOutputSchema) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const macros = schema.properties.detectedIngredients.items.properties.estimatedMacros.properties as Record<string, Record<string, unknown>>;
+  for (const field of Object.values(macros)) {
+    delete field.minimum;
+    delete field.maximum;
+  }
+  return schema;
+}
+
+const MEAL_JSON_SCHEMA = buildMealJsonSchema();
 
 export interface MealServiceDeps {
   llm: LlmTransport;

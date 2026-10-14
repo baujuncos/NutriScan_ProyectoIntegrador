@@ -13,6 +13,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
 import ComposicionCatalogo from './ComposicionCatalogo';
+import NuevoAlimentoPropio, { PROPIO_VACIO, propioListo, type PropioForm } from './NuevoAlimentoPropio';
 import { formatFechaCorta } from '@/lib/date';
 import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
 import {
@@ -28,8 +29,10 @@ import {
   getPendienteDetalleAction,
   modificarPendienteAction,
   validarPendienteAction,
+  validarComoPropioAction,
   type OcurrenciaDetalle,
   type PendienteFila,
+  type VerificacionPropio,
 } from './actions';
 
 interface Props {
@@ -59,6 +62,7 @@ interface Form {
   grasas: string;
   carbs: string;
   ingredientes: ComponenteEditable[];
+  propio: PropioForm;
 }
 
 const PESTANIAS: Array<{ modo: ModoComposicion; titulo: string; ayuda: string }> = [
@@ -92,6 +96,7 @@ function formInicial(p: PendienteFila): Form {
     grasas: texto(p.final_grasas_100g ?? p.gemini_grasas_100g),
     carbs: texto(p.final_carbs_100g ?? p.gemini_carbs_100g),
     ingredientes: aEditables(comp?.componentes ?? []),
+    propio: PROPIO_VACIO,
   };
 }
 
@@ -201,6 +206,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [verificacionPropio, setVerificacionPropio] = useState<VerificacionPropio | null>(null);
 
   // Carga del detalle cada vez que se abre otro alimento.
   useEffect(() => {
@@ -212,6 +218,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     setConfirmando(null);
     setError(null);
     setAviso(null);
+    setVerificacionPropio(null);
     setAbiertos({ ocurrencias: true, preview: false, mas: false });
     void getPendienteDetalleAction(idPendiente).then((r) => {
       if (cancelado) return;
@@ -222,7 +229,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
       const inicial = formInicial(r.pendiente);
       setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias });
       setForm(inicial);
-      setBase(JSON.stringify(inicial));
+      setBase(JSON.stringify({ ...inicial, propio: null }));
     });
     return () => {
       cancelado = true;
@@ -236,10 +243,16 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
   const macros = calc?.macros ?? null;
   const incoherente = macros != null && !macrosPlausibles(macros);
+  const creaPropio = form?.modo === 'manual' && form.propio.activo;
   const soloLectura = p != null && p.estado !== 'pendiente';
-  const sinGuardar = form != null && JSON.stringify(form) !== base;
+  const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
   const total = datos?.totalOcurrencias ?? 0;
-  const puedeResolver = !soloLectura && macros != null && (form?.nombre.trim() ?? '') !== '' && !trabajando;
+  const puedeResolver =
+    !soloLectura &&
+    macros != null &&
+    (form?.nombre.trim() ?? '') !== '' &&
+    !trabajando &&
+    (!creaPropio || propioListo(form!.propio, verificacionPropio));
 
   const argsForm = () => ({
     id: p!.id_pendiente,
@@ -287,7 +300,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
       setError(r.error);
       return;
     }
-    setBase(JSON.stringify(form));
+    setBase(JSON.stringify({ ...form, propio: null }));
     setAviso('Guardado hace un momento');
     onGuardado?.();
   };
@@ -295,7 +308,22 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const validar = async () => {
     setTrabajando(true);
     setError(null);
-    const r = await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(false) });
+    const r = creaPropio
+      ? await validarComoPropioAction({
+          ...argsForm(),
+          kcal: macros!.kcal_100g,
+          proteinas: macros!.proteinas_100g,
+          grasas: macros!.grasas_100g,
+          carbs: macros!.carbs_100g,
+          propio: {
+            fuenteDato: form!.propio.fuente as Exclude<PropioForm['fuente'], ''>,
+            justificacion: form!.propio.justificacion.trim(),
+            confirmaciones: { reviseFuente: true, valoresPor100g: true, busqueExistente: true },
+            confirmaIncoherente: form!.propio.confirmaIncoherente,
+            confirmaDistinto: form!.propio.confirmaDistinto,
+          },
+        })
+      : await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(false) });
     setTrabajando(false);
     setConfirmando(null);
     if ('error' in r) {
@@ -444,12 +472,23 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                   />
                 )}
                 {form.modo === 'manual' && (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <Input id="pv-kcal" label="kcal / 100 g" type="number" min={0} step="0.1" value={form.kcal} disabled={soloLectura} onChange={(e) => cambiar({ kcal: e.target.value })} />
-                    <Input id="pv-prot" label="Proteínas (g / 100 g)" type="number" min={0} step="0.1" value={form.prot} disabled={soloLectura} onChange={(e) => cambiar({ prot: e.target.value })} />
-                    <Input id="pv-grasas" label="Grasas (g / 100 g)" type="number" min={0} step="0.1" value={form.grasas} disabled={soloLectura} onChange={(e) => cambiar({ grasas: e.target.value })} />
-                    <Input id="pv-carbs" label="Carbohidratos (g / 100 g)" type="number" min={0} step="0.1" value={form.carbs} disabled={soloLectura} onChange={(e) => cambiar({ carbs: e.target.value })} />
-                  </div>
+                  <>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <Input id="pv-kcal" label="kcal / 100 g" type="number" min={0} step="0.1" value={form.kcal} disabled={soloLectura} onChange={(e) => cambiar({ kcal: e.target.value })} />
+                      <Input id="pv-prot" label="Proteínas (g / 100 g)" type="number" min={0} step="0.1" value={form.prot} disabled={soloLectura} onChange={(e) => cambiar({ prot: e.target.value })} />
+                      <Input id="pv-grasas" label="Grasas (g / 100 g)" type="number" min={0} step="0.1" value={form.grasas} disabled={soloLectura} onChange={(e) => cambiar({ grasas: e.target.value })} />
+                      <Input id="pv-carbs" label="Carbohidratos (g / 100 g)" type="number" min={0} step="0.1" value={form.carbs} disabled={soloLectura} onChange={(e) => cambiar({ carbs: e.target.value })} />
+                    </div>
+                    {!soloLectura && (
+                      <NuevoAlimentoPropio
+                        nombre={form.nombre}
+                        valores={{ kcal: aNumero(form.kcal), proteinas: aNumero(form.prot), grasas: aNumero(form.grasas), carbs: aNumero(form.carbs) }}
+                        propio={form.propio}
+                        onChange={(patch) => cambiar({ propio: { ...form.propio, ...patch } })}
+                        onVerificacion={setVerificacionPropio}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -514,6 +553,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                   <p>
                     Se actualizarán <strong>{plural(total)}</strong> del diario con estos valores
                     {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
+                    {creaPropio ? ` Además se agregará «${form.nombre.trim()}» al catálogo propio.` : ''}
                   </p>
                 ) : (
                   <p>

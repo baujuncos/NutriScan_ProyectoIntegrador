@@ -4,12 +4,14 @@
  * confirmación y errores.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/(researcher)/validacion/actions', () => ({
   getPendienteDetalleAction: vi.fn(),
   buscarAlimentosPropiosAction: vi.fn(),
+  verificarAlimentoPropioAction: vi.fn(),
+  validarComoPropioAction: vi.fn(),
   modificarPendienteAction: vi.fn(),
   validarPendienteAction: vi.fn(),
   descartarPendienteAction: vi.fn(),
@@ -23,6 +25,8 @@ import {
   modificarPendienteAction,
   validarPendienteAction,
   buscarAlimentosPropiosAction,
+  verificarAlimentoPropioAction,
+  validarComoPropioAction,
 } from '@/app/(researcher)/validacion/actions';
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
 import { OCURRENCIA, PENDIENTE } from './fixtures/validacion';
@@ -81,6 +85,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
   vi.mocked(buscarAlimentosPropiosAction).mockReset().mockResolvedValue([]);
+  vi.mocked(verificarAlimentoPropioAction).mockReset().mockResolvedValue({ ok: true, bloqueos: [], advertencias: [] });
+  vi.mocked(validarComoPropioAction).mockReset().mockResolvedValue({ ok: true, idAlimentoPropio: 9, itemsAfectados: 2 });
   vi.mocked(descartarPendienteAction).mockReset().mockResolvedValue({ ok: true, itemsAfectados: 2 });
   vi.mocked(searchAlimentosAction)
     .mockReset()
@@ -468,5 +474,154 @@ describe('PendienteDetalle — validar y descartar con confirmación', () => {
     expect(screen.queryByLabelText('Agregar alimento del catálogo')).not.toBeInTheDocument();
     await user.click(pestana('A mano')); // se puede mirar la otra pestaña sin editar
     expect(screen.getByLabelText('kcal / 100 g')).toBeDisabled();
+  });
+});
+
+describe('PendienteDetalle — crear un alimento propio desde A mano', () => {
+  const CASILLA = 'Agregar este alimento al catálogo propio';
+
+  async function abrirAMano() {
+    const r = await abrir();
+    await r.user.click(pestana('A mano'));
+    return r;
+  }
+
+  /** La verificación del servidor tarda ~400 ms (debounce): Validar se habilita recién cuando vuelve. */
+  async function esperarListo() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Validar' })).toBeEnabled());
+  }
+
+  async function completarEvaluacion(user: ReturnType<typeof userEvent.setup>) {
+    await user.selectOptions(screen.getByLabelText('Fuente del dato'), 'etiqueta_producto');
+    await user.type(screen.getByLabelText('Justificación'), 'Etiqueta del envase, por 100 g.');
+    await user.click(screen.getByLabelText('Revisé la fuente'));
+    await user.click(screen.getByLabelText('Los valores son por 100 g'));
+    await user.click(screen.getByLabelText('Busqué y no existe ya en SARA2, ANMAT ni en los propios'));
+  }
+
+  it('la casilla sólo existe en A mano, no en IA ni en Del catálogo', async () => {
+    const { user } = await abrir();
+    expect(screen.queryByLabelText(CASILLA)).not.toBeInTheDocument();
+    await user.click(pestana('Del catálogo'));
+    expect(screen.queryByLabelText(CASILLA)).not.toBeInTheDocument();
+    await user.click(pestana('A mano'));
+    expect(screen.getByLabelText(CASILLA)).not.toBeChecked();
+  });
+
+  it('marcarla pide fuente, justificación y las tres confirmaciones; Validar espera a que esté todo', async () => {
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+    await completarEvaluacion(user);
+    await esperarListo();
+  });
+
+  it('crea el propio: manda la evaluación, NO llama a validar común y cierra', async () => {
+    const { user, onResuelto } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    await esperarListo();
+    await user.click(screen.getByRole('button', { name: 'Validar' }));
+    expect(within(screen.getByRole('alertdialog')).getByText(/se agregará «Flan casero» al catálogo propio/)).toBeInTheDocument();
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
+    expect(validarComoPropioAction).toHaveBeenCalledWith({
+      id: 5, nombre: 'Flan casero', categoria: 'postre', observaciones: null,
+      kcal: 150, proteinas: 3, grasas: 5, carbs: 23,
+      propio: {
+        fuenteDato: 'etiqueta_producto',
+        justificacion: 'Etiqueta del envase, por 100 g.',
+        confirmaciones: { reviseFuente: true, valoresPor100g: true, busqueExistente: true },
+        confirmaIncoherente: false,
+        confirmaDistinto: false,
+      },
+    });
+    expect(validarPendienteAction).not.toHaveBeenCalled();
+    expect(onResuelto).toHaveBeenCalledTimes(1);
+  });
+
+  it('un bloqueo del servidor (nombre duplicado) se muestra con el alimento existente y frena Validar', async () => {
+    vi.mocked(verificarAlimentoPropioAction).mockResolvedValue({
+      ok: true,
+      bloqueos: [{ codigo: 'DUPLICADO', existente: { origen: 'catalogo', id: 5, nombre: 'Huevo', fuente: 'ANMAT' } }],
+      advertencias: [],
+    });
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    expect(await screen.findByText(/Ya existe «Huevo» \(ANMAT\)/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
+  it('un nombre parecido lista los similares y exige confirmar que es distinto', async () => {
+    vi.mocked(verificarAlimentoPropioAction).mockResolvedValue({
+      ok: true,
+      bloqueos: [],
+      advertencias: [{ codigo: 'SIMILAR', similares: [{ origen: 'catalogo', id: 1, nombre: 'Flan de vainilla', fuente: 'SARA2', similitud: 0.9 }] }],
+    });
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    expect(await screen.findByText(/Flan de vainilla/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+    await user.click(screen.getByLabelText('Confirmo que es un alimento distinto'));
+    await esperarListo();
+  });
+
+  it('kcal incoherentes exigen confirmación explícita', async () => {
+    vi.mocked(verificarAlimentoPropioAction).mockResolvedValue({ ok: true, bloqueos: [], advertencias: [{ codigo: 'KCAL_INCOHERENTE' }] });
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    expect(await screen.findByText(/Las kcal no cierran con 4 kcal/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+    await user.click(screen.getByLabelText('Confirmo que las kcal son correctas'));
+    await esperarListo();
+  });
+
+  it('al editar un valor se vuelve a verificar y Validar espera el resultado nuevo', async () => {
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    await esperarListo();
+    await waitFor(() => expect(verificarAlimentoPropioAction).toHaveBeenCalledWith({ nombre: 'Flan casero', kcal: 150, proteinas: 3, grasas: 5, carbs: 23 }));
+
+    let resolver: (v: Awaited<ReturnType<typeof verificarAlimentoPropioAction>>) => void = () => {};
+    vi.mocked(verificarAlimentoPropioAction).mockImplementation(() => new Promise((r) => { resolver = r; }));
+    const kcal = screen.getByLabelText('kcal / 100 g');
+    await user.clear(kcal);
+    await user.type(kcal, '160');
+    await waitFor(() => expect(verificarAlimentoPropioAction).toHaveBeenLastCalledWith(expect.objectContaining({ kcal: 160 })));
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled(); // verificando: no se valida con una verificación vieja
+    resolver({ ok: true, bloqueos: [], advertencias: [] });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Validar' })).toBeEnabled());
+  });
+
+  it('un error del servidor al crear se muestra y no cierra', async () => {
+    vi.mocked(validarComoPropioAction).mockResolvedValue({ error: 'Otro investigador acaba de crear un alimento con ese nombre. Usalo desde "Del catálogo".' });
+    const { user, onResuelto } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await completarEvaluacion(user);
+    await esperarListo();
+    await user.click(screen.getByRole('button', { name: 'Validar' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Otro investigador acaba de crear');
+    expect(onResuelto).not.toHaveBeenCalled();
+  });
+
+  it('marcar la casilla y volver a IA valida como siempre, sin crear el propio', async () => {
+    const { user } = await abrirAMano();
+    await user.click(screen.getByLabelText(CASILLA));
+    await user.click(pestana('IA'));
+    await confirmarValidar(user);
+    expect(validarPendienteAction).toHaveBeenCalledTimes(1);
+    expect(validarComoPropioAction).not.toHaveBeenCalled();
+  });
+
+  it('marcar la casilla no cuenta como "cambios sin guardar" (el borrador no la guarda)', async () => {
+    const { user } = await abrirAMano();
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' })); // cambiar de pestaña ya es un cambio: se guarda primero
+    await screen.findByText('Guardado hace un momento');
+    await user.click(screen.getByLabelText(CASILLA));
+    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
   });
 });

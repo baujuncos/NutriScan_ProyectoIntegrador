@@ -164,6 +164,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
       <PendienteDetalle
         idPendiente={abierto}
         onClose={() => setAbierto(null)}
+        onGuardado={() => router.refresh()}
         onResuelto={() => {
           setAbierto(null);
           router.refresh();

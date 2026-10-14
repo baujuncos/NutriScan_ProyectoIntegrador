@@ -2,18 +2,27 @@
 
 /**
  * NUT-119 — Detalle de un alimento de la cola de validación: contexto de cada
- * ocurrencia (foto + bounding box, nombre IA vs final, respuestas, gramaje),
- * estimación original de Gemini (solo lectura) y formulario editable por
- * 100 g con vista previa de los totales. Validar / Descartar piden confirmación.
+ * ocurrencia (foto + bounding box, nombre IA vs final, respuestas, gramaje) y los
+ * valores por 100 g en tres pestañas: IA (la estimación de Gemini), Del catálogo
+ * (gramos reales de alimentos del catálogo sobre el peso de la foto) y A mano.
+ * El borrador guarda la pestaña y la composición; el resultado y lo que se valida
+ * salen de la pestaña activa. Validar / Descartar piden confirmación.
  */
 import { useEffect, useState } from 'react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
-import MezclaCatalogo from './MezclaCatalogo';
-import { searchAlimentosAction, type AlimentoOption } from '@/app/alimentacion/actions';
+import ComposicionCatalogo from './ComposicionCatalogo';
 import { formatFechaCorta } from '@/lib/date';
 import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
+import {
+  aComponentes,
+  aEditables,
+  resumirComposicion,
+  restaurarComposicion,
+  type ComponenteEditable,
+  type ModoComposicion,
+} from '@/lib/composicion';
 import {
   descartarPendienteAction,
   getPendienteDetalleAction,
@@ -29,6 +38,8 @@ interface Props {
   onClose: () => void;
   /** Se llama tras validar o descartar con éxito (la página refresca el listado). */
   onResuelto: () => void;
+  /** Se llama tras guardar un borrador con éxito (la página refresca el listado). */
+  onGuardado?: () => void;
 }
 
 interface Datos {
@@ -37,9 +48,82 @@ interface Datos {
   totalOcurrencias: number;
 }
 
+/** Todo lo editable del detalle; se compara con el último estado guardado para el indicador de cambios. */
+interface Form {
+  modo: ModoComposicion;
+  nombre: string;
+  categoria: string;
+  obs: string;
+  kcal: string;
+  prot: string;
+  grasas: string;
+  carbs: string;
+  ingredientes: ComponenteEditable[];
+  referencia: number | null;
+}
+
+const PESTANIAS: Array<{ modo: ModoComposicion; titulo: string; ayuda: string }> = [
+  { modo: 'ia', titulo: 'IA', ayuda: 'Usa la estimación de Gemini tal cual. Elegila si te parece razonable.' },
+  {
+    modo: 'catalogo',
+    titulo: 'Del catálogo',
+    ayuda:
+      'Tomá los valores de uno o más alimentos de SARA2 o ANMAT e indicá cuántos gramos de cada uno hay en la foto. Sirve para equivalencias ("esto es palta") y para compuestos ("aceite y vinagre").',
+  },
+  { modo: 'manual', titulo: 'A mano', ayuda: 'Cargá los cuatro valores vos.' },
+];
+
 const redondear1 = (n: number) => Math.round(n * 10) / 10;
 const aNumero = (s: string): number | null => (s.trim() === '' || !Number.isFinite(Number(s)) ? null : Number(s));
 const plural = (n: number) => `${n} ítem${n === 1 ? '' : 's'}`;
+const texto = (n: number | null) => (n == null ? '' : String(n));
+
+/** Estado inicial: el borrador guardado (con su pestaña y composición) o, si no hay, la estimación de Gemini. */
+function formInicial(p: PendienteFila, ocurrencias: OcurrenciaDetalle[]): Form {
+  const comp = restaurarComposicion(p.composicion);
+  const hayGemini = p.gemini_kcal_100g != null;
+  const modo: ModoComposicion = comp?.modo ?? (p.final_kcal_100g != null ? 'manual' : hayGemini ? 'ia' : 'manual');
+  const refGuardada = comp?.id_guardado_item;
+  return {
+    modo,
+    nombre: p.nombre_final ?? p.nombre_original,
+    categoria: p.categoria_final ?? p.categoria_ia ?? '',
+    obs: p.observaciones ?? '',
+    kcal: texto(p.final_kcal_100g ?? p.gemini_kcal_100g),
+    prot: texto(p.final_proteinas_100g ?? p.gemini_proteinas_100g),
+    grasas: texto(p.final_grasas_100g ?? p.gemini_grasas_100g),
+    carbs: texto(p.final_carbs_100g ?? p.gemini_carbs_100g),
+    ingredientes: aEditables(comp?.componentes ?? []),
+    referencia:
+      refGuardada != null && ocurrencias.some((o) => o.idGuardadoItem === refGuardada)
+        ? refGuardada
+        : (ocurrencias[0]?.idGuardadoItem ?? null),
+  };
+}
+
+/** Lo derivado del formulario: valores de cada pestaña y el resultado de la activa. */
+function calcular(f: Form, p: PendienteFila, ocurrencias: OcurrenciaDetalle[]) {
+  const ia: Macros100 | null =
+    p.gemini_kcal_100g == null || p.gemini_proteinas_100g == null || p.gemini_grasas_100g == null || p.gemini_carbs_100g == null
+      ? null
+      : {
+          kcal_100g: p.gemini_kcal_100g,
+          proteinas_100g: p.gemini_proteinas_100g,
+          grasas_100g: p.gemini_grasas_100g,
+          carbs_100g: p.gemini_carbs_100g,
+        };
+  const [k, pr, g, c] = [f.kcal, f.prot, f.grasas, f.carbs].map(aNumero);
+  const manual: Macros100 | null =
+    k == null || pr == null || g == null || c == null
+      ? null
+      : { kcal_100g: k, proteinas_100g: pr, grasas_100g: g, carbs_100g: c };
+  const { componentes, problemas } = aComponentes(f.ingredientes);
+  const pesoFoto = ocurrencias.find((o) => o.idGuardadoItem === f.referencia)?.gramosFinal ?? 0;
+  const resumen = resumirComposicion(componentes, pesoFoto);
+  const macros =
+    f.modo === 'ia' ? ia : f.modo === 'manual' ? manual : problemas.length === 0 ? resumen.macros : null;
+  return { macros, componentes, problemas, pesoFoto, resumen };
+}
 
 function FotoOcurrencia({ o }: { o: OcurrenciaDetalle }) {
   if (!o.fotoUrl) {
@@ -83,21 +167,40 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: Props) {
+function Plegable({
+  titulo,
+  abierto,
+  onAlternar,
+  children,
+}: {
+  titulo: string;
+  abierto: boolean;
+  onAlternar: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <button
+        type="button"
+        aria-expanded={abierto}
+        onClick={onAlternar}
+        className="flex w-full items-center gap-2 rounded py-1 text-left text-sm font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+      >
+        <span aria-hidden="true">{abierto ? '▾' : '▸'}</span>
+        {titulo}
+      </button>
+      {abierto && <div className="mt-2">{children}</div>}
+    </section>
+  );
+}
+
+export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onGuardado }: Props) {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
-
-  const [nombre, setNombre] = useState('');
-  const [categoria, setCategoria] = useState('');
-  const [kcal, setKcal] = useState('');
-  const [prot, setProt] = useState('');
-  const [grasas, setGrasas] = useState('');
-  const [carbs, setCarbs] = useState('');
-  const [obs, setObs] = useState('');
-
-  const [busqueda, setBusqueda] = useState('');
-  const [resultados, setResultados] = useState<AlimentoOption[]>([]);
-  const [vinculado, setVinculado] = useState<AlimentoOption | null>(null);
+  const [form, setForm] = useState<Form | null>(null);
+  /** Serialización del último estado guardado (o cargado): si difiere del actual hay cambios sin guardar. */
+  const [base, setBase] = useState('');
+  const [abiertos, setAbiertos] = useState({ ocurrencias: true, preview: false, mas: false });
 
   const [confirmando, setConfirmando] = useState<'validar' | 'descartar' | null>(null);
   const [trabajando, setTrabajando] = useState(false);
@@ -109,98 +212,91 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
     if (idPendiente == null) return;
     let cancelado = false;
     setDatos(null);
+    setForm(null);
     setErrorCarga(null);
     setConfirmando(null);
     setError(null);
     setAviso(null);
-    setVinculado(null);
-    setBusqueda('');
-    setResultados([]);
+    setAbiertos({ ocurrencias: true, preview: false, mas: false });
     void getPendienteDetalleAction(idPendiente).then((r) => {
       if (cancelado) return;
       if ('error' in r) {
         setErrorCarga(r.error);
         return;
       }
-      const p = r.pendiente;
-      setDatos({ pendiente: p, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias });
-      // Precarga: lo que dejó el investigador (borrador) o, si no, lo que estimó Gemini.
-      const num = (final: number | null, gemini: number | null) => String(final ?? gemini ?? '');
-      setNombre(p.nombre_final ?? p.nombre_original);
-      setCategoria(p.categoria_final ?? p.categoria_ia ?? '');
-      setKcal(num(p.final_kcal_100g, p.gemini_kcal_100g));
-      setProt(num(p.final_proteinas_100g, p.gemini_proteinas_100g));
-      setGrasas(num(p.final_grasas_100g, p.gemini_grasas_100g));
-      setCarbs(num(p.final_carbs_100g, p.gemini_carbs_100g));
-      setObs(p.observaciones ?? '');
+      const inicial = formInicial(r.pendiente, r.ocurrencias);
+      setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias });
+      setForm(inicial);
+      setBase(JSON.stringify(inicial));
     });
     return () => {
       cancelado = true;
     };
   }, [idPendiente]);
 
-  // Búsqueda en el catálogo (con debounce, como el resto de los buscadores).
-  useEffect(() => {
-    if (busqueda.trim().length < 2) {
-      setResultados([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setResultados((await searchAlimentosAction(busqueda, '')).slice(0, 6));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [busqueda]);
-
-  const valores = {
-    kcal: aNumero(kcal),
-    proteinas: aNumero(prot),
-    grasas: aNumero(grasas),
-    carbs: aNumero(carbs),
-  };
-  const completos = Object.values(valores).every((v) => v != null);
-  const macros: Macros100 | null = completos
-    ? {
-        kcal_100g: valores.kcal!,
-        proteinas_100g: valores.proteinas!,
-        grasas_100g: valores.grasas!,
-        carbs_100g: valores.carbs!,
-      }
-    : null;
-  const incoherente = macros != null && !macrosPlausibles(macros);
+  const cambiar = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const alternar = (k: keyof typeof abiertos) => setAbiertos((a) => ({ ...a, [k]: !a[k] }));
 
   const p = datos?.pendiente;
+  const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
+  const macros = calc?.macros ?? null;
+  const incoherente = macros != null && !macrosPlausibles(macros);
   const soloLectura = p != null && p.estado !== 'pendiente';
-  const puedeResolver = !soloLectura && completos && nombre.trim() !== '' && !trabajando;
+  const sinGuardar = form != null && JSON.stringify(form) !== base;
   const total = datos?.totalOcurrencias ?? 0;
+  const puedeResolver = !soloLectura && macros != null && (form?.nombre.trim() ?? '') !== '' && !trabajando;
 
   const argsForm = () => ({
     id: p!.id_pendiente,
-    nombre: nombre.trim(),
-    categoria: categoria.trim() || null,
-    observaciones: obs.trim() || null,
+    nombre: form!.nombre.trim(),
+    categoria: form!.categoria.trim() || null,
+    observaciones: form!.obs.trim() || null,
   });
 
+  /** Valores que se mandan: lo tipeado en A mano; en las otras pestañas, el resultado (o null si todavía no hay). */
+  const valores = () =>
+    form!.modo === 'manual'
+      ? { kcal: aNumero(form!.kcal), proteinas: aNumero(form!.prot), grasas: aNumero(form!.grasas), carbs: aNumero(form!.carbs) }
+      : {
+          kcal: macros?.kcal_100g ?? null,
+          proteinas: macros?.proteinas_100g ?? null,
+          grasas: macros?.grasas_100g ?? null,
+          carbs: macros?.carbs_100g ?? null,
+        };
+
+  const composicion = () =>
+    form!.modo === 'catalogo'
+      ? {
+          modo: 'catalogo' as const,
+          id_guardado_item: form!.referencia,
+          gramos_foto: calc!.pesoFoto > 0 ? calc!.pesoFoto : null,
+          componentes: calc!.componentes,
+        }
+      : { modo: form!.modo, id_guardado_item: null, gramos_foto: null, componentes: [] };
+
   const guardarBorrador = async () => {
+    if (form!.modo === 'catalogo' && calc!.problemas.length > 0) {
+      setError(calc!.problemas[0]);
+      return;
+    }
     setTrabajando(true);
     setError(null);
     setAviso(null);
-    const r = await modificarPendienteAction({ ...argsForm(), ...valores });
+    const r = await modificarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion() });
     setTrabajando(false);
-    if ('error' in r) setError(r.error);
-    else setAviso('Borrador guardado');
+    if ('error' in r) {
+      setError(r.error);
+      return;
+    }
+    setBase(JSON.stringify(form));
+    setAviso('Guardado hace un momento');
+    onGuardado?.();
   };
 
-  const validar = async (idExistente: number | null) => {
+  const validar = async () => {
     setTrabajando(true);
     setError(null);
-    const r = await validarPendienteAction({
-      ...argsForm(),
-      kcal: valores.kcal!,
-      proteinas: valores.proteinas!,
-      grasas: valores.grasas!,
-      carbs: valores.carbs!,
-      idAlimentoExistente: idExistente,
-    });
+    const r = await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion() });
     setTrabajando(false);
     setConfirmando(null);
     if ('error' in r) {
@@ -213,7 +309,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
   const descartar = async () => {
     setTrabajando(true);
     setError(null);
-    const r = await descartarPendienteAction({ id: p!.id_pendiente, observaciones: obs.trim() || null });
+    const r = await descartarPendienteAction({ id: p!.id_pendiente, observaciones: form!.obs.trim() || null });
     setTrabajando(false);
     setConfirmando(null);
     if ('error' in r) {
@@ -223,39 +319,49 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
     onResuelto();
   };
 
+  const pestaniaActiva = PESTANIAS.find((x) => x.modo === form?.modo);
+  const vinculo = form?.modo === 'catalogo' && calc?.resumen.esVinculoPuro ? calc.componentes[0].nombre : null;
+
   return (
     <Modal open={idPendiente != null} onClose={onClose} title="Revisar alimento" wide>
       {errorCarga && <p className="text-sm text-red-600">{errorCarga}</p>}
       {!datos && !errorCarga && <p className="text-sm text-slate-600">Cargando…</p>}
 
-      {datos && p && (
-        <div className="space-y-6">
+      {datos && p && form && calc && (
+        <div className="space-y-5">
           {soloLectura && (
-            <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">
+            <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">
               Resuelto como <strong>{p.estado}</strong>
               {p.resuelto_at ? ` el ${formatFechaCorta(p.resuelto_at)}` : ''}. Solo lectura.
             </p>
           )}
 
-          <section aria-label="Estimación original de Gemini" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Estimación original de Gemini (por 100 g)
-            </h3>
-            {p.gemini_kcal_100g == null ? (
-              <p className="text-slate-600">Gemini no pudo estimar este alimento: cargá los valores a mano.</p>
-            ) : (
-              <p className="text-slate-700">
-                {p.gemini_kcal_100g} kcal · P {p.gemini_proteinas_100g} g · C {p.gemini_carbs_100g} g · G{' '}
-                {p.gemini_grasas_100g} g
-                {p.gemini_modelo ? <span className="text-slate-600"> · {p.gemini_modelo}</span> : null}
-              </p>
-            )}
-          </section>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <Input
+              id="pv-nombre"
+              label="Nombre"
+              value={form.nombre}
+              disabled={soloLectura}
+              onChange={(e) => cambiar({ nombre: e.target.value })}
+            />
+            <section aria-label="Estimación original de Gemini" role="region" className="text-sm text-slate-700">
+              {p.gemini_kcal_100g == null ? (
+                <p>Gemini no pudo estimar este alimento: cargá los valores vos.</p>
+              ) : (
+                <p>
+                  IA estimó (por 100 g): {p.gemini_kcal_100g} kcal · P {p.gemini_proteinas_100g} g · C {p.gemini_carbs_100g} g · G{' '}
+                  {p.gemini_grasas_100g} g
+                  {p.gemini_modelo ? <span className="text-slate-600"> · {p.gemini_modelo}</span> : null}
+                </p>
+              )}
+            </section>
+          </div>
 
-          <section aria-label="Ocurrencias">
-            <h3 className="mb-2 text-sm font-semibold text-slate-900">
-              Dónde apareció ({total} {total === 1 ? 'ocurrencia' : 'ocurrencias'})
-            </h3>
+          <Plegable
+            titulo={`Dónde apareció (${total} ${total === 1 ? 'ocurrencia' : 'ocurrencias'})`}
+            abierto={abiertos.ocurrencias}
+            onAlternar={() => alternar('ocurrencias')}
+          >
             <ul className="space-y-3">
               {datos.ocurrencias.map((o) => (
                 <li key={o.idGuardadoItem} className="flex flex-col gap-3 rounded-xl border border-slate-100 p-3 sm:flex-row">
@@ -292,25 +398,70 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
             {total > datos.ocurrencias.length && (
               <p className="mt-2 text-xs text-slate-600">y {total - datos.ocurrencias.length} más</p>
             )}
-          </section>
+          </Plegable>
 
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-            }}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input id="pv-nombre" label="Nombre" value={nombre} disabled={soloLectura} onChange={(e) => setNombre(e.target.value)} />
-              <Input id="pv-categoria" label="Categoría" value={categoria} disabled={soloLectura} onChange={(e) => setCategoria(e.target.value)} />
+          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-900">Valores por 100 g</h3>
+              <div role="tablist" aria-label="Origen de los valores" className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
+                {PESTANIAS.map((t) => (
+                  <button
+                    key={t.modo}
+                    type="button"
+                    role="tab"
+                    id={`pv-tab-${t.modo}`}
+                    aria-selected={form.modo === t.modo}
+                    aria-controls="pv-panel"
+                    onClick={() => cambiar({ modo: t.modo })}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${
+                      form.modo === t.modo ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:bg-white/60'
+                    }`}
+                  >
+                    {t.titulo}
+                  </button>
+                ))}
+              </div>
+
+              <div id="pv-panel" role="tabpanel" aria-labelledby={`pv-tab-${form.modo}`} className="space-y-3">
+                <p className="text-sm text-slate-700">{pestaniaActiva?.ayuda}</p>
+                {form.modo === 'ia' && (
+                  <p className="text-sm text-slate-800">
+                    {calc.macros
+                      ? 'Se usan los valores estimados por Gemini (arriba).'
+                      : 'Gemini no estimó este alimento: usá "Del catálogo" o "A mano".'}
+                  </p>
+                )}
+                {form.modo === 'catalogo' && (
+                  <ComposicionCatalogo
+                    ocurrencias={datos.ocurrencias}
+                    referencia={form.referencia}
+                    onReferencia={(referencia) => cambiar({ referencia })}
+                    ingredientes={form.ingredientes}
+                    onIngredientes={(ingredientes) => cambiar({ ingredientes })}
+                    soloLectura={soloLectura}
+                  />
+                )}
+                {form.modo === 'manual' && (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <Input id="pv-kcal" label="kcal / 100 g" type="number" min={0} step="0.1" value={form.kcal} disabled={soloLectura} onChange={(e) => cambiar({ kcal: e.target.value })} />
+                    <Input id="pv-prot" label="Proteínas (g / 100 g)" type="number" min={0} step="0.1" value={form.prot} disabled={soloLectura} onChange={(e) => cambiar({ prot: e.target.value })} />
+                    <Input id="pv-grasas" label="Grasas (g / 100 g)" type="number" min={0} step="0.1" value={form.grasas} disabled={soloLectura} onChange={(e) => cambiar({ grasas: e.target.value })} />
+                    <Input id="pv-carbs" label="Carbohidratos (g / 100 g)" type="number" min={0} step="0.1" value={form.carbs} disabled={soloLectura} onChange={(e) => cambiar({ carbs: e.target.value })} />
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Input id="pv-kcal" label="kcal / 100 g" type="number" min={0} step="0.1" value={kcal} disabled={soloLectura} onChange={(e) => setKcal(e.target.value)} />
-              <Input id="pv-prot" label="Proteínas (g / 100 g)" type="number" min={0} step="0.1" value={prot} disabled={soloLectura} onChange={(e) => setProt(e.target.value)} />
-              <Input id="pv-grasas" label="Grasas (g / 100 g)" type="number" min={0} step="0.1" value={grasas} disabled={soloLectura} onChange={(e) => setGrasas(e.target.value)} />
-              <Input id="pv-carbs" label="Carbohidratos (g / 100 g)" type="number" min={0} step="0.1" value={carbs} disabled={soloLectura} onChange={(e) => setCarbs(e.target.value)} />
+
+            <div role="region" aria-label="Resultado por 100 g" className="rounded-xl bg-slate-50 p-3 text-sm">
+              {macros ? (
+                <p className="font-medium text-slate-900">
+                  Resultado por 100 g: {redondear1(macros.kcal_100g)} kcal · P {redondear1(macros.proteinas_100g)} g · C{' '}
+                  {redondear1(macros.carbs_100g)} g · G {redondear1(macros.grasas_100g)} g
+                </p>
+              ) : (
+                <p className="text-slate-700">Completá los valores de esta pestaña para ver el resultado.</p>
+              )}
             </div>
-            <Input id="pv-obs" label="Observaciones" value={obs} disabled={soloLectura} onChange={(e) => setObs(e.target.value)} />
 
             {incoherente && (
               <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -319,80 +470,32 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
               </p>
             )}
 
-            <section aria-label="Vista previa por ocurrencia" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Cómo quedan los totales en cada ocurrencia
-              </h3>
-              {macros ? (
-                <ul className="space-y-0.5 text-slate-700">
-                  {datos.ocurrencias.map((o) => {
-                    const m = macrosItem(macros, o.gramosFinal);
-                    return (
-                      <li key={o.idGuardadoItem}>
-                        {o.deportista ?? 'Deportista'} · {redondear1(o.gramosFinal)} g → {redondear1(m.kcal)} kcal · P{' '}
-                        {redondear1(m.proteinas_g)} · C {redondear1(m.carbs_g)} · G {redondear1(m.grasas_g)}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="text-slate-600">Completá los cuatro valores para ver la vista previa.</p>
-              )}
-            </section>
-
-            {!soloLectura && (
-              <div className="space-y-2">
-                <Input
-                  id="pv-catalogo"
-                  label="Buscar en el catálogo"
-                  placeholder="Vincular a un alimento que ya existe"
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                />
-                {resultados.length > 0 && (
-                  <ul className="space-y-1">
-                    {resultados.map((a) => (
-                      <li key={a.id_alimento}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVinculado(a);
-                            setBusqueda('');
-                            setResultados([]);
-                          }}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                        >
-                          {a.nombre} <span className="text-xs text-slate-600">{a.fuente}</span>
-                        </button>
-                      </li>
-                    ))}
+            <Plegable titulo="Cómo queda en cada ocurrencia" abierto={abiertos.preview} onAlternar={() => alternar('preview')}>
+              <section aria-label="Vista previa por ocurrencia" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
+                {macros ? (
+                  <ul className="space-y-0.5 text-slate-700">
+                    {datos.ocurrencias.map((o) => {
+                      const m = macrosItem(macros, o.gramosFinal);
+                      return (
+                        <li key={o.idGuardadoItem}>
+                          {o.deportista ?? 'Deportista'} · {redondear1(o.gramosFinal)} g → {redondear1(m.kcal)} kcal · P{' '}
+                          {redondear1(m.proteinas_g)} · C {redondear1(m.carbs_g)} · G {redondear1(m.grasas_g)}
+                        </li>
+                      );
+                    })}
                   </ul>
+                ) : (
+                  <p className="text-slate-700">Completá los valores para ver la vista previa.</p>
                 )}
-                {vinculado && (
-                  <p className="flex items-center gap-2 text-sm text-blue-700">
-                    Vinculado a: {vinculado.nombre}
-                    <button type="button" className="text-xs underline" onClick={() => setVinculado(null)}>
-                      Quitar
-                    </button>
-                  </p>
-                )}
-              </div>
-            )}
+              </section>
+            </Plegable>
 
-            {!soloLectura && (
-              <MezclaCatalogo
-                onUsar={(m) => {
-                  // Es un alimento NUEVO con estos valores: se suelta el vínculo a uno existente.
-                  setKcal(String(redondear1(m.kcal_100g)));
-                  setProt(String(redondear1(m.proteinas_100g)));
-                  setGrasas(String(redondear1(m.grasas_100g)));
-                  setCarbs(String(redondear1(m.carbs_100g)));
-                  setVinculado(null);
-                  setError(null);
-                  setAviso('Valores de la mezcla aplicados al formulario. Revisalos antes de validar.');
-                }}
-              />
-            )}
+            <Plegable titulo="Más datos (categoría y observaciones)" abierto={abiertos.mas} onAlternar={() => alternar('mas')}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input id="pv-categoria" label="Categoría" value={form.categoria} disabled={soloLectura} onChange={(e) => cambiar({ categoria: e.target.value })} />
+                <Input id="pv-obs" label="Observaciones" value={form.obs} disabled={soloLectura} onChange={(e) => cambiar({ obs: e.target.value })} />
+              </div>
+            </Plegable>
 
             <div aria-live="polite" className="min-h-5 text-sm">
               {error && (
@@ -400,7 +503,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                   {error}
                 </p>
               )}
-              {aviso && <p role="status" className="text-emerald-700">{aviso}</p>}
+              {aviso && !sinGuardar && <p role="status" className="text-emerald-700">{aviso}</p>}
             </div>
 
             {confirmando && (
@@ -408,7 +511,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                 {confirmando === 'validar' ? (
                   <p>
                     Se actualizarán <strong>{plural(total)}</strong> del diario con estos valores
-                    {vinculado ? ` (vinculado a ${vinculado.nombre})` : ''}, recalculados según el gramaje de cada uno.
+                    {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
                   </p>
                 ) : (
                   <p>
@@ -421,7 +524,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
                     type="button"
                     size="sm"
                     loading={trabajando}
-                    onClick={() => (confirmando === 'validar' ? void validar(vinculado?.id_alimento ?? null) : void descartar())}
+                    onClick={() => (confirmando === 'validar' ? void validar() : void descartar())}
                   >
                     Confirmar
                   </Button>
@@ -433,7 +536,12 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto }: P
             )}
 
             {!soloLectura && !confirmando && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {sinGuardar && (
+                  <p role="status" className="mr-auto text-sm font-medium text-amber-700">
+                    ● Cambios sin guardar
+                  </p>
+                )}
                 <Button type="button" variant="outline" disabled={trabajando} onClick={() => void guardarBorrador()}>
                   Guardar borrador
                 </Button>

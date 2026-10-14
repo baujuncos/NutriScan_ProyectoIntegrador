@@ -1,6 +1,7 @@
 /**
- * NUT-119 — Detalle de un alimento de la cola: contexto, formulario con vista
- * previa, plausibilidad, confirmación, "buscar en catálogo" y errores.
+ * NUT-119 — Detalle de un alimento de la cola: pestañas IA / Del catálogo / A mano,
+ * borrador que restaura (incluida la composición), indicador de cambios, plausibilidad,
+ * confirmación y errores.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
@@ -24,6 +25,20 @@ import {
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
 import { OCURRENCIA, PENDIENTE } from './fixtures/validacion';
 
+const FOTO_20 = { ...OCURRENCIA, gramosFinal: 20 };
+const ACEITE = { id_alimento: 31, nombre: 'Aceite de oliva', categoria: 'aceites', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 800, proteinas_100g: 0, grasas_100g: 90, carbs_100g: 0 };
+const VINAGRE = { id_alimento: 32, nombre: 'Vinagre de alcohol', categoria: 'aderezos', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 20, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 4 };
+const IA_VACIA = { modo: 'ia', id_guardado_item: null, gramos_foto: null, componentes: [] };
+const COMP_GUARDADA = {
+  modo: 'catalogo',
+  id_guardado_item: 1,
+  gramos_foto: 20,
+  componentes: [
+    { origen: 'catalogo', id: 31, nombre: 'Aceite de oliva', fuente: 'SARA2', gramos: 15, kcal_100g: 800, proteinas_100g: 0, grasas_100g: 90, carbs_100g: 0 },
+    { origen: 'catalogo', id: 32, nombre: 'Vinagre de alcohol', fuente: 'SARA2', gramos: 5, kcal_100g: 20, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 4 },
+  ],
+};
+
 const detalle = (over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRENCIA]) =>
   ({ ok: true, pendiente: { ...PENDIENTE, ...over }, ocurrencias, totalOcurrencias: 2 }) as const;
 
@@ -31,10 +46,30 @@ async function abrir(over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRE
   vi.mocked(getPendienteDetalleAction).mockResolvedValue(detalle(over, ocurrencias));
   const onClose = vi.fn();
   const onResuelto = vi.fn();
+  const onGuardado = vi.fn();
   const user = userEvent.setup();
-  render(<PendienteDetalle idPendiente={5} onClose={onClose} onResuelto={onResuelto} />);
+  render(<PendienteDetalle idPendiente={5} onClose={onClose} onResuelto={onResuelto} onGuardado={onGuardado} />);
   await screen.findByLabelText('Nombre');
-  return { user, onClose, onResuelto };
+  return { user, onClose, onResuelto, onGuardado };
+}
+
+const pestana = (nombre: string) => screen.getByRole('tab', { name: nombre });
+const resultado = () => screen.getByRole('region', { name: 'Resultado por 100 g' });
+
+async function agregar(user: ReturnType<typeof userEvent.setup>, busqueda: string, nombre: string) {
+  await user.type(screen.getByLabelText('Agregar alimento del catálogo'), busqueda);
+  await user.click(await screen.findByRole('button', { name: new RegExp(`Agregar ${nombre}`) }));
+}
+
+async function gramos(user: ReturnType<typeof userEvent.setup>, nombre: string, valor: string) {
+  const campo = screen.getByLabelText(`Gramos de ${nombre}`);
+  await user.clear(campo);
+  await user.type(campo, valor);
+}
+
+async function confirmarValidar(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Validar' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
 }
 
 beforeEach(() => {
@@ -44,16 +79,17 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
   vi.mocked(descartarPendienteAction).mockReset().mockResolvedValue({ ok: true, itemsAfectados: 2 });
-  vi.mocked(searchAlimentosAction).mockReset().mockResolvedValue([]);
+  vi.mocked(searchAlimentosAction)
+    .mockReset()
+    .mockImplementation(async (q: string) =>
+      q.startsWith('acei') ? [ACEITE] : q.startsWith('vina') ? [VINAGRE] : [],
+    );
 });
 
 describe('PendienteDetalle — contexto', () => {
   it('muestra la foto con alt descriptivo y el recuadro del bbox en porcentajes', async () => {
     await abrir();
-    expect(screen.getByAltText('Foto del plato de Ana Pérez, 6/10/2026')).toHaveAttribute(
-      'src',
-      'https://signed.example/1.jpg',
-    );
+    expect(screen.getByAltText('Foto del plato de Ana Pérez, 6/10/2026')).toHaveAttribute('src', 'https://signed.example/1.jpg');
     expect(screen.getByTestId('bbox')).toHaveStyle({ left: '10%', top: '20%', width: '30%', height: '40%' });
   });
 
@@ -91,30 +127,76 @@ describe('PendienteDetalle — contexto', () => {
     render(<PendienteDetalle idPendiente={5} onClose={vi.fn()} onResuelto={vi.fn()} />);
     expect(await screen.findByText('Acceso denegado')).toBeInTheDocument();
   });
+
+  it('las ocurrencias se pueden plegar', async () => {
+    const { user } = await abrir();
+    const boton = screen.getByRole('button', { name: /Dónde apareció/ });
+    expect(boton).toHaveAttribute('aria-expanded', 'true');
+    await user.click(boton);
+    expect(boton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Postre blanco')).not.toBeInTheDocument();
+  });
 });
 
-describe('PendienteDetalle — formulario y vista previa', () => {
-  it('precarga con los valores de Gemini cuando no hay finales', async () => {
+describe('PendienteDetalle — pestañas y apertura', () => {
+  it('abre en IA cuando Gemini dio valores, con su explicación y el resultado', async () => {
     await abrir();
-    expect(screen.getByLabelText('Nombre')).toHaveValue('Flan casero');
-    expect(screen.getByLabelText('Categoría')).toHaveValue('postre');
-    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(150);
+    expect(pestana('IA')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Usa la estimación de Gemini tal cual/)).toBeInTheDocument();
+    expect(within(resultado()).getByText(/150 kcal/)).toBeInTheDocument();
   });
 
-  it('precarga con los finales si el investigador ya guardó un borrador', async () => {
-    await abrir({
-      nombre_final: 'Flan de vainilla',
-      final_kcal_100g: 160,
-      final_proteinas_100g: 3,
-      final_grasas_100g: 5,
-      final_carbs_100g: 25,
-    });
+  it('abre en A mano cuando Gemini no pudo estimar', async () => {
+    await abrir({ gemini_kcal_100g: null, gemini_proteinas_100g: null, gemini_grasas_100g: null, gemini_carbs_100g: null });
+    expect(pestana('A mano')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
+  it('un borrador viejo sin composición (sólo valores finales) abre en A mano con esos valores', async () => {
+    await abrir({ nombre_final: 'Flan de vainilla', final_kcal_100g: 160, final_proteinas_100g: 3, final_grasas_100g: 5, final_carbs_100g: 25 });
+    expect(pestana('A mano')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByLabelText('Nombre')).toHaveValue('Flan de vainilla');
     expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(160);
   });
 
-  it('editar kcal/100 g actualiza la vista previa del total para el gramaje de cada ocurrencia', async () => {
+  it('un borrador con composición abre en Del catálogo con sus ingredientes y gramos', async () => {
+    await abrir({ composicion: COMP_GUARDADA, final_kcal_100g: 605, final_proteinas_100g: 0, final_grasas_100g: 67.5, final_carbs_100g: 1 }, [FOTO_20]);
+    expect(pestana('Del catálogo')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Gramos de Aceite de oliva')).toHaveValue(15);
+    expect(screen.getByLabelText('Gramos de Vinagre de alcohol')).toHaveValue(5);
+    expect(within(resultado()).getByText(/605 kcal/)).toBeInTheDocument();
+  });
+
+  it('una composición corrupta no rompe la pantalla (abre como un borrador común)', async () => {
+    await abrir({ composicion: { modo: 'raro' } });
+    expect(pestana('IA')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('cambiar de pestaña no pierde lo cargado en las otras', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('A mano'));
+    const kcal = screen.getByLabelText('kcal / 100 g');
+    expect(kcal).toHaveValue(150); // arranca con la estimación de Gemini
+    await user.clear(kcal);
+    await user.type(kcal, '200');
+
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+
+    await user.click(pestana('IA'));
+    expect(within(resultado()).getByText(/150 kcal/)).toBeInTheDocument();
+    await user.click(pestana('A mano'));
+    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(200);
+    await user.click(pestana('Del catálogo'));
+    expect(screen.getByLabelText('Gramos de Aceite de oliva')).toHaveValue(20);
+  });
+});
+
+describe('PendienteDetalle — A mano y vista previa', () => {
+  it('editar kcal actualiza la vista previa para el gramaje de cada ocurrencia', async () => {
     const { user } = await abrir();
+    await user.click(pestana('A mano'));
+    await user.click(screen.getByRole('button', { name: 'Cómo queda en cada ocurrencia' }));
     const preview = screen.getByRole('region', { name: 'Vista previa por ocurrencia' });
     expect(within(preview).getByText(/180 kcal/)).toBeInTheDocument(); // 150 × 120 / 100
     const kcal = screen.getByLabelText('kcal / 100 g');
@@ -125,6 +207,7 @@ describe('PendienteDetalle — formulario y vista previa', () => {
 
   it('avisa si los valores no son plausibles pero NO bloquea', async () => {
     const { user } = await abrir();
+    await user.click(pestana('A mano'));
     const kcal = screen.getByLabelText('kcal / 100 g');
     await user.clear(kcal);
     await user.type(kcal, '800');
@@ -132,45 +215,175 @@ describe('PendienteDetalle — formulario y vista previa', () => {
     expect(screen.getByRole('button', { name: 'Validar' })).toBeEnabled();
   });
 
-  it('"Guardar borrador" llama a modificar con los valores del formulario', async () => {
+  it('categoría y observaciones viven en "Más datos"', async () => {
     const { user } = await abrir();
-    await user.type(screen.getByLabelText('Observaciones'), 'revisar porción');
+    expect(screen.queryByLabelText('Observaciones')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Más datos/ }));
+    expect(screen.getByLabelText('Categoría')).toHaveValue('postre');
+    expect(screen.getByLabelText('Observaciones')).toHaveValue('');
+  });
+});
+
+describe('PendienteDetalle — borrador', () => {
+  it('"Guardar borrador" en IA manda la composición, avisa y refresca el listado', async () => {
+    const { user, onGuardado } = await abrir();
     await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
     expect(modificarPendienteAction).toHaveBeenCalledWith({
-      id: 5,
-      nombre: 'Flan casero',
-      categoria: 'postre',
-      kcal: 150,
-      proteinas: 3,
-      grasas: 5,
-      carbs: 23,
-      observaciones: 'revisar porción',
+      id: 5, nombre: 'Flan casero', categoria: 'postre', observaciones: null,
+      kcal: 150, proteinas: 3, grasas: 5, carbs: 23, composicion: IA_VACIA,
     });
-    expect(await screen.findByText('Borrador guardado')).toBeInTheDocument();
+    expect(await screen.findByText('Guardado hace un momento')).toBeInTheDocument();
+    expect(onGuardado).toHaveBeenCalledTimes(1);
+  });
+
+  it('guarda las observaciones escritas en "Más datos"', async () => {
+    const { user } = await abrir();
+    await user.click(screen.getByRole('button', { name: /Más datos/ }));
+    await user.type(screen.getByLabelText('Observaciones'), 'revisar porción');
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(modificarPendienteAction).toHaveBeenCalledWith(expect.objectContaining({ observaciones: 'revisar porción' }));
+  });
+
+  it('indica los cambios sin guardar y lo apaga al guardar', async () => {
+    const { user } = await abrir();
+    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Nombre'), ' 2');
+    expect(screen.getByText(/Cambios sin guardar/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    await screen.findByText('Guardado hace un momento');
+    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+  });
+
+  it('si el guardado falla muestra el error, mantiene el indicador y no refresca', async () => {
+    vi.mocked(modificarPendienteAction).mockResolvedValue({ error: 'No se pudo completar la acción. Probá de nuevo.' });
+    const { user, onGuardado } = await abrir();
+    await user.type(screen.getByLabelText('Nombre'), ' 2');
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo completar');
+    expect(screen.getByText(/Cambios sin guardar/)).toBeInTheDocument();
+    expect(onGuardado).not.toHaveBeenCalled();
+  });
+
+  it('el borrador en Del catálogo guarda ingredientes, gramos y foto de referencia', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await agregar(user, 'vinagre', 'Vinagre de alcohol');
+    await gramos(user, 'Aceite de oliva', '15');
+    await gramos(user, 'Vinagre de alcohol', '5');
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(modificarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 5,
+        kcal: 605, proteinas: 0, grasas: 67.5, carbs: 1,
+        composicion: COMP_GUARDADA,
+      }),
+    );
+  });
+
+  it('en Del catálogo recién abierta (sin ingredientes) se puede guardar el borrador', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(modificarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kcal: null, proteinas: null, grasas: null, carbs: null,
+        composicion: { modo: 'catalogo', id_guardado_item: 1, gramos_foto: 20, componentes: [] },
+      }),
+    );
+  });
+
+  it('con un gramaje vacío no guarda y dice de qué alimento falta', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Indicá los gramos de Aceite de oliva');
+    expect(modificarPendienteAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendienteDetalle — Del catálogo y validación', () => {
+  it('aceite 15 g + vinagre 5 g sobre 20 g: valida con la composición y los valores en pantalla (sin guardar antes)', async () => {
+    const { user, onResuelto } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await agregar(user, 'vinagre', 'Vinagre de alcohol');
+    await gramos(user, 'Aceite de oliva', '15');
+    await gramos(user, 'Vinagre de alcohol', '5');
+    await confirmarValidar(user);
+    expect(validarPendienteAction).toHaveBeenCalledWith({
+      id: 5, nombre: 'Flan casero', categoria: 'postre', observaciones: null,
+      kcal: 605, proteinas: 0, grasas: 67.5, carbs: 1,
+      composicion: COMP_GUARDADA,
+    });
+    expect(onResuelto).toHaveBeenCalledTimes(1);
+  });
+
+  it('un solo alimento con todo el peso de la foto se confirma como vínculo', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await user.click(screen.getByRole('button', { name: 'Validar' }));
+    expect(within(screen.getByRole('alertdialog')).getByText(/vinculado a Aceite de oliva/)).toBeInTheDocument();
+  });
+
+  it('sin ingredientes, o con un gramaje vacío, Validar está deshabilitado', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeEnabled();
+    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
+  it('un alimento sin datos nutricionales bloquea Validar', async () => {
+    vi.mocked(searchAlimentosAction).mockResolvedValue([{ ...VINAGRE, id_alimento: 99, nombre: 'Misterio', kcal_100g: null }]);
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'mist', 'Misterio');
+    expect(screen.getByText(/Misterio no tiene datos nutricionales/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
+  it('un error del servidor sobre la composición se muestra y no cierra', async () => {
+    vi.mocked(validarPendienteAction).mockResolvedValue({ error: 'La composición no es válida: ya no existe el alimento' });
+    const { user, onResuelto } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await confirmarValidar(user);
+    expect(await screen.findByRole('alert')).toHaveTextContent('La composición no es válida');
+    expect(onResuelto).not.toHaveBeenCalled();
   });
 });
 
 describe('PendienteDetalle — validar y descartar con confirmación', () => {
-  it('Validar pide confirmación con la cantidad de ítems y recién ahí llama a la acción', async () => {
+  it('Validar en IA pide confirmación con la cantidad de ítems y recién ahí llama a la acción', async () => {
     const { user, onResuelto } = await abrir();
     await user.click(screen.getByRole('button', { name: 'Validar' }));
     expect(validarPendienteAction).not.toHaveBeenCalled();
-    const confirm = screen.getByRole('alertdialog');
-    expect(within(confirm).getByText(/2 ítems/)).toBeInTheDocument();
+    expect(within(screen.getByRole('alertdialog')).getByText(/2 ítems/)).toBeInTheDocument();
 
-    await user.click(within(confirm).getByRole('button', { name: 'Confirmar' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
     expect(validarPendienteAction).toHaveBeenCalledWith({
-      id: 5,
-      nombre: 'Flan casero',
-      categoria: 'postre',
-      kcal: 150,
-      proteinas: 3,
-      grasas: 5,
-      carbs: 23,
-      observaciones: null,
-      idAlimentoExistente: null,
+      id: 5, nombre: 'Flan casero', categoria: 'postre', observaciones: null,
+      kcal: 150, proteinas: 3, grasas: 5, carbs: 23, composicion: IA_VACIA,
     });
     expect(onResuelto).toHaveBeenCalledTimes(1);
+  });
+
+  it('Validar a mano manda la composición manual con los valores cargados', async () => {
+    const { user } = await abrir();
+    await user.click(pestana('A mano'));
+    const kcal = screen.getByLabelText('kcal / 100 g');
+    await user.clear(kcal);
+    await user.type(kcal, '160');
+    await confirmarValidar(user);
+    expect(validarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({ kcal: 160, composicion: { modo: 'manual', id_guardado_item: null, gramos_foto: null, componentes: [] } }),
+    );
   });
 
   it('cancelar la confirmación no llama a nada', async () => {
@@ -192,140 +405,23 @@ describe('PendienteDetalle — validar y descartar con confirmación', () => {
   });
 
   it('un error de la acción se muestra (aria-live) y no cierra', async () => {
-    vi.mocked(validarPendienteAction).mockResolvedValue({
-      error: 'Este alimento ya fue resuelto por otro investigador',
-    });
+    vi.mocked(validarPendienteAction).mockResolvedValue({ error: 'Este alimento ya fue resuelto por otro investigador' });
     const { user, onResuelto } = await abrir();
-    await user.click(screen.getByRole('button', { name: 'Validar' }));
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
+    await confirmarValidar(user);
     expect(await screen.findByRole('alert')).toHaveTextContent('ya fue resuelto por otro investigador');
     expect(onResuelto).not.toHaveBeenCalled();
   });
 
-  it('un alimento ya resuelto es de solo lectura (sin Validar/Descartar)', async () => {
-    await abrir({ estado: 'validado' });
+  it('un alimento ya resuelto es de solo lectura (sin Validar/Descartar ni buscador)', async () => {
+    const { user } = await abrir({ estado: 'validado', composicion: COMP_GUARDADA }, [FOTO_20]);
     expect(screen.queryByRole('button', { name: 'Validar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Descartar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Guardar borrador' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Nombre')).toBeDisabled();
-  });
-});
-
-describe('PendienteDetalle — buscar en catálogo', () => {
-  it('elegir un alimento existente y validar manda idAlimentoExistente', async () => {
-    vi.mocked(searchAlimentosAction).mockResolvedValue([
-      { id_alimento: 77, nombre: 'Flan de vainilla', categoria: 'Postres', fuente: 'SARA2', marca: null, denominacion: null },
-    ]);
-    const { user } = await abrir();
-    await user.type(screen.getByLabelText('Buscar en el catálogo'), 'flan');
-    await user.click(await screen.findByRole('button', { name: /Flan de vainilla/ }));
-    expect(screen.getByText(/Vinculado a: Flan de vainilla/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Validar' }));
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
-    expect(validarPendienteAction).toHaveBeenCalledWith(expect.objectContaining({ id: 5, idAlimentoExistente: 77 }));
-  });
-
-  it('validar un alimento nuevo funciona aunque exista uno con el mismo nombre en el catálogo (no se inserta en `alimentos`)', async () => {
-    vi.mocked(validarPendienteAction).mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
-    const { user, onResuelto } = await abrir();
-    await user.click(screen.getByRole('button', { name: 'Validar' }));
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
-    expect(onResuelto).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: 'Vincular al existente' })).not.toBeInTheDocument();
-  });
-});
-
-describe('PendienteDetalle — mezcla de varios alimentos ("Aceite y vinagre")', () => {
-  const ACEITE = { id_alimento: 31, nombre: 'Aceite de oliva', categoria: 'aceites', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 884, proteinas_100g: 0, grasas_100g: 100, carbs_100g: 0 };
-  const VINAGRE = { id_alimento: 32, nombre: 'Vinagre de alcohol', categoria: 'aderezos', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 19, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 0.6 };
-
-  async function agregarIngrediente(user: ReturnType<typeof userEvent.setup>, busqueda: string, nombre: string) {
-    await user.type(screen.getByLabelText('Agregar ingrediente a la mezcla'), busqueda);
-    await user.click(await screen.findByRole('button', { name: new RegExp(`Agregar ${nombre}`) }));
-  }
-
-  function mockBusqueda() {
-    vi.mocked(searchAlimentosAction).mockImplementation(async (q: string) =>
-      q.startsWith('acei') ? [ACEITE] : q.startsWith('vina') ? [VINAGRE] : [],
-    );
-  }
-
-  it('se pueden sumar varios alimentos del catálogo, indicar los gramos de cada uno y ver los macros por 100 g de la mezcla', async () => {
-    mockBusqueda();
-    const { user } = await abrir();
-    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
-    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
-
-    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
-    await user.type(screen.getByLabelText('Gramos de Aceite de oliva'), '70');
-    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
-    await user.type(screen.getByLabelText('Gramos de Vinagre de alcohol'), '30');
-
-    const resultado = screen.getByRole('region', { name: 'Resultado de la mezcla' });
-    expect(within(resultado).getByText(/624\.5 kcal/)).toBeInTheDocument(); // (884×70 + 19×30) / 100
-    expect(within(resultado).getByText(/G 70 g/)).toBeInTheDocument();
-  });
-
-  it('"Usar estos valores" los vuelca al formulario (que sigue siendo editable) y suelta el vínculo a un alimento único', async () => {
-    mockBusqueda();
-    const { user } = await abrir();
-    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
-    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
-    await user.clear(screen.getByLabelText('Gramos de Aceite de oliva'));
-    await user.type(screen.getByLabelText('Gramos de Aceite de oliva'), '70');
-    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
-    await user.type(screen.getByLabelText('Gramos de Vinagre de alcohol'), '30');
-
-    await user.click(screen.getByRole('button', { name: 'Usar estos valores' }));
-
-    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(624.5);
-    expect(screen.getByLabelText('Grasas (g / 100 g)')).toHaveValue(70);
-    expect(screen.getByLabelText('Carbohidratos (g / 100 g)')).toHaveValue(0.2);
-    expect(screen.getByLabelText('Nombre')).toHaveValue('Flan casero'); // el nombre no se toca
-    expect(screen.getByText(/Valores de la mezcla aplicados/)).toBeInTheDocument();
-
-    // y se valida como un alimento NUEVO con esos valores (sin vincular a uno existente)
-    await user.click(screen.getByRole('button', { name: 'Validar' }));
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' }));
-    expect(validarPendienteAction).toHaveBeenCalledWith(
-      expect.objectContaining({ kcal: 624.5, grasas: 70, carbs: 0.2, idAlimentoExistente: null }),
-    );
-  });
-
-  it('hacen falta al menos 2 ingredientes; con uno solo el botón está deshabilitado', async () => {
-    mockBusqueda();
-    const { user } = await abrir();
-    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
-    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
-    expect(screen.getByText(/al menos 2 ingredientes/i)).toBeInTheDocument();
-  });
-
-  it('se puede quitar un ingrediente, y un gramaje vacío o 0 bloquea el resultado', async () => {
-    mockBusqueda();
-    const { user } = await abrir();
-    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
-    await agregarIngrediente(user, 'vinagre', 'Vinagre de alcohol');
-
-    await user.clear(screen.getByLabelText('Gramos de Vinagre de alcohol'));
-    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
-
-    await user.click(screen.getByRole('button', { name: 'Quitar Vinagre de alcohol' }));
-    expect(screen.queryByLabelText('Gramos de Vinagre de alcohol')).not.toBeInTheDocument();
-  });
-
-  it('un ingrediente sin datos nutricionales en el catálogo avisa y no permite usar la mezcla', async () => {
-    vi.mocked(searchAlimentosAction).mockImplementation(async (q: string) =>
-      q.startsWith('acei') ? [ACEITE] : q.startsWith('misterio') ? [{ ...VINAGRE, id_alimento: 99, nombre: 'Misterio', kcal_100g: null }] : [],
-    );
-    const { user } = await abrir();
-    await agregarIngrediente(user, 'aceite', 'Aceite de oliva');
-    await agregarIngrediente(user, 'misterio', 'Misterio');
-    expect(screen.getByText(/Misterio no tiene datos nutricionales/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Usar estos valores' })).toBeDisabled();
-  });
-
-  it('un alimento ya resuelto (solo lectura) no muestra el armador de mezclas', async () => {
-    await abrir({ estado: 'validado' });
-    expect(screen.queryByLabelText('Agregar ingrediente a la mezcla')).not.toBeInTheDocument();
+    expect(pestana('Del catálogo')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Gramos de Aceite de oliva')).toBeDisabled();
+    expect(screen.queryByLabelText('Agregar alimento del catálogo')).not.toBeInTheDocument();
+    await user.click(pestana('A mano')); // se puede mirar la otra pestaña sin editar
+    expect(screen.getByLabelText('kcal / 100 g')).toBeDisabled();
   });
 });

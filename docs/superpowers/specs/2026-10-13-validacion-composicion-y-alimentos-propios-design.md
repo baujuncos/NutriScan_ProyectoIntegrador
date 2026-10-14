@@ -2,7 +2,7 @@
 
 Branch: `feat-nut119-matching-macros-validacion` (continúa NUT-119)
 
-> Estado: Fase A implementada (plan `docs/superpowers/plans/2026-10-14-validacion-composicion-fase-a.md`). Fase B pendiente.
+> Estado: Fases A y B implementadas (planes `docs/superpowers/plans/2026-10-14-validacion-composicion-fase-a.md` y `docs/superpowers/plans/2026-10-14-alimentos-propios-fase-b.md`). La migración de la Fase B es la 019 (la 018 es la de la foto de referencia).
 
 ## 1. Objetivo y alcance
 
@@ -187,7 +187,7 @@ El servidor exige fuente y justificación; las confirmaciones quedan registradas
 - `testing/*` correspondientes
 
 **Fase B**
-- `supabase/018_alimentos_propios_nut119.sql` + sección en `schema_consolidado.sql`
+- `supabase/019_alimentos_propios_nut119.sql` + sección en `schema_consolidado.sql`
 - `src/app/(researcher)/validacion/actions.ts` (+ `retirarAlimentoPropioAction`), `NuevoAlimentoPropio.tsx`
 - `src/lib/verificacionAlimento.ts` (reglas de §6.2 compartidas con `macrosPlausibles`)
 

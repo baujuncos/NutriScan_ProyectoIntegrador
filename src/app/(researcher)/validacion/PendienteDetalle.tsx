@@ -59,7 +59,6 @@ interface Form {
   grasas: string;
   carbs: string;
   ingredientes: ComponenteEditable[];
-  referencia: number | null;
 }
 
 const PESTANIAS: Array<{ modo: ModoComposicion; titulo: string; ayuda: string }> = [
@@ -79,11 +78,10 @@ const plural = (n: number) => `${n} ítem${n === 1 ? '' : 's'}`;
 const texto = (n: number | null) => (n == null ? '' : String(n));
 
 /** Estado inicial: el borrador guardado (con su pestaña y composición) o, si no hay, la estimación de Gemini. */
-function formInicial(p: PendienteFila, ocurrencias: OcurrenciaDetalle[]): Form {
+function formInicial(p: PendienteFila): Form {
   const comp = restaurarComposicion(p.composicion);
   const hayGemini = p.gemini_kcal_100g != null;
   const modo: ModoComposicion = comp?.modo ?? (p.final_kcal_100g != null ? 'manual' : hayGemini ? 'ia' : 'manual');
-  const refGuardada = comp?.id_guardado_item;
   return {
     modo,
     nombre: p.nombre_final ?? p.nombre_original,
@@ -94,10 +92,6 @@ function formInicial(p: PendienteFila, ocurrencias: OcurrenciaDetalle[]): Form {
     grasas: texto(p.final_grasas_100g ?? p.gemini_grasas_100g),
     carbs: texto(p.final_carbs_100g ?? p.gemini_carbs_100g),
     ingredientes: aEditables(comp?.componentes ?? []),
-    referencia:
-      refGuardada != null && ocurrencias.some((o) => o.idGuardadoItem === refGuardada)
-        ? refGuardada
-        : (ocurrencias[0]?.idGuardadoItem ?? null),
   };
 }
 
@@ -118,11 +112,12 @@ function calcular(f: Form, p: PendienteFila, ocurrencias: OcurrenciaDetalle[]) {
       ? null
       : { kcal_100g: k, proteinas_100g: pr, grasas_100g: g, carbs_100g: c };
   const { componentes, problemas } = aComponentes(f.ingredientes);
-  const pesoFoto = ocurrencias.find((o) => o.idGuardadoItem === f.referencia)?.gramosFinal ?? 0;
+  const referencia = ocurrencias.find((o) => o.esReferencia) ?? null;
+  const pesoFoto = referencia?.gramosFinal ?? 0;
   const resumen = resumirComposicion(componentes, pesoFoto);
   const macros =
     f.modo === 'ia' ? ia : f.modo === 'manual' ? manual : problemas.length === 0 ? resumen.macros : null;
-  return { macros, componentes, problemas, pesoFoto, resumen };
+  return { macros, componentes, problemas, referencia, pesoFoto, resumen };
 }
 
 function FotoOcurrencia({ o }: { o: OcurrenciaDetalle }) {
@@ -224,7 +219,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         setErrorCarga(r.error);
         return;
       }
-      const inicial = formInicial(r.pendiente, r.ocurrencias);
+      const inicial = formInicial(r.pendiente);
       setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias });
       setForm(inicial);
       setBase(JSON.stringify(inicial));
@@ -272,7 +267,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     form!.modo === 'catalogo' || (conservarIngredientes && calc!.componentes.length > 0)
       ? {
           modo: form!.modo,
-          id_guardado_item: form!.referencia,
+          id_guardado_item: calc!.referencia?.idGuardadoItem ?? null,
           gramos_foto: calc!.pesoFoto > 0 ? calc!.pesoFoto : null,
           componentes: calc!.componentes,
         }
@@ -374,6 +369,11 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                     <div className="flex flex-wrap items-center gap-x-3 text-slate-600">
                       <span className="font-medium text-slate-800">{o.deportista ?? 'Deportista'}</span>
                       <span>{formatFechaCorta(o.fecha)}</span>
+                      {o.esReferencia && (
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
+                          Foto de referencia
+                        </span>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <Campo label="La IA detectó">
@@ -437,9 +437,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                 )}
                 {form.modo === 'catalogo' && (
                   <ComposicionCatalogo
-                    ocurrencias={datos.ocurrencias}
-                    referencia={form.referencia}
-                    onReferencia={(referencia) => cambiar({ referencia })}
+                    foto={calc.referencia}
                     ingredientes={form.ingredientes}
                     onIngredientes={(ingredientes) => cambiar({ ingredientes })}
                     soloLectura={soloLectura}

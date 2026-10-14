@@ -6,6 +6,7 @@
  * calcula los valores por 100 g del alimento sobre el peso de la foto de
  * referencia. Cubre un solo alimento (equivalencia o vínculo) y compuestos
  * ("aceite y vinagre"). El estado vive en el padre (para guardarlo en el borrador).
+ * La foto de referencia es siempre la primera ocurrencia del alimento (no se elige).
  */
 import { useEffect, useState } from 'react';
 import Input from '@/components/ui/Input';
@@ -16,9 +17,8 @@ import type { Macros100 } from '@/lib/macros';
 import type { OcurrenciaDetalle } from './actions';
 
 interface Props {
-  ocurrencias: OcurrenciaDetalle[];
-  referencia: number | null;
-  onReferencia: (idGuardadoItem: number) => void;
+  /** La primera ocurrencia del alimento (su peso es el de referencia); null si no hay una con peso. */
+  foto: OcurrenciaDetalle | null;
   ingredientes: ComponenteEditable[];
   onIngredientes: (siguiente: ComponenteEditable[]) => void;
   soloLectura?: boolean;
@@ -39,9 +39,7 @@ function aMacros(a: AlimentoOption): Macros100 | null {
 }
 
 export default function ComposicionCatalogo({
-  ocurrencias,
-  referencia,
-  onReferencia,
+  foto,
   ingredientes,
   onIngredientes,
   soloLectura = false,
@@ -61,7 +59,6 @@ export default function ComposicionCatalogo({
     return () => clearTimeout(timer);
   }, [busqueda]);
 
-  const foto = ocurrencias.find((o) => o.idGuardadoItem === referencia) ?? null;
   const peso = foto && foto.gramosFinal > 0 ? foto.gramosFinal : 0;
   const { componentes, problemas } = aComponentes(ingredientes);
   const r = resumirComposicion(componentes, peso);
@@ -93,30 +90,10 @@ export default function ComposicionCatalogo({
       </p>
 
       {foto && peso > 0 ? (
-        <div className="space-y-1 text-sm text-slate-800">
-          <p>
-            En la foto de {foto.deportista ?? 'un deportista'}, {formatFechaCorta(foto.fecha)}, pesa{' '}
-            <strong>{redondear1(peso)} g</strong>.
-          </p>
-          {ocurrencias.length > 1 && (
-            <label className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
-              Foto de referencia
-              <select
-                aria-label="Foto de referencia"
-                value={referencia ?? ''}
-                disabled={soloLectura}
-                onChange={(e) => onReferencia(Number(e.target.value))}
-                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900"
-              >
-                {ocurrencias.map((o) => (
-                  <option key={o.idGuardadoItem} value={o.idGuardadoItem}>
-                    {o.deportista ?? 'Deportista'} · {formatFechaCorta(o.fecha)} · {redondear1(o.gramosFinal)} g
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
+        <p className="text-sm text-slate-800">
+          En la foto de {foto.deportista ?? 'un deportista'}, {formatFechaCorta(foto.fecha)}, pesa{' '}
+          <strong>{redondear1(peso)} g</strong>.
+        </p>
       ) : (
         <p className="text-sm text-amber-700">No hay una foto de referencia con peso para calcular.</p>
       )}

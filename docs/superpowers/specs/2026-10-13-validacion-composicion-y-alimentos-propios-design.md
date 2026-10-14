@@ -65,7 +65,7 @@ El backend del borrador funciona (la base expone `pendiente_modificar` con la fi
 
 El investigador describe **lo que hay en la foto**, en gramos reales.
 
-1. **Foto de referencia.** Arriba se muestra cuánto pesa el alimento en una de sus ocurrencias ("En la foto de Ana, 6/10, pesa **20 g**"). Por defecto es la más reciente; si hay varias se elige con un selector. Ese peso es el de la ocurrencia (el gramaje final que quedó guardado), no un dato que se tipee.
+1. **Foto de referencia.** Arriba se muestra cuánto pesa el alimento en su foto de referencia ("En la foto de Ana, 6/10, pesa **20 g**"). **Es siempre la PRIMERA ocurrencia del alimento** (la comida que lo originó): no se elige ni cambia cuando aparecen más ocurrencias, así que un borrador guardado sigue siendo válido. En la lista de ocurrencias se la marca con "Foto de referencia". Ese peso es el gramaje final que quedó guardado, no un dato que se tipee. (Migración 018.)
 2. **Ingredientes.** Un buscador (SARA2, ANMAT y, desde la Fase B, alimentos propios). Cada resultado se agrega como un ingrediente con un campo **"gramos en la foto"**, que el investigador completa (el primero arranca con el peso total de la foto; los siguientes, vacío). Un ingrediente sin datos nutricionales se marca y bloquea el cálculo.
 3. **Cuenta (la hace el sistema).** Aporte de cada ingrediente = valor por 100 g × gramos / 100. Los valores del alimento **por 100 g** (que es lo que se guarda para reutilizarlo con otros pesos) = Σ aportes × 100 / peso de la foto. Ejemplos con un alimento de **20 g** en la foto:
    - 20 g de aceite → es ese mismo aceite al 100 %: **vínculo puro** (los ítems pasan a apuntar a esa entrada del catálogo).
@@ -91,7 +91,7 @@ El investigador describe **lo que hay en la foto**, en gramos reales.
 ```json
 {
   "modo": "catalogo",                       // 'ia' | 'catalogo' | 'manual'
-  "id_guardado_item": 412,                  // la ocurrencia (foto) de referencia
+  "id_guardado_item": 412,                  // la ocurrencia de referencia: siempre la primera (la fija el servidor)
   "gramos_foto": 20,                        // peso de esa ocurrencia (lo fija el servidor)
   "componentes": [
     { "origen": "catalogo", "id": 31, "nombre": "Aceite de oliva", "fuente": "SARA2",
@@ -106,7 +106,7 @@ El investigador describe **lo que hay en la foto**, en gramos reales.
 
 `pendiente_modificar` y `pendiente_validar` ganan `p_composicion jsonb default null`. Se hace `drop function` de las firmas viejas para no dejar sobrecargas ambiguas en PostgREST.
 
-- **Integridad:** si `modo = 'catalogo'`, el servidor lee de la base el peso de la ocurrencia de referencia (`detecciones_guardados_items.grams` de `id_guardado_item`, que debe pertenecer a esa fila de cola), lee los valores de cada ingrediente en `alimentos` (y propios), **recalcula** los 4 valores por 100 g con la cuenta de §3.2 y **descarta** los `p_kcal…` y el `gramos_foto` que mande el cliente. Así la composición y los números nunca se contradicen y nadie puede falsear el peso.
+- **Integridad:** si `modo = 'catalogo'`, el servidor lee de la base el peso de la ocurrencia de referencia (`detecciones_guardados_items.grams` de la PRIMERA ocurrencia de esa fila de cola; ignora el `id_guardado_item` que mande el cliente), lee los valores de cada ingrediente en `alimentos` (y propios), **recalcula** los 4 valores por 100 g con la cuenta de §3.2 y **descarta** los `p_kcal…` y el `gramos_foto` que mande el cliente. Así la composición y los números nunca se contradicen y nadie puede falsear el peso.
 - **Validaciones del servidor:** estructura del JSON, ocurrencia de referencia válida, ids existentes, gramos de cada ingrediente entre 0 (exclusivo) y 1 000, al menos un componente, valores ≥ 0. Que la suma no coincida con el peso de la foto **no** es un error (sólo un aviso de la interfaz).
 - **Vínculo puro:** un solo componente de `alimentos` cuyos gramos igualan el peso de la foto (tolerancia 0,5 g) equivale al actual `p_id_alimento_existente` (se rellena `id_alimento_vinculado` y los ítems toman esa entrada). Cualquier otra composición valida como alimento nuevo con valores calculados (sin tocar `alimentos`).
 - `p_id_alimento_existente` se mantiene por compatibilidad pero la interfaz deja de usarlo.

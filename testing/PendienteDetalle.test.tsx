@@ -128,6 +128,23 @@ describe('PendienteDetalle — contexto', () => {
     expect(await screen.findByText('Acceso denegado')).toBeInTheDocument();
   });
 
+  it('marca cuál es la foto de referencia (la primera) y la usa sin que el investigador elija', async () => {
+    const otra = { ...OCURRENCIA, idGuardadoItem: 2, gramosFinal: 60, deportista: 'Beto Gómez', esReferencia: false };
+    const { user } = await abrir({}, [{ ...FOTO_20 }, otra]);
+    expect(screen.getAllByText('Foto de referencia')).toHaveLength(1);
+    await user.click(pestana('Del catálogo'));
+    expect(screen.getByText(/En la foto de Ana Pérez/)).toHaveTextContent('pesa 20 g');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('sin una foto de referencia con peso, Del catálogo lo avisa y no deja validar', async () => {
+    const { user } = await abrir({}, [{ ...FOTO_20, esReferencia: false }]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    expect(screen.getByText(/No hay una foto de referencia con peso/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
   it('las ocurrencias se pueden plegar', async () => {
     const { user } = await abrir();
     const boton = screen.getByRole('button', { name: /Dónde apareció/ });

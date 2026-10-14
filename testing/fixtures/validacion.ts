@@ -37,4 +37,5 @@ export const OCURRENCIA: OcurrenciaDetalle = {
   respuestas: [{ question: '¿Qué es el postre?', answer: 'Flan' }],
   bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
   fotoUrl: 'https://signed.example/1.jpg',
+  esReferencia: true,
 };

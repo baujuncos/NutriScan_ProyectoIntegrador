@@ -249,6 +249,7 @@ describe('getPendienteDetalleAction', () => {
       data: [ocurrencia(1, 'u1', 'u1/a.jpg'), ocurrencia(2, 'u2', 'u2/b.jpg'), ocurrencia(3, 'u1', 'u1/a.jpg'), ocurrencia(4, 'u2', null)],
       error: null,
     });
+    sb.mockTable('detecciones_guardados_items', { data: [ocurrencia(1, 'u1', 'u1/a.jpg')], error: null }); // la primera (referencia)
     sb.mockTable('profiles', { data: [{ user_id: 'u1', nombre: 'Ana', apellido: 'Pérez' }, { user_id: 'u2', nombre: 'Juan', apellido: 'Gómez' }], error: null });
     sb.mockStorage('createSignedUrls', {
       data: [{ path: 'u1/a.jpg', signedUrl: 'https://x/a' }, { path: 'u2/b.jpg', signedUrl: 'https://x/b' }],
@@ -275,16 +276,41 @@ describe('getPendienteDetalleAction', () => {
       respuestas: [{ question: '¿De qué?', answer: 'acelga' }],
       bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
       fotoUrl: 'https://x/a',
+      esReferencia: true,
     });
-    expect(r.ocurrencias[1]).toMatchObject({ deportista: 'Juan Gómez', gramosIa: 180, fotoUrl: 'https://x/b' });
+    expect(r.ocurrencias[1]).toMatchObject({ deportista: 'Juan Gómez', gramosIa: 180, fotoUrl: 'https://x/b', esReferencia: false });
     expect(r.ocurrencias[2]).toMatchObject({ nombreIa: null, bbox: null, gramosIa: null, fotoUrl: 'https://x/a' });
     expect(r.ocurrencias[3]).toMatchObject({ fotoUrl: null });
     // Las ocurrencias se piden filtradas por la fila y limitadas.
     expect(sb.filtrosLlamados()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ tabla: 'detecciones_guardados_items', metodo: 'limit', args: [20] }),
+        expect.objectContaining({ tabla: 'detecciones_guardados_items', metodo: 'limit', args: [1] }),
         expect.objectContaining({ tabla: 'profiles', metodo: 'in', args: ['user_id', ['u1', 'u2']] }),
       ]),
+    );
+  });
+
+  it('la foto de referencia es la PRIMERA ocurrencia aunque no esté entre las 20 más recientes: se agrega al principio', async () => {
+    comoRol('investigador');
+    sb.mockTable('v_alimentos_pendientes', { data: { id_pendiente: 7, nombre_original: 'Tarta rara', ocurrencias: 40 }, error: null });
+    const ocurrencia = (n: number) => ({
+      id_guardado_item: n, name: `Tarta ${n}`, grams: n === 1 ? 20 : 200, ai_grams: null, answers: [],
+      created_at: '2026-10-07T12:00:00Z',
+      detecciones_guardados: { id_usuario: 'u1', detecciones_ia: { imagen_path: null } },
+      detecciones_ia_items: null,
+    });
+    sb.mockTable('detecciones_guardados_items', { data: [ocurrencia(40), ocurrencia(39)], error: null }); // las más recientes
+    sb.mockTable('detecciones_guardados_items', { data: [ocurrencia(1)], error: null }); // la primera
+    sb.mockTable('profiles', { data: [{ user_id: 'u1', nombre: 'Ana', apellido: 'Pérez' }], error: null });
+
+    const r = await getPendienteDetalleAction(7);
+
+    if (!('ok' in r)) throw new Error(r.error);
+    expect(r.ocurrencias.map((o) => [o.idGuardadoItem, o.esReferencia])).toEqual([[1, true], [40, false], [39, false]]);
+    expect(r.ocurrencias[0].gramosFinal).toBe(20);
+    expect(sb.filtrosLlamados()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ tabla: 'detecciones_guardados_items', metodo: 'order', args: ['id_guardado_item', { ascending: true }] })]),
     );
   });
 

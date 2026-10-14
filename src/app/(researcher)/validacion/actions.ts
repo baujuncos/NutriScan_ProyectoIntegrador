@@ -68,6 +68,8 @@ export interface OcurrenciaDetalle {
   respuestas: ItemAnswer[];
   bbox: BoundingBox | null;
   fotoUrl: string | null;
+  /** La primera ocurrencia del pendiente: su peso es el de referencia para la composición (ver migración 018). */
+  esReferencia: boolean;
 }
 
 export type PendienteDetalleResultado =
@@ -247,8 +249,7 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
   if ('error' in auth) return auth;
   const { supabase } = auth;
 
-  const [pendienteRes, ocurrenciasRes] = await Promise.all([
-    supabase.from('v_alimentos_pendientes').select('*').eq('id_pendiente', idPendiente).single(),
+  const seleccion = () =>
     supabase
       .from('detecciones_guardados_items')
       .select(
@@ -256,17 +257,23 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
           'detecciones_guardados(id_usuario, detecciones_ia(imagen_path)), ' +
           'detecciones_ia_items(ingredient, estimated_weight_grams, bbox_x, bbox_y, bbox_width, bbox_height)',
       )
-      .eq('id_pendiente', idPendiente)
-      .order('created_at', { ascending: false })
-      .limit(MAX_OCURRENCIAS),
+      .eq('id_pendiente', idPendiente);
+  const [pendienteRes, ocurrenciasRes, primeraRes] = await Promise.all([
+    supabase.from('v_alimentos_pendientes').select('*').eq('id_pendiente', idPendiente).single(),
+    seleccion().order('created_at', { ascending: false }).limit(MAX_OCURRENCIAS),
+    // La foto de referencia es la PRIMERA ocurrencia (no cambia cuando aparecen más); puede no estar entre las últimas.
+    seleccion().order('id_guardado_item', { ascending: true }).limit(1),
   ]);
   if (pendienteRes.error || !pendienteRes.data) return { error: 'El alimento pendiente no existe' };
-  if (ocurrenciasRes.error) {
-    console.error('No se pudieron leer las ocurrencias del pendiente:', ocurrenciasRes.error);
+  if (ocurrenciasRes.error || primeraRes.error) {
+    console.error('No se pudieron leer las ocurrencias del pendiente:', ocurrenciasRes.error ?? primeraRes.error);
     return { error: 'No se pudo cargar el detalle' };
   }
 
-  const raws = (ocurrenciasRes.data ?? []) as unknown as OcurrenciaRaw[];
+  const primera = ((primeraRes.data ?? []) as unknown as OcurrenciaRaw[])[0];
+  const recientes = (ocurrenciasRes.data ?? []) as unknown as OcurrenciaRaw[];
+  // La referencia va primero (una sola vez, aunque también esté entre las más recientes).
+  const raws = primera ? [primera, ...recientes.filter((r) => r.id_guardado_item !== primera.id_guardado_item)] : recientes;
   const userIds = [...new Set(raws.map((r) => r.detecciones_guardados?.id_usuario).filter((u): u is string => !!u))];
   const paths = [...new Set(raws.map((r) => r.detecciones_guardados?.detecciones_ia?.imagen_path).filter((p): p is string => !!p))];
 
@@ -301,6 +308,7 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
       respuestas: r.answers ?? [],
       bbox,
       fotoUrl: path ? urls.get(path) ?? null : null,
+      esReferencia: primera != null && r.id_guardado_item === primera.id_guardado_item,
     };
   });
 

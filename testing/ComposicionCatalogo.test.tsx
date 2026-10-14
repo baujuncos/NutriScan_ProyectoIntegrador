@@ -19,18 +19,14 @@ const VINAGRE = { id_alimento: 32, nombre: 'Vinagre de alcohol', categoria: 'ade
 const SIN_DATOS = { ...VINAGRE, id_alimento: 99, nombre: 'Misterio', kcal_100g: null };
 
 const FOTO_20 = { ...OCURRENCIA, idGuardadoItem: 10, gramosFinal: 20 };
-const FOTO_40 = { ...OCURRENCIA, idGuardadoItem: 11, gramosFinal: 40, deportista: 'Beto Gómez', fecha: '2026-10-07T12:00:00Z' };
 
-function Wrapper({ ocurrencias = [FOTO_20], inicial = [], soloLectura = false }: {
-  ocurrencias?: typeof FOTO_20[]; inicial?: ComponenteEditable[]; soloLectura?: boolean;
+function Wrapper({ foto = FOTO_20, inicial = [], soloLectura = false }: {
+  foto?: typeof FOTO_20 | null; inicial?: ComponenteEditable[]; soloLectura?: boolean;
 }) {
   const [ingredientes, setIngredientes] = useState(inicial);
-  const [referencia, setReferencia] = useState<number | null>(ocurrencias[0]?.idGuardadoItem ?? null);
   return (
     <ComposicionCatalogo
-      ocurrencias={ocurrencias}
-      referencia={referencia}
-      onReferencia={setReferencia}
+      foto={foto}
       ingredientes={ingredientes}
       onIngredientes={setIngredientes}
       soloLectura={soloLectura}
@@ -150,15 +146,9 @@ describe('ComposicionCatalogo', () => {
     expect(screen.queryByLabelText('Gramos de Aceite de oliva')).not.toBeInTheDocument();
   });
 
-  it('con varias fotos permite elegir la de referencia y el peso cambia', async () => {
-    const user = userEvent.setup();
-    render(<Wrapper ocurrencias={[FOTO_20, FOTO_40]} />);
-    await user.selectOptions(screen.getByLabelText('Foto de referencia'), '11');
-    expect(screen.getByText(/En la foto de Beto Gómez/)).toHaveTextContent('pesa 40 g');
-  });
-
-  it('con una sola foto no muestra el selector', () => {
+  it('la foto de referencia es siempre la misma: no hay selector', () => {
     render(<Wrapper />);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Foto de referencia')).not.toBeInTheDocument();
   });
 
@@ -173,7 +163,7 @@ describe('ComposicionCatalogo', () => {
   });
 
   it('sin fotos con peso avisa que no hay referencia', () => {
-    render(<Wrapper ocurrencias={[]} />);
+    render(<Wrapper foto={null} />);
     expect(screen.getByText(/No hay una foto de referencia con peso/)).toBeInTheDocument();
   });
 });

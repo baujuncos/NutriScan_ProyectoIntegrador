@@ -18,7 +18,7 @@ export const TOLERANCIA_GRAMOS = 0.5;
 const valorNutricional = z.number().min(0).max(100_000);
 
 export const componenteSchema = z.object({
-  origen: z.literal('catalogo'),
+  origen: z.enum(['catalogo', 'propio']),
   id: z.number().int().positive(),
   nombre: z.string().trim().min(1).max(300),
   fuente: z.string().trim().max(30),
@@ -39,6 +39,11 @@ export const composicionSchema = z.object({
 export type ComponenteComposicion = z.infer<typeof componenteSchema>;
 export type Composicion = z.infer<typeof composicionSchema>;
 
+export type OrigenIngrediente = ComponenteComposicion['origen'];
+
+/** Un alimento del catálogo y uno propio pueden tener el mismo id: la clave los distingue. */
+export const claveIngrediente = (i: { origen: OrigenIngrediente; id: number }) => `${i.origen}:${i.id}`;
+
 /** Lee una composición guardada; un valor viejo o corrupto devuelve null en vez de romper la pantalla. */
 export function restaurarComposicion(raw: unknown): Composicion | null {
   const parsed = composicionSchema.safeParse(raw);
@@ -47,6 +52,7 @@ export function restaurarComposicion(raw: unknown): Composicion | null {
 
 /** Ingrediente tal como lo edita el investigador (los gramos son el texto del campo). */
 export interface ComponenteEditable {
+  origen: OrigenIngrediente;
   id: number;
   nombre: string;
   fuente: string;
@@ -57,6 +63,7 @@ export interface ComponenteEditable {
 
 export function aEditables(componentes: ComponenteComposicion[]): ComponenteEditable[] {
   return componentes.map((c) => ({
+    origen: c.origen,
     id: c.id,
     nombre: c.nombre,
     fuente: c.fuente,
@@ -87,7 +94,7 @@ export function aComponentes(editables: ComponenteEditable[]): {
       problemas.push(`Indicá los gramos de ${e.nombre} (más de 0 y hasta ${GRAMOS_MAX_INGREDIENTE} g)`);
       continue;
     }
-    componentes.push({ origen: 'catalogo', id: e.id, nombre: e.nombre, fuente: e.fuente, gramos, ...e.macros });
+    componentes.push({ origen: e.origen, id: e.id, nombre: e.nombre, fuente: e.fuente, gramos, ...e.macros });
   }
   return { componentes, problemas };
 }

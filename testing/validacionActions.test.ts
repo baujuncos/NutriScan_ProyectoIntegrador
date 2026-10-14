@@ -21,6 +21,10 @@ import {
   validarPendienteAction,
   descartarPendienteAction,
   getPendienteDetalleAction,
+  verificarAlimentoPropioAction,
+  validarComoPropioAction,
+  retirarAlimentoPropioAction,
+  buscarAlimentosPropiosAction,
 } from '@/app/(researcher)/validacion/actions';
 
 const FORM = { id: 7, nombre: 'Tarta de acelga', categoria: 'tarta', kcal: 180, proteinas: 6, grasas: 9, carbs: 18, observaciones: 'ok' };
@@ -227,6 +231,140 @@ describe('composición del catálogo', () => {
     expect(await modificarPendienteAction({ ...FORM, composicion: COMPOSICION })).toEqual({
       error: 'La composición no es válida',
     });
+  });
+});
+
+describe('alimentos propios', () => {
+  const PROPIO = {
+    fuenteDato: 'etiqueta_producto' as const,
+    justificacion: 'Etiqueta del envase, por 100 g.',
+    confirmaciones: { reviseFuente: true as const, valoresPor100g: true as const, busqueExistente: true as const },
+  };
+  const FORM_PROPIO = { id: 7, nombre: 'Pan casero', categoria: 'panes', observaciones: null, kcal: 250, proteinas: 8, grasas: 3, carbs: 48, propio: PROPIO };
+  const args = () => sb.rpcLlamadas()[0].args as Record<string, unknown>;
+
+  it.each(['deportista_ucc', 'particular', null])('rol %s → acceso denegado sin llamar a ninguna RPC', async (rol) => {
+    const inputs: Array<() => Promise<unknown>> = [
+      () => verificarAlimentoPropioAction({ nombre: 'X', kcal: 1, proteinas: 1, grasas: 1, carbs: 1 }),
+      () => validarComoPropioAction(FORM_PROPIO),
+      () => retirarAlimentoPropioAction({ id: 3, motivo: 'motivo suficiente largo' }),
+    ];
+    for (const accion of inputs) {
+      comoRol(rol);
+      expect(await accion()).toEqual({ error: 'Acceso denegado' });
+    }
+    comoRol(rol);
+    expect(await buscarAlimentosPropiosAction('pan')).toEqual([]);
+    expect(sb.rpcLlamadas()).toHaveLength(0);
+    expect(sb.tablasLlamadas().filter((t) => t !== 'profiles')).toHaveLength(0);
+  });
+
+  it('verificar llama a propio_verificar y devuelve bloqueos y advertencias', async () => {
+    comoRol('investigador');
+    const verificacion = {
+      bloqueos: [{ codigo: 'DUPLICADO', existente: { origen: 'catalogo', id: 5, nombre: 'Huevo', fuente: 'ANMAT' } }],
+      advertencias: [{ codigo: 'KCAL_INCOHERENTE' }],
+    };
+    sb.mockRpc('propio_verificar', { data: verificacion, error: null });
+    const r = await verificarAlimentoPropioAction({ nombre: 'Huevo', kcal: 450, proteinas: 6, grasas: 18, carbs: null });
+    expect(r).toEqual({ ok: true, ...verificacion });
+    expect(args()).toEqual({ p_nombre: 'Huevo', p_kcal: 450, p_prot: 6, p_grasas: 18, p_carbs: null });
+  });
+
+  it('validarComoPropio manda la evaluación en snake_case y devuelve el id del propio', async () => {
+    comoRol('investigador');
+    sb.mockRpc('pendiente_validar_como_propio', { data: { id_alimento_propio: 12, items_afectados: 3 }, error: null });
+    const r = await validarComoPropioAction({ ...FORM_PROPIO, propio: { ...PROPIO, confirmaIncoherente: true } });
+    expect(r).toEqual({ ok: true, idAlimentoPropio: 12, itemsAfectados: 3 });
+    expect(sb.rpcLlamadas()[0].nombre).toBe('pendiente_validar_como_propio');
+    expect(args()).toEqual({
+      p_id: 7, p_nombre: 'Pan casero', p_categoria: 'panes', p_kcal: 250, p_prot: 8, p_grasas: 3, p_carbs: 48, p_observaciones: null,
+      p_propio: {
+        fuente_dato: 'etiqueta_producto',
+        justificacion: 'Etiqueta del envase, por 100 g.',
+        confirmaciones: { revise_fuente: true, valores_por_100g: true, busque_existente: true },
+        confirma_incoherente: true,
+        confirma_distinto: false,
+      },
+    });
+    expect(revalidatePathMock).toHaveBeenCalledWith('/validacion');
+  });
+
+  it.each([
+    ['fuente inválida', { ...FORM_PROPIO, propio: { ...PROPIO, fuenteDato: 'cualquiera' } }],
+    ['justificación corta', { ...FORM_PROPIO, propio: { ...PROPIO, justificacion: 'corta' } }],
+    ['una confirmación sin marcar', { ...FORM_PROPIO, propio: { ...PROPIO, confirmaciones: { ...PROPIO.confirmaciones, busqueExistente: false } } }],
+    ['valor negativo', { ...FORM_PROPIO, kcal: -1 }],
+    ['valor faltante', { ...FORM_PROPIO, grasas: null }],
+    ['sin propio', { ...FORM_PROPIO, propio: undefined }],
+  ])('validarComoPropio con %s no llama a la RPC', async (_caso, input) => {
+    comoRol('investigador');
+    expect('error' in (await validarComoPropioAction(input as never))).toBe(true);
+    expect(sb.rpcLlamadas()).toHaveLength(0);
+  });
+
+  it.each([
+    ['PROPIO_BLOQUEADO', JSON.stringify([{ codigo: 'DUPLICADO', existente: { origen: 'catalogo', id: 5, nombre: 'Huevo', fuente: 'ANMAT' } }]),
+      'Ya existe «Huevo» (ANMAT). Usalo desde "Del catálogo".'],
+    ['PROPIO_BLOQUEADO', JSON.stringify([{ codigo: 'MACRO_MAYOR_100' }, { codigo: 'KCAL_MAYOR_900' }]),
+      'Un macronutriente no puede superar los 100 g por cada 100 g de alimento. Las kcal no pueden superar las 900 por cada 100 g.'],
+    ['PROPIO_ADVERTENCIA', 'SIMILAR', 'Falta confirmar: Hay alimentos con un nombre muy parecido. Confirmá que el tuyo es distinto.'],
+    ['PROPIO_EVALUACION', 'confirmaciones', 'Marcá las tres confirmaciones.'],
+    ['PROPIO_EVALUACION', 'motivo', 'Escribí el motivo (al menos 10 caracteres).'],
+    ['PROPIO_DUPLICADO', null, 'Otro investigador acaba de crear un alimento con ese nombre. Usalo desde "Del catálogo".'],
+    ['ALIMENTO_NO_ENCONTRADO', 'propio:9', 'Un alimento propio de la composición ya no está disponible (fue retirado). Quitalo de la lista.'],
+  ])('%s (%s) se muestra como un mensaje entendible', async (message, details, esperado) => {
+    comoRol('investigador');
+    sb.mockRpc('pendiente_validar_como_propio', { data: null, error: { message, details } });
+    expect(await validarComoPropioAction(FORM_PROPIO)).toEqual({ error: esperado });
+  });
+
+  it('retirar llama a propio_retirar y revalida; un motivo corto no llega a la RPC', async () => {
+    comoRol('investigador');
+    expect('error' in (await retirarAlimentoPropioAction({ id: 3, motivo: 'corto' }))).toBe(true);
+    expect(sb.rpcLlamadas()).toHaveLength(0);
+
+    comoRol('investigador');
+    sb.mockRpc('propio_retirar', { data: null, error: null });
+    expect(await retirarAlimentoPropioAction({ id: 3, motivo: 'Los valores estaban mal.' })).toEqual({ ok: true });
+    expect(args()).toEqual({ p_id: 3, p_motivo: 'Los valores estaban mal.' });
+    expect(revalidatePathMock).toHaveBeenCalledWith('/validacion');
+  });
+
+  it('buscarAlimentosPropios devuelve los activos con fuente PROPIO y el id del propio', async () => {
+    comoRol('investigador');
+    sb.mockTable('alimentos_propios', {
+      data: [{ id_alimento_propio: 4, nombre: 'Pan casero', categoria: 'panes', kcal_100g: 250, proteinas_100g: 8, grasas_100g: 3, carbs_100g: 48 }],
+      error: null,
+    });
+    expect(await buscarAlimentosPropiosAction('pan')).toEqual([
+      { id_alimento: 4, nombre: 'Pan casero', categoria: 'panes', fuente: 'PROPIO', marca: null, denominacion: null, kcal_100g: 250, proteinas_100g: 8, grasas_100g: 3, carbs_100g: 48 },
+    ]);
+    expect(sb.filtrosLlamados()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ tabla: 'alimentos_propios', metodo: 'ilike', args: ['nombre', '%pan%'] }),
+      ]),
+    );
+  });
+
+  it('buscarAlimentosPropios con menos de 2 letras no consulta nada', async () => {
+    comoRol('investigador');
+    expect(await buscarAlimentosPropiosAction('p')).toEqual([]);
+    expect(sb.tablasLlamadas().filter((t) => t !== 'profiles')).toHaveLength(0);
+  });
+
+  it('el detalle de un pendiente que creó un propio trae la información del propio', async () => {
+    comoRol('investigador');
+    sb.mockTable('v_alimentos_pendientes', { data: { id_pendiente: 7, nombre_original: 'Pan', ocurrencias: 1, id_alimento_propio: 4 }, error: null });
+    sb.mockTable('detecciones_guardados_items', { data: [], error: null });
+    sb.mockTable('detecciones_guardados_items', { data: [], error: null });
+    sb.mockTable('alimentos_propios', {
+      data: { id_alimento_propio: 4, estado: 'activo', fuente_dato: 'etiqueta_producto', justificacion: 'Etiqueta.', motivo_retiro: null },
+      error: null,
+    });
+    const r = await getPendienteDetalleAction(7);
+    if (!('ok' in r)) throw new Error(r.error);
+    expect(r.propio).toEqual({ id: 4, estado: 'activo', fuenteDato: 'etiqueta_producto', justificacion: 'Etiqueta.', motivoRetiro: null });
   });
 });
 

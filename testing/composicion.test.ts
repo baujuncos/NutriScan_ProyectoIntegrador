@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   aComponentes,
   aEditables,
+  claveIngrediente,
   composicionSchema,
   resumirComposicion,
   restaurarComposicion,
@@ -68,7 +69,7 @@ describe('aEditables / aComponentes', () => {
   });
 
   it('un ingrediente sin datos nutricionales se reporta por nombre y no se incluye', () => {
-    const sinDatos: ComponenteEditable = { id: 9, nombre: 'Misterio', fuente: 'ANMAT', gramos: '10', macros: null };
+    const sinDatos: ComponenteEditable = { origen: 'catalogo', id: 9, nombre: 'Misterio', fuente: 'ANMAT', gramos: '10', macros: null };
     const r = aComponentes([...aEditables([ACEITE]), sinDatos]);
     expect(r.componentes).toHaveLength(1);
     expect(r.problemas).toEqual(['Misterio no tiene datos nutricionales en el catálogo']);
@@ -113,5 +114,27 @@ describe('restaurarComposicion / composicionSchema', () => {
 
   it('el esquema acepta composiciones vacías de borrador en modo catálogo', () => {
     expect(composicionSchema.safeParse({ modo: 'catalogo', id_guardado_item: 1, gramos_foto: null, componentes: [] }).success).toBe(true);
+  });
+});
+
+describe('ingredientes propios', () => {
+  const PROPIO: ComponenteComposicion = {
+    origen: 'propio', id: 31, nombre: 'Pan casero', fuente: 'PROPIO', gramos: 30,
+    kcal_100g: 250, proteinas_100g: 8, grasas_100g: 3, carbs_100g: 48,
+  };
+
+  it('el esquema acepta origen propio y rechaza otros orígenes', () => {
+    expect(restaurarComposicion({ modo: 'catalogo', componentes: [PROPIO] })?.componentes[0].origen).toBe('propio');
+    expect(restaurarComposicion({ modo: 'catalogo', componentes: [{ ...PROPIO, origen: 'otro' }] })).toBeNull();
+  });
+
+  it('un propio y un alimento del catálogo con el mismo id son ingredientes distintos', () => {
+    expect(claveIngrediente({ origen: 'propio', id: 31 })).toBe('propio:31');
+    expect(claveIngrediente({ origen: 'catalogo', id: 31 })).toBe('catalogo:31');
+  });
+
+  it('ida y vuelta conserva el origen', () => {
+    expect(aComponentes(aEditables([PROPIO]))).toEqual({ componentes: [PROPIO], problemas: [] });
+    expect(aEditables([PROPIO])[0].origen).toBe('propio');
   });
 });

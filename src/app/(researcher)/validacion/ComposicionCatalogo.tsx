@@ -70,6 +70,7 @@ export default function ComposicionCatalogo({
     onIngredientes([
       ...ingredientes,
       {
+        origen: 'catalogo',
         id: a.id_alimento,
         nombre: a.nombre,
         fuente: a.fuente,

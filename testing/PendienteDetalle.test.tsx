@@ -12,6 +12,7 @@ vi.mock('@/app/(researcher)/validacion/actions', () => ({
   buscarAlimentosPropiosAction: vi.fn(),
   verificarAlimentoPropioAction: vi.fn(),
   validarComoPropioAction: vi.fn(),
+  retirarAlimentoPropioAction: vi.fn(),
   modificarPendienteAction: vi.fn(),
   validarPendienteAction: vi.fn(),
   descartarPendienteAction: vi.fn(),
@@ -27,6 +28,8 @@ import {
   buscarAlimentosPropiosAction,
   verificarAlimentoPropioAction,
   validarComoPropioAction,
+  retirarAlimentoPropioAction,
+  type PropioInfo,
 } from '@/app/(researcher)/validacion/actions';
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
 import { OCURRENCIA, PENDIENTE } from './fixtures/validacion';
@@ -45,11 +48,11 @@ const COMP_GUARDADA = {
   ],
 };
 
-const detalle = (over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRENCIA]) =>
-  ({ ok: true, pendiente: { ...PENDIENTE, ...over }, ocurrencias, totalOcurrencias: 2 }) as const;
+const detalle = (over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRENCIA], propio: PropioInfo | null = null) =>
+  ({ ok: true, pendiente: { ...PENDIENTE, ...over }, ocurrencias, totalOcurrencias: 2, propio }) as const;
 
-async function abrir(over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRENCIA]) {
-  vi.mocked(getPendienteDetalleAction).mockResolvedValue(detalle(over, ocurrencias));
+async function abrir(over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRENCIA], propio: PropioInfo | null = null) {
+  vi.mocked(getPendienteDetalleAction).mockResolvedValue(detalle(over, ocurrencias, propio));
   const onClose = vi.fn();
   const onResuelto = vi.fn();
   const onGuardado = vi.fn();
@@ -86,6 +89,7 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
   vi.mocked(buscarAlimentosPropiosAction).mockReset().mockResolvedValue([]);
   vi.mocked(verificarAlimentoPropioAction).mockReset().mockResolvedValue({ ok: true, bloqueos: [], advertencias: [] });
+  vi.mocked(retirarAlimentoPropioAction).mockReset().mockResolvedValue({ ok: true });
   vi.mocked(validarComoPropioAction).mockReset().mockResolvedValue({ ok: true, idAlimentoPropio: 9, itemsAfectados: 2 });
   vi.mocked(descartarPendienteAction).mockReset().mockResolvedValue({ ok: true, itemsAfectados: 2 });
   vi.mocked(searchAlimentosAction)
@@ -623,5 +627,62 @@ describe('PendienteDetalle — crear un alimento propio desde A mano', () => {
     await screen.findByText('Guardado hace un momento');
     await user.click(screen.getByLabelText(CASILLA));
     expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+  });
+});
+
+describe('PendienteDetalle — retirar un alimento propio', () => {
+  const PROPIO: PropioInfo = { id: 9, estado: 'activo', fuenteDato: 'etiqueta_producto', justificacion: 'Etiqueta del envase.', motivoRetiro: null };
+  const validado = { estado: 'validado' as const, id_alimento_propio: 9 };
+
+  it('muestra la fuente y la justificación del propio y el botón Retirar', async () => {
+    await abrir(validado, [OCURRENCIA], PROPIO);
+    const seccion = screen.getByRole('region', { name: 'Alimento propio' });
+    expect(within(seccion).getByText(/Etiqueta del producto/)).toBeInTheDocument();
+    expect(within(seccion).getByText(/Etiqueta del envase\./)).toBeInTheDocument();
+    expect(within(seccion).getByRole('button', { name: 'Retirar del catálogo propio' })).toBeInTheDocument();
+  });
+
+  it('pide un motivo de al menos 10 caracteres antes de confirmar', async () => {
+    const { user } = await abrir(validado, [OCURRENCIA], PROPIO);
+    await user.click(screen.getByRole('button', { name: 'Retirar del catálogo propio' }));
+    const confirmar = screen.getByRole('button', { name: 'Confirmar retiro' });
+    expect(confirmar).toBeDisabled();
+    await user.type(screen.getByLabelText('Motivo del retiro'), 'corto');
+    expect(confirmar).toBeDisabled();
+    await user.type(screen.getByLabelText('Motivo del retiro'), ' pero ya largo');
+    expect(confirmar).toBeEnabled();
+  });
+
+  it('retira, avisa, oculta el botón y refresca el listado', async () => {
+    const { user, onGuardado } = await abrir(validado, [OCURRENCIA], PROPIO);
+    await user.click(screen.getByRole('button', { name: 'Retirar del catálogo propio' }));
+    await user.type(screen.getByLabelText('Motivo del retiro'), 'Los valores de la etiqueta estaban mal.');
+    await user.click(screen.getByRole('button', { name: 'Confirmar retiro' }));
+    expect(retirarAlimentoPropioAction).toHaveBeenCalledWith({ id: 9, motivo: 'Los valores de la etiqueta estaban mal.' });
+    expect(await screen.findByText(/Retirado del catálogo propio/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retirar del catálogo propio' })).not.toBeInTheDocument();
+    expect(onGuardado).toHaveBeenCalledTimes(1);
+  });
+
+  it('si el servidor rechaza el retiro muestra el error y deja el botón', async () => {
+    vi.mocked(retirarAlimentoPropioAction).mockResolvedValue({ error: 'Este alimento ya fue resuelto por otro investigador' });
+    const { user, onGuardado } = await abrir(validado, [OCURRENCIA], PROPIO);
+    await user.click(screen.getByRole('button', { name: 'Retirar del catálogo propio' }));
+    await user.type(screen.getByLabelText('Motivo del retiro'), 'Los valores de la etiqueta estaban mal.');
+    await user.click(screen.getByRole('button', { name: 'Confirmar retiro' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('ya fue resuelto');
+    expect(onGuardado).not.toHaveBeenCalled();
+  });
+
+  it('un propio ya retirado muestra el motivo y no ofrece retirar', async () => {
+    await abrir(validado, [OCURRENCIA], { ...PROPIO, estado: 'retirado', motivoRetiro: 'Valores incorrectos.' });
+    expect(screen.getByText(/Retirado del catálogo propio/)).toBeInTheDocument();
+    expect(screen.getByText(/Valores incorrectos\./)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retirar del catálogo propio' })).not.toBeInTheDocument();
+  });
+
+  it('un alimento validado sin propio, o uno todavía pendiente, no muestra la sección', async () => {
+    await abrir({ estado: 'validado' });
+    expect(screen.queryByRole('region', { name: 'Alimento propio' })).not.toBeInTheDocument();
   });
 });

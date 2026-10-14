@@ -15,6 +15,7 @@ import Modal from '@/components/ui/Modal';
 import ComposicionCatalogo from './ComposicionCatalogo';
 import NuevoAlimentoPropio, { PROPIO_VACIO, propioListo, type PropioForm } from './NuevoAlimentoPropio';
 import { formatFechaCorta } from '@/lib/date';
+import { FUENTES_DATO, MOTIVO_RETIRO_MIN } from '@/lib/verificacionAlimento';
 import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
 import {
   aComponentes,
@@ -26,12 +27,14 @@ import {
 } from '@/lib/composicion';
 import {
   descartarPendienteAction,
+  retirarAlimentoPropioAction,
   getPendienteDetalleAction,
   modificarPendienteAction,
   validarPendienteAction,
   validarComoPropioAction,
   type OcurrenciaDetalle,
   type PendienteFila,
+  type PropioInfo,
   type VerificacionPropio,
 } from './actions';
 
@@ -49,6 +52,7 @@ interface Datos {
   pendiente: PendienteFila;
   ocurrencias: OcurrenciaDetalle[];
   totalOcurrencias: number;
+  propio: PropioInfo | null;
 }
 
 /** Todo lo editable del detalle; se compara con el último estado guardado para el indicador de cambios. */
@@ -207,6 +211,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [verificacionPropio, setVerificacionPropio] = useState<VerificacionPropio | null>(null);
+  const [retirando, setRetirando] = useState(false);
+  const [motivoRetiro, setMotivoRetiro] = useState('');
 
   // Carga del detalle cada vez que se abre otro alimento.
   useEffect(() => {
@@ -219,6 +225,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     setError(null);
     setAviso(null);
     setVerificacionPropio(null);
+    setRetirando(false);
+    setMotivoRetiro('');
     setAbiertos({ ocurrencias: true, preview: false, mas: false });
     void getPendienteDetalleAction(idPendiente).then((r) => {
       if (cancelado) return;
@@ -227,7 +235,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         return;
       }
       const inicial = formInicial(r.pendiente);
-      setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias });
+      setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias, propio: r.propio ?? null });
       setForm(inicial);
       setBase(JSON.stringify({ ...inicial, propio: null }));
     });
@@ -333,6 +341,21 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     onResuelto();
   };
 
+  const retirarPropio = async () => {
+    setTrabajando(true);
+    setError(null);
+    const r = await retirarAlimentoPropioAction({ id: datos!.propio!.id, motivo: motivoRetiro.trim() });
+    setTrabajando(false);
+    if ('error' in r) {
+      setError(r.error);
+      return;
+    }
+    setDatos((d) => (d && d.propio ? { ...d, propio: { ...d.propio, estado: 'retirado', motivoRetiro: motivoRetiro.trim() } } : d));
+    setRetirando(false);
+    setMotivoRetiro('');
+    onGuardado?.();
+  };
+
   const descartar = async () => {
     setTrabajando(true);
     setError(null);
@@ -431,6 +454,60 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
               <p className="mt-2 text-xs text-slate-600">y {total - datos.ocurrencias.length} más</p>
             )}
           </Plegable>
+
+          {datos.propio && (
+            <section aria-label="Alimento propio" role="region" className="space-y-2 rounded-xl border border-violet-200 bg-violet-50/50 p-3 text-sm">
+              <h3 className="font-semibold text-slate-900">
+                <span className="mr-2 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-semibold text-violet-800">PROPIO</span>
+                Se agregó al catálogo propio
+              </h3>
+              <p className="text-slate-700">
+                Fuente: {FUENTES_DATO.find((f) => f.valor === datos.propio!.fuenteDato)?.etiqueta ?? datos.propio.fuenteDato}.{' '}
+                {datos.propio.justificacion}
+              </p>
+              {datos.propio.estado === 'retirado' ? (
+                <p className="text-slate-800">
+                  Retirado del catálogo propio{datos.propio.motivoRetiro ? `: ${datos.propio.motivoRetiro}` : '.'}
+                </p>
+              ) : retirando ? (
+                <div className="space-y-2">
+                  <div>
+                    <label htmlFor="pv-motivo-retiro" className="block text-sm font-medium text-slate-700">
+                      Motivo del retiro
+                    </label>
+                    <textarea
+                      id="pv-motivo-retiro"
+                      value={motivoRetiro}
+                      onChange={(e) => setMotivoRetiro(e.target.value)}
+                      rows={2}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                    <span className="text-xs text-slate-600">
+                      {motivoRetiro.trim().length}/{MOTIVO_RETIRO_MIN} caracteres como mínimo. Los ítems ya validados no cambian.
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      loading={trabajando}
+                      disabled={motivoRetiro.trim().length < MOTIVO_RETIRO_MIN}
+                      onClick={() => void retirarPropio()}
+                    >
+                      Confirmar retiro
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setRetirando(false)}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button type="button" size="sm" variant="outline" onClick={() => setRetirando(true)}>
+                  Retirar del catálogo propio
+                </Button>
+              )}
+            </section>
+          )}
 
           <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
             <div className="space-y-3">

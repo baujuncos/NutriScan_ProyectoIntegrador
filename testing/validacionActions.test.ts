@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createSupabaseFromMock } from './supabaseMock';
+import type { Composicion, ComponenteComposicion } from '@/lib/composicion';
 
 const { getUserMock, revalidatePathMock } = vi.hoisted(() => ({ getUserMock: vi.fn(), revalidatePathMock: vi.fn() }));
 const sb = createSupabaseFromMock();
@@ -69,7 +70,7 @@ describe('acciones con rol permitido', () => {
     expect(sb.rpcLlamadas()).toEqual([
       {
         nombre: 'pendiente_modificar',
-        args: { p_id: 7, p_nombre: 'Tarta de acelga', p_categoria: null, p_kcal: 180, p_prot: null, p_grasas: 9, p_carbs: 18, p_observaciones: 'ok' },
+        args: { p_id: 7, p_nombre: 'Tarta de acelga', p_categoria: null, p_kcal: 180, p_prot: null, p_grasas: 9, p_carbs: 18, p_observaciones: 'ok', p_composicion: null },
       },
     ]);
     expect(revalidatePathMock).toHaveBeenCalledWith('/validacion');
@@ -84,7 +85,7 @@ describe('acciones con rol permitido', () => {
         nombre: 'pendiente_validar',
         args: {
           p_id: 7, p_nombre: 'Tarta de acelga', p_categoria: 'tarta', p_kcal: 180, p_prot: 6, p_grasas: 9, p_carbs: 18,
-          p_observaciones: 'ok', p_id_alimento_existente: null,
+          p_observaciones: 'ok', p_id_alimento_existente: null, p_composicion: null,
         },
       },
     ]);
@@ -161,6 +162,71 @@ describe('argumentos inválidos no llaman a la RPC', () => {
     expect('error' in (await modificarPendienteAction({ ...FORM, kcal: -5 }))).toBe(true);
     expect('error' in (await descartarPendienteAction({ id: 0 }))).toBe(true);
     expect(sb.rpcLlamadas()).toHaveLength(0);
+  });
+});
+
+describe('composición del catálogo', () => {
+  const ACEITE: ComponenteComposicion = {
+    origen: 'catalogo', id: 31, nombre: 'Aceite de oliva', fuente: 'SARA2', gramos: 15,
+    kcal_100g: 800, proteinas_100g: 0, grasas_100g: 90, carbs_100g: 0,
+  };
+  const COMPOSICION: Composicion = { modo: 'catalogo', id_guardado_item: 412, gramos_foto: 20, componentes: [ACEITE] };
+  const args = () => sb.rpcLlamadas()[0].args as Record<string, unknown>;
+
+  it('modificar pasa la composición a la RPC', async () => {
+    comoRol('investigador');
+    expect(await modificarPendienteAction({ ...FORM, composicion: COMPOSICION })).toEqual({ ok: true });
+    expect(args().p_composicion).toEqual(COMPOSICION);
+  });
+
+  it('validar en modo catálogo no exige los 4 valores (los calcula el servidor)', async () => {
+    comoRol('investigador');
+    sb.mockRpc('pendiente_validar', { data: { id_alimento: 31, items_afectados: 2 }, error: null });
+    const r = await validarPendienteAction({
+      ...FORM, kcal: null, proteinas: null, grasas: null, carbs: null, composicion: COMPOSICION,
+    });
+    expect(r).toEqual({ ok: true, idAlimento: 31, itemsAfectados: 2 });
+    expect(args().p_composicion).toEqual(COMPOSICION);
+    expect(args().p_kcal).toBeNull();
+  });
+
+  it('validar en modo ia o manual sigue exigiendo los 4 valores', async () => {
+    comoRol('investigador');
+    const manual: Composicion = { modo: 'manual', id_guardado_item: null, gramos_foto: null, componentes: [] };
+    const r = await validarPendienteAction({ ...FORM, kcal: null, composicion: manual });
+    expect('error' in r).toBe(true);
+    expect(sb.rpcLlamadas()).toHaveLength(0);
+  });
+
+  it.each([
+    ['gramos 0', { ...COMPOSICION, componentes: [{ ...ACEITE, gramos: 0 }] }],
+    ['gramos sobre el tope', { ...COMPOSICION, componentes: [{ ...ACEITE, gramos: 1001 }] }],
+    ['macro negativo', { ...COMPOSICION, componentes: [{ ...ACEITE, kcal_100g: -1 }] }],
+    ['modo inválido', { ...COMPOSICION, modo: 'otro' }],
+  ])('composición inválida (%s) no llama a la RPC', async (_caso, composicion) => {
+    comoRol('investigador');
+    expect('error' in (await modificarPendienteAction({ ...FORM, composicion: composicion as never }))).toBe(true);
+    expect('error' in (await validarPendienteAction({ ...FORM, composicion: composicion as never }))).toBe(true);
+    expect(sb.rpcLlamadas()).toHaveLength(0);
+  });
+
+  it('COMPOSICION_INVALIDA muestra el motivo que da el servidor', async () => {
+    comoRol('investigador');
+    sb.mockRpc('pendiente_validar', {
+      data: null,
+      error: { message: 'COMPOSICION_INVALIDA', details: 'La foto de referencia no corresponde a este alimento.' },
+    });
+    expect(await validarPendienteAction({ ...FORM, composicion: COMPOSICION })).toEqual({
+      error: 'La composición no es válida: La foto de referencia no corresponde a este alimento.',
+    });
+  });
+
+  it('COMPOSICION_INVALIDA sin detalle → mensaje corto', async () => {
+    comoRol('investigador');
+    sb.mockRpc('pendiente_modificar', { data: null, error: { message: 'COMPOSICION_INVALIDA', details: null } });
+    expect(await modificarPendienteAction({ ...FORM, composicion: COMPOSICION })).toEqual({
+      error: 'La composición no es válida',
+    });
   });
 });
 

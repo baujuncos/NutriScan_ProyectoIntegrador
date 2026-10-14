@@ -15,6 +15,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { urlsFirmadas } from '@/lib/fotosDeteccion';
+import { composicionSchema } from '@/lib/composicion';
 import type { BoundingBox, ItemAnswer } from '@/lib/deteccion';
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -48,6 +49,8 @@ export interface PendienteFila {
   id_alimento_vinculado: number | null;
   estado: 'pendiente' | 'validado' | 'descartado';
   observaciones: string | null;
+  /** jsonb crudo de la cola; se lee con `restaurarComposicion` (puede ser null o de una versión vieja). */
+  composicion: unknown;
   resuelto_at: string | null;
   created_at: string;
   ocurrencias: number;
@@ -85,21 +88,29 @@ const formBase = {
   categoria: textoOpcional(100),
   observaciones: textoOpcional(2000),
 };
+const composicion = composicionSchema.nullish().transform((v) => v ?? null);
+const valorOpcional = valor.nullish().transform((v) => v ?? null);
+
 const modificarSchema = z.object({
   ...formBase,
   kcal: valor.nullable(),
   proteinas: valor.nullable(),
   grasas: valor.nullable(),
   carbs: valor.nullable(),
+  composicion,
 });
-const validarSchema = z.object({
-  ...formBase,
-  kcal: valor,
-  proteinas: valor,
-  grasas: valor,
-  carbs: valor,
-  idAlimentoExistente: id.nullish(),
-});
+// En modo catálogo los 4 valores los calcula el servidor; en los demás casos son obligatorios.
+const validarSchema = z
+  .object({
+    ...formBase,
+    kcal: valorOpcional,
+    proteinas: valorOpcional,
+    grasas: valorOpcional,
+    carbs: valorOpcional,
+    idAlimentoExistente: id.nullish(),
+    composicion,
+  })
+  .refine((f) => f.composicion?.modo === 'catalogo' || [f.kcal, f.proteinas, f.grasas, f.carbs].every((v) => v !== null));
 const descartarSchema = z.object({ id, observaciones: textoOpcional(2000) });
 
 export type ModificarInput = z.input<typeof modificarSchema>;
@@ -131,6 +142,8 @@ function errorDeRpc(error: ErrorRpc): ResultadoError {
       return { error: 'El alimento pendiente no existe' };
     case 'ALIMENTO_NO_ENCONTRADO':
       return { error: 'El alimento del catálogo elegido no existe' };
+    case 'COMPOSICION_INVALIDA':
+      return { error: error.details ? `La composición no es válida: ${error.details}` : 'La composición no es válida' };
     case 'INVALID':
       return { error: 'Datos inválidos' };
     default:
@@ -155,6 +168,7 @@ export async function modificarPendienteAction(input: ModificarInput): Promise<M
     p_grasas: f.grasas,
     p_carbs: f.carbs,
     p_observaciones: f.observaciones,
+    p_composicion: f.composicion,
   });
   if (error) return { error: errorDeRpc(error).error };
 
@@ -179,6 +193,7 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
     p_carbs: f.carbs,
     p_observaciones: f.observaciones,
     p_id_alimento_existente: f.idAlimentoExistente ?? null,
+    p_composicion: f.composicion,
   });
   if (error) return errorDeRpc(error);
 

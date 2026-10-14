@@ -19,6 +19,7 @@ export const PENDIENTE: PendienteFila = {
   id_alimento_vinculado: null,
   estado: 'pendiente',
   observaciones: null,
+  composicion: null,
   resuelto_at: null,
   created_at: '2026-10-05T12:00:00Z',
   ocurrencias: 2,

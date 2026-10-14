@@ -32,6 +32,12 @@ export function macrosItem(m: Macros100, gramos: number): MacrosItem {
   };
 }
 
+/** kcal coherentes con 4/4/9: |kcal − (4P + 4C + 9G)| ≤ max(25, 35 % de las kcal). */
+export function kcalCoherentes(m: Macros100): boolean {
+  const calculado = 4 * m.proteinas_100g + 4 * m.carbs_100g + 9 * m.grasas_100g;
+  return Math.abs(m.kcal_100g - calculado) <= Math.max(25, 0.35 * m.kcal_100g);
+}
+
 /**
  * ¿Son creíbles estos valores por 100 g? Los usa tanto el fallback de Gemini
  * (descarta lo implausible → "sin datos") como el formulario del investigador
@@ -46,8 +52,7 @@ export function macrosPlausibles(m: Macros100): boolean {
   if (p > 100 || g > 100 || c > 100) return false;
   if (p + g + c > 105) return false;
   if (kcal > 900) return false;
-  const calculado = 4 * p + 4 * c + 9 * g;
-  return Math.abs(kcal - calculado) <= Math.max(25, 0.35 * kcal);
+  return kcalCoherentes(m);
 }
 
 export interface ComponenteMezcla {

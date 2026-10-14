@@ -630,6 +630,48 @@ describe('PendienteDetalle — crear un alimento propio desde A mano', () => {
   });
 });
 
+describe('PendienteDetalle — las confirmaciones no sobreviven a una edición', () => {
+  const CASILLA = 'Agregar este alimento al catálogo propio';
+  const INCOHERENTE = { ok: true, bloqueos: [], advertencias: [{ codigo: 'KCAL_INCOHERENTE' }] } as const;
+
+  async function prepararConfirmado() {
+    vi.mocked(verificarAlimentoPropioAction).mockResolvedValue(INCOHERENTE as never);
+    const r = await abrir();
+    await r.user.click(pestana('A mano'));
+    await r.user.click(screen.getByLabelText(CASILLA));
+    await r.user.selectOptions(screen.getByLabelText('Fuente del dato'), 'etiqueta_producto');
+    await r.user.type(screen.getByLabelText('Justificación'), 'Etiqueta del envase, por 100 g.');
+    await r.user.click(screen.getByLabelText('Revisé la fuente'));
+    await r.user.click(screen.getByLabelText('Los valores son por 100 g'));
+    await r.user.click(screen.getByLabelText('Busqué y no existe ya en SARA2, ANMAT ni en los propios'));
+    await r.user.click(await screen.findByLabelText('Confirmo que las kcal son correctas'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Validar' })).toBeEnabled());
+    return r;
+  }
+
+  it('al editar un valor se pide confirmar de nuevo la advertencia', async () => {
+    const { user } = await prepararConfirmado();
+    const kcal = screen.getByLabelText('kcal / 100 g');
+    await user.clear(kcal);
+    await user.type(kcal, '50');
+    const casilla = await screen.findByLabelText('Confirmo que las kcal son correctas');
+    await waitFor(() => expect(casilla).not.toBeChecked());
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+  });
+
+  it('con el diálogo de confirmación abierto, editar un valor deshabilita Confirmar', async () => {
+    const { user } = await prepararConfirmado();
+    await user.click(screen.getByRole('button', { name: 'Validar' }));
+    const confirmar = within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' });
+    expect(confirmar).toBeEnabled();
+    const kcal = screen.getByLabelText('kcal / 100 g');
+    await user.clear(kcal);
+    await user.type(kcal, '50');
+    expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' })).toBeDisabled();
+    expect(validarComoPropioAction).not.toHaveBeenCalled();
+  });
+});
+
 describe('PendienteDetalle — retirar un alimento propio', () => {
   const PROPIO: PropioInfo = { id: 9, estado: 'activo', fuenteDato: 'etiqueta_producto', justificacion: 'Etiqueta del envase.', motivoRetiro: null };
   const validado = { estado: 'validado' as const, id_alimento_propio: 9 };

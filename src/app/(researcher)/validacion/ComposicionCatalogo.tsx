@@ -125,7 +125,7 @@ export default function ComposicionCatalogo({
           {resultados.length > 0 && (
             <ul className="space-y-1">
               {resultados.map((a) => (
-                <li key={a.id_alimento}>
+                <li key={`${a.fuente === 'PROPIO' ? 'propio' : 'catalogo'}:${a.id_alimento}`}>
                   <button
                     type="button"
                     aria-label={`Agregar ${a.nombre}`}

@@ -215,4 +215,16 @@ describe('ComposicionCatalogo', () => {
     await user.type(screen.getByLabelText('Agregar alimento del catálogo'), 'aceite');
     expect(await screen.findByRole('button', { name: /Agregar Aceite de oliva/ })).toBeInTheDocument();
   });
+
+  it('un propio y un alimento del catálogo con el mismo id en los resultados no duplican claves de React', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(searchAlimentosAction).mockResolvedValue([{ ...ACEITE, id_alimento: 31, nombre: 'Pan de molde', fuente: 'SARA2' }]);
+    render(<Wrapper />);
+    await user.type(screen.getByLabelText('Agregar alimento del catálogo'), 'pan');
+    expect(await screen.findAllByRole('button', { name: /^Agregar/ })).toHaveLength(2); // PAN_PROPIO también tiene id 31
+    expect(spy.mock.calls.flat().join(' ')).not.toMatch(/same key|misma clave/i);
+    spy.mockRestore();
+  });
+
 });

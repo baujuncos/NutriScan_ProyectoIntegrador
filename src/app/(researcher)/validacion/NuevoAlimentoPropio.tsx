@@ -74,6 +74,8 @@ export default function NuevoAlimentoPropio({ nombre, valores, propio, onChange,
     setVerificacion(null);
     onVerificacion(null);
     setFalloVerificar(false);
+    // Una confirmación vale para los avisos que se vieron: si cambia el nombre o un valor hay que volver a darla.
+    onChange({ confirmaIncoherente: false, confirmaDistinto: false });
     if (!propio.activo || !completos || nombre.trim() === '') {
       setVerificando(false);
       return;

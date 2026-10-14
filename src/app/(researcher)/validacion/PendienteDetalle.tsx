@@ -561,7 +561,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                         nombre={form.nombre}
                         valores={{ kcal: aNumero(form.kcal), proteinas: aNumero(form.prot), grasas: aNumero(form.grasas), carbs: aNumero(form.carbs) }}
                         propio={form.propio}
-                        onChange={(patch) => cambiar({ propio: { ...form.propio, ...patch } })}
+                        onChange={(patch) => setForm((f) => (f ? { ...f, propio: { ...f.propio, ...patch } } : f))}
                         onVerificacion={setVerificacionPropio}
                       />
                     )}
@@ -643,6 +643,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                     type="button"
                     size="sm"
                     loading={trabajando}
+                    disabled={confirmando === 'validar' && !puedeResolver}
                     onClick={() => (confirmando === 'validar' ? void validar() : void descartar())}
                   >
                     Confirmar

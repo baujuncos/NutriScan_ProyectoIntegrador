@@ -264,10 +264,14 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
           carbs: macros?.carbs_100g ?? null,
         };
 
-  const composicion = () =>
-    form!.modo === 'catalogo'
+  /**
+   * Composición a mandar. El borrador conserva los ingredientes cargados aunque la pestaña
+   * activa sea otra (no se pierde lo armado); al validar sólo cuenta la pestaña activa.
+   */
+  const composicion = (conservarIngredientes: boolean) =>
+    form!.modo === 'catalogo' || (conservarIngredientes && calc!.componentes.length > 0)
       ? {
-          modo: 'catalogo' as const,
+          modo: form!.modo,
           id_guardado_item: form!.referencia,
           gramos_foto: calc!.pesoFoto > 0 ? calc!.pesoFoto : null,
           componentes: calc!.componentes,
@@ -282,7 +286,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     setTrabajando(true);
     setError(null);
     setAviso(null);
-    const r = await modificarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion() });
+    const r = await modificarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(true) });
     setTrabajando(false);
     if ('error' in r) {
       setError(r.error);
@@ -296,7 +300,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const validar = async () => {
     setTrabajando(true);
     setError(null);
-    const r = await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion() });
+    const r = await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(false) });
     setTrabajando(false);
     setConfirmando(null);
     if ('error' in r) {

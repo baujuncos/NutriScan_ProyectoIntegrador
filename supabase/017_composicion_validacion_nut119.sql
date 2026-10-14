@@ -134,7 +134,8 @@ revoke all on function public.calcular_composicion(bigint, jsonb) from public, a
 -- Borrador: guarda final_*, observaciones y la composición sin cambiar el estado.
 -- Con modo 'catalogo' e ingredientes, los 4 valores se recalculan en el servidor.
 -- Con modo 'catalogo' sin ingredientes (recién elegida la pestaña), con 'ia' o 'manual':
--- se guardan los valores que manda el cliente. Sin p_composicion se conserva la anterior.
+-- se guardan los valores que manda el cliente (y los ingredientes ya cargados, si son válidos).
+-- Sin p_composicion se conserva la anterior.
 drop function if exists public.pendiente_modificar(bigint, text, text, numeric, numeric, numeric, numeric, text);
 
 create or replace function public.pendiente_modificar(
@@ -163,6 +164,7 @@ declare
   v_c       numeric := p_carbs;
   v_comp    jsonb := null;
   v_ref     bigint;
+  v_norm    jsonb;
 begin
   if coalesce(public.get_my_role() in ('investigador', 'administrador'), false) is false then
     raise exception 'FORBIDDEN';
@@ -191,13 +193,26 @@ begin
       into v_k, v_p, v_g, v_c, v_comp
       from public.calcular_composicion(p_id, p_composicion) r;
     else
-      if v_modo = 'catalogo' and jsonb_typeof(p_composicion -> 'id_guardado_item') = 'number' then
+      -- Catálogo sin ingredientes, 'ia' o 'manual': los valores son los del cliente. Si hay
+      -- ingredientes cargados (el investigador guarda estando en otra pestaña) se CONSERVAN,
+      -- normalizados desde la base; si no son válidos el borrador se guarda sin ellos.
+      v_comp := jsonb_build_object('modo', v_modo, 'id_guardado_item', null, 'gramos_foto', null, 'componentes', '[]'::jsonb);
+      if jsonb_typeof(p_composicion -> 'componentes') = 'array'
+         and jsonb_array_length(p_composicion -> 'componentes') > 0 then
+        begin
+          select r.composicion_normalizada into v_norm
+          from public.calcular_composicion(p_id, jsonb_set(p_composicion, '{modo}', '"catalogo"')) r;
+          v_comp := jsonb_set(v_norm, '{modo}', to_jsonb(v_modo));
+        exception when others then
+          null;
+        end;
+      elsif v_modo = 'catalogo' and jsonb_typeof(p_composicion -> 'id_guardado_item') = 'number' then
         select gi.id_guardado_item into v_ref
         from public.detecciones_guardados_items gi
         where gi.id_pendiente = p_id
           and gi.id_guardado_item = (p_composicion ->> 'id_guardado_item')::numeric;
+        v_comp := jsonb_build_object('modo', v_modo, 'id_guardado_item', v_ref, 'gramos_foto', null, 'componentes', '[]'::jsonb);
       end if;
-      v_comp := jsonb_build_object('modo', v_modo, 'id_guardado_item', v_ref, 'gramos_foto', null, 'componentes', '[]'::jsonb);
     end if;
   end if;
 

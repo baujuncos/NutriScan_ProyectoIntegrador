@@ -281,6 +281,31 @@ describe('PendienteDetalle — borrador', () => {
     );
   });
 
+  it('guardar estando en otra pestaña conserva los ingredientes cargados en Del catálogo', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await agregar(user, 'vinagre', 'Vinagre de alcohol');
+    await gramos(user, 'Aceite de oliva', '15');
+    await gramos(user, 'Vinagre de alcohol', '5');
+    await user.click(pestana('A mano'));
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    expect(modificarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({ composicion: { ...COMP_GUARDADA, modo: 'manual' } }),
+    );
+  });
+
+  it('al validar desde otra pestaña NO se mandan los ingredientes sueltos', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('Del catálogo'));
+    await agregar(user, 'aceite', 'Aceite de oliva');
+    await user.click(pestana('A mano'));
+    await confirmarValidar(user);
+    expect(validarPendienteAction).toHaveBeenCalledWith(
+      expect.objectContaining({ composicion: { modo: 'manual', id_guardado_item: null, gramos_foto: null, componentes: [] } }),
+    );
+  });
+
   it('en Del catálogo recién abierta (sin ingredientes) se puede guardar el borrador', async () => {
     const { user } = await abrir({}, [FOTO_20]);
     await user.click(pestana('Del catálogo'));

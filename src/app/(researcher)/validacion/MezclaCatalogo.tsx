@@ -60,6 +60,7 @@ export default function MezclaCatalogo({ onUsar }: Props) {
     componentes.length >= 2 && sinDatos.length === 0 && gramosOk
       ? macrosMezcla(
           componentes.map((c) => ({ macros: aMacros(c.alimento)!, gramos: Number(c.gramos) })),
+          componentes.reduce((acc, c) => acc + Number(c.gramos), 0),
         )
       : null;
   const totalGramos = componentes.reduce((acc, c) => acc + (Number(c.gramos) || 0), 0);

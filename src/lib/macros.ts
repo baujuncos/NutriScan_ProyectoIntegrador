@@ -50,18 +50,26 @@ export function macrosPlausibles(m: Macros100): boolean {
   return Math.abs(kcal - calculado) <= Math.max(25, 0.35 * kcal);
 }
 
+export interface ComponenteMezcla {
+  macros: Macros100;
+  /** Gramos REALES de este alimento que hay en la foto. */
+  gramos: number;
+}
+
 /**
- * Macros por 100 g de una MEZCLA de varios alimentos del catálogo (ej. "aceite y
- * vinagre", un aderezo que no existe como entrada propia). Los gramos son
- * proporciones: se promedia ponderando por ellos y el resultado queda siempre
- * por 100 g de mezcla. null si no hay componentes o algún gramaje no es válido.
+ * Valores por 100 g de un alimento que en la foto está compuesto por uno o más
+ * alimentos del catálogo. Los gramos son los reales de la foto (no
+ * proporciones): valor por 100 g = Σ(valor_i por 100 g × gramos_i) / peso de la
+ * foto. Si los ingredientes suman menos que el peso, el resto cuenta sin
+ * aporte. null si no hay componentes, el peso de la foto no es positivo o algún
+ * gramaje no es válido.
  */
-export function macrosMezcla(componentes: { macros: Macros100; gramos: number }[]): Macros100 | null {
+export function macrosMezcla(componentes: ComponenteMezcla[], pesoFoto: number): Macros100 | null {
   if (componentes.length === 0) return null;
+  if (!Number.isFinite(pesoFoto) || pesoFoto <= 0) return null;
   if (!componentes.every((c) => Number.isFinite(c.gramos) && c.gramos > 0)) return null;
-  const total = componentes.reduce((acc, c) => acc + c.gramos, 0);
   const prom = (campo: keyof Macros100) =>
-    redondear2(componentes.reduce((acc, c) => acc + c.macros[campo] * c.gramos, 0) / total);
+    redondear2(componentes.reduce((acc, c) => acc + c.macros[campo] * c.gramos, 0) / pesoFoto);
   return {
     kcal_100g: prom('kcal_100g'),
     proteinas_100g: prom('proteinas_100g'),

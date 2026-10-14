@@ -2,6 +2,8 @@
 
 Branch: `feat-nut119-matching-macros-validacion` (continúa NUT-119)
 
+> Estado: Fase A implementada (plan `docs/superpowers/plans/2026-10-14-validacion-composicion-fase-a.md`). Fase B pendiente.
+
 ## 1. Objetivo y alcance
 
 Rediseñar el detalle de un alimento pendiente (`/validacion`) para que validar sea más simple, no pierda trabajo y permita reutilizar lo que se carga.

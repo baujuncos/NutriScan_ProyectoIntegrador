@@ -160,7 +160,6 @@ describe('POST /api/chat/meal/confirm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.NEXT_PUBLIC_CHAT_SERVICE;
     authenticateMock.mockResolvedValue({ userId: 'u1', supabase });
     inFilter.mockResolvedValue({ data: [{ id_alimento: 375, kcal_100g: 92, proteinas_100g: 1.2, grasas_100g: 0.2, carbs_100g: 20.4 }], error: null });
     rpc.mockResolvedValue({ data: { idRegistro: 7, idIngesta: 3, itemsDiario: 2, mlAgua: 250, yaGuardado: false }, error: null });
@@ -191,15 +190,14 @@ describe('POST /api/chat/meal/confirm', () => {
     expect(rpc).toHaveBeenCalledTimes(1);
     const [fn, args] = rpc.mock.calls[0];
     expect(fn).toBe('confirmar_chat_ia_registro');
-    expect(args.p_payload).toMatchObject({ requestId: REQUEST_ID, fecha: '2026-10-08', tipoIngesta: 'almuerzo', modelo: 'mock', promptVersion: 'mock' });
+    expect(args.p_payload).toMatchObject({ requestId: REQUEST_ID, fecha: '2026-10-08', tipoIngesta: 'almuerzo', modelo: expect.stringMatching(/^gemini-/), promptVersion: expect.stringMatching(/^nut188-/) });
     expect(args.p_payload.items.map((i: { destino: string }) => i.destino)).toEqual(['diario', 'diario', 'hidratacion', 'ninguno']);
     // Banana con los valores del catálogo, no los del cliente (9999 kcal).
     expect(args.p_payload.items[1].final.kcal).toBe(110.4);
     expect(args.p_payload.totales.kcal).toBe(710.4);
   });
 
-  it('con el servicio real audita el modelo y la versión del prompt', async () => {
-    process.env.NEXT_PUBLIC_CHAT_SERVICE = 'real';
+  it('audita siempre el modelo de Gemini y la versión del prompt (nunca "mock")', async () => {
     process.env.GEMINI_MODEL = 'gemini-test-model';
     await call(request([empanada]));
     expect(rpc.mock.calls[0][1].p_payload).toMatchObject({ modelo: 'gemini-test-model', promptVersion: expect.stringMatching(/^nut188-/) });

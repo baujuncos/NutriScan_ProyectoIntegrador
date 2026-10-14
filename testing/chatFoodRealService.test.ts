@@ -94,9 +94,10 @@ describe('realMealChatService', () => {
 });
 
 describe('getMealChatService', () => {
-  it('usa el mock por defecto y el real con NEXT_PUBLIC_CHAT_SERVICE=real', () => {
-    expect(getMealChatService()).toBe(mockMealChatService);
-    vi.stubEnv('NEXT_PUBLIC_CHAT_SERVICE', 'real');
+  it('siempre es el servicio real, sin importar ninguna variable de entorno', () => {
     expect(getMealChatService()).toBe(realMealChatService);
+    vi.stubEnv('NEXT_PUBLIC_CHAT_SERVICE', 'mock');
+    expect(getMealChatService()).toBe(realMealChatService);
+    expect(getMealChatService()).not.toBe(mockMealChatService);
   });
 });

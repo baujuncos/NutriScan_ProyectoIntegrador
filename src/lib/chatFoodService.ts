@@ -2,10 +2,9 @@ import type { FoodChatEntry, FoodChatResult, MealChatService } from './chatFood'
 import { fetchMockChatReply } from './chatFoodMockService';
 import { realMealChatService } from './chatFoodRealService';
 
-// NUT-189 — Elige el servicio del chat según NEXT_PUBLIC_CHAT_SERVICE:
-//   mock (default) → guion fijo, sin red ni cuota de Gemini (para trabajar la UI)
-//   real           → POST /api/chat/meal (gasta cuota de Gemini en cada mensaje)
-// Es una variable NEXT_PUBLIC_: se fija al levantar/buildear, hay que reiniciar `npm run dev`.
+// NUT-189 — Servicio del chat. En la app el chat SIEMPRE usa el servicio real
+// (POST /api/chat/meal → Gemini); no hay ninguna variable que lo cambie. El mock (guion fijo,
+// sin red ni cuota) queda solo para los tests, inyectándolo con la prop `service` del modal.
 
 /**
  * Resultado enriquecido del mock: para poder probar de punta a punta el guardado (editar,
@@ -53,7 +52,7 @@ function enrichMockResult(base: FoodChatResult): FoodChatResult {
   };
 }
 
-/** Adapta el mock de NUT-187 (sin tocarlo) al contrato MealChatService. */
+/** Adapta el mock de NUT-187 (sin tocarlo) al contrato MealChatService. Solo para tests. */
 export const mockMealChatService: MealChatService = {
   async sendMessage(history) {
     const reply = await fetchMockChatReply(history);
@@ -64,5 +63,5 @@ export const mockMealChatService: MealChatService = {
 };
 
 export function getMealChatService(): MealChatService {
-  return process.env.NEXT_PUBLIC_CHAT_SERVICE === 'real' ? realMealChatService : mockMealChatService;
+  return realMealChatService;
 }

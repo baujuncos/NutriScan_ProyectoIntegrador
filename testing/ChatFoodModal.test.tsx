@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatFoodModal from '@/app/alimentacion/ChatFoodModal';
 import { MealChatError, type ChatMessage, type MealChatService, type MealSaveService } from '@/lib/chatFood';
+import { mockMealChatService } from '@/lib/chatFoodService';
 
 const refreshMock = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: refreshMock }) }));
@@ -19,7 +20,7 @@ beforeAll(() => {
 function renderModal(props: Partial<React.ComponentProps<typeof ChatFoodModal>> = {}) {
   const onClose = vi.fn();
   const onConfirm = vi.fn();
-  render(<ChatFoodModal open onClose={onClose} onConfirm={onConfirm} fecha="2026-10-08" tipoIngesta="almuerzo" saveService={okSave()} {...props} />);
+  render(<ChatFoodModal open onClose={onClose} onConfirm={onConfirm} fecha="2026-10-08" tipoIngesta="almuerzo" service={mockMealChatService} saveService={okSave()} {...props} />);
   return { onClose, onConfirm, user: userEvent.setup() };
 }
 

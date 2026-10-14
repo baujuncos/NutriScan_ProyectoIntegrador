@@ -216,12 +216,13 @@ Correr `supabase/012_chat_ia_registros_nut191.sql` en el SQL Editor de Supabase 
 
 Errores (`{ "error": { "code", "message" } }`): `400 BAD_REQUEST` (payload inválido, fecha fuera de rango, ítem > 2000), `401 UNAUTHORIZED`, `500 PERSISTENCE_ERROR`.
 
-## Probarlo de punta a punta con el mock (sin gastar cuota de Gemini)
+## Probarlo de punta a punta
+
+El chat de la app **siempre usa Gemini** (no hay variable para cambiarlo), así que cada mensaje gasta cuota. Para verificar el guardado sin gastar nada de Gemini, mandá la request **7. Guardar registro (confirm)** de la colección de Postman: no llama a Gemini y arma el mismo guardado que hace el botón.
 
 1. Aplicá `supabase/012_chat_ia_registros_nut191.sql`.
-2. En `.env.local`: `NEXT_PUBLIC_CHAT_SERVICE=mock` y reiniciá `npm run dev`.
-3. En `/alimentacion` (elegí fecha y comida) → **Registrar por chat** → escribí cualquier cosa, y al preguntar, otra. El mock devuelve 3 ítems: **Empanada de carne** (240 g, sin catálogo → `estimado_ia`), **Banana** (120 g, de SARA2) y **Agua** (250 ml).
-4. Probá: **Editar** la empanada a 120 g, **Quitar** la banana, **Confirmar y guardar registro**.
+2. Para probar con la interfaz: `npm run dev`, en `/alimentacion` (elegí fecha y comida) → **Registrar por chat** → por ejemplo "comí empanadas" y, al preguntar, "3 de carne al horno" (2 llamadas a Gemini).
+3. Probá: **Editar** una cantidad, **Quitar** un ítem, **Confirmar y guardar registro**. (La request 7 de Postman equivale a editar la empanada a 120 g, quitar la banana y dejar el agua: Empanada de carne `estimado_ia`, Banana de SARA2 y Agua 250 ml.)
 5. Verificá en el SQL Editor (reemplazá el uuid por el de tu usuario, en Authentication → Users):
 
 ```sql

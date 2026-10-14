@@ -310,7 +310,7 @@ export default function ChatFoodModal({
   /** Fecha (AAAA-MM-DD) y comida del diario donde se guarda el registro. */
   fecha: string;
   tipoIngesta: IngestaTipo;
-  /** Inyectable para tests; por defecto según NEXT_PUBLIC_CHAT_SERVICE (mock|real). */
+  /** Inyectable para tests; por defecto, el servicio real (Gemini). */
   service?: MealChatService;
   /** Inyectable para tests; por defecto POST /api/chat/meal/confirm. */
   saveService?: MealSaveService;

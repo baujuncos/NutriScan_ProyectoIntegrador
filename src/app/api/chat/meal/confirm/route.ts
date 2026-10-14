@@ -26,8 +26,6 @@ function errorResponse(code: ErrorCode, message = ERRORS[code].message) {
   return NextResponse.json({ error: { code, message } }, { status: ERRORS[code].status });
 }
 
-const isRealService = () => process.env.NEXT_PUBLIC_CHAT_SERVICE === 'real';
-
 export async function POST(request: NextRequest) {
   const auth = await authenticate(request);
   if (!auth) return errorResponse('UNAUTHORIZED');
@@ -69,9 +67,8 @@ export async function POST(request: NextRequest) {
   let payload;
   try {
     payload = buildConfirmPayload(parsed.data, per100ById, {
-      // Con el servicio mock no interviene ningún modelo: se audita como "mock".
-      modelo: isRealService() ? process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL : 'mock',
-      promptVersion: isRealService() ? MEAL_PROMPT_VERSION : 'mock',
+      modelo: process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL,
+      promptVersion: MEAL_PROMPT_VERSION,
       minDate: daysAgoAR(7),
       maxDate: todayAR(),
     });

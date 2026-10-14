@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('@/app/(researcher)/validacion/actions', () => ({
   getPendienteDetalleAction: vi.fn().mockResolvedValue({ error: 'no usado' }),
+  buscarAlimentosPropiosAction: vi.fn().mockResolvedValue([]),
   modificarPendienteAction: vi.fn(),
   validarPendienteAction: vi.fn(),
   descartarPendienteAction: vi.fn(),

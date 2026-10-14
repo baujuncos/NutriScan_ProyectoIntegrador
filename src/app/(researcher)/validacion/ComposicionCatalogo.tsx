@@ -12,9 +12,9 @@ import { useEffect, useState } from 'react';
 import Input from '@/components/ui/Input';
 import { searchAlimentosAction, type AlimentoOption } from '@/app/alimentacion/actions';
 import { formatFechaCorta } from '@/lib/date';
-import { aComponentes, GRAMOS_MAX_INGREDIENTE, resumirComposicion, type ComponenteEditable } from '@/lib/composicion';
+import { aComponentes, claveIngrediente, GRAMOS_MAX_INGREDIENTE, resumirComposicion, type ComponenteEditable } from '@/lib/composicion';
 import type { Macros100 } from '@/lib/macros';
-import type { OcurrenciaDetalle } from './actions';
+import { buscarAlimentosPropiosAction, type OcurrenciaDetalle } from './actions';
 
 interface Props {
   /** La primera ocurrencia del alimento (su peso es el de referencia); null si no hay una con peso. */
@@ -38,6 +38,14 @@ function aMacros(a: AlimentoOption): Macros100 | null {
   };
 }
 
+function Fuente({ fuente }: { fuente: string }) {
+  return fuente === 'PROPIO' ? (
+    <span className="rounded bg-violet-50 px-1.5 py-0.5 text-xs font-semibold text-violet-800">PROPIO</span>
+  ) : (
+    <span className="text-xs text-slate-600">{fuente}</span>
+  );
+}
+
 export default function ComposicionCatalogo({
   foto,
   ingredientes,
@@ -54,7 +62,12 @@ export default function ComposicionCatalogo({
       return;
     }
     const timer = setTimeout(async () => {
-      setResultados((await searchAlimentosAction(busqueda, '')).slice(0, 6));
+      // Los propios van primero; si su buscador falla, se muestran igual los del catálogo.
+      const [catalogo, propios] = await Promise.all([
+        searchAlimentosAction(busqueda, ''),
+        buscarAlimentosPropiosAction(busqueda).catch(() => [] as AlimentoOption[]),
+      ]);
+      setResultados([...propios.slice(0, 3), ...catalogo.slice(0, 6)]);
     }, 300);
     return () => clearTimeout(timer);
   }, [busqueda]);
@@ -66,11 +79,12 @@ export default function ComposicionCatalogo({
   const agregar = (a: AlimentoOption) => {
     setBusqueda('');
     setResultados([]);
-    if (ingredientes.some((i) => i.id === a.id_alimento)) return; // el mismo alimento no se repite
+    const origen = a.fuente === 'PROPIO' ? 'propio' : 'catalogo';
+    if (ingredientes.some((i) => claveIngrediente(i) === claveIngrediente({ origen, id: a.id_alimento }))) return; // no se repite
     onIngredientes([
       ...ingredientes,
       {
-        origen: 'catalogo',
+        origen,
         id: a.id_alimento,
         nombre: a.nombre,
         fuente: a.fuente,
@@ -81,8 +95,8 @@ export default function ComposicionCatalogo({
     ]);
   };
 
-  const cambiarGramos = (id: number, gramos: string) =>
-    onIngredientes(ingredientes.map((i) => (i.id === id ? { ...i, gramos } : i)));
+  const cambiarGramos = (clave: string, gramos: string) =>
+    onIngredientes(ingredientes.map((i) => (claveIngrediente(i) === clave ? { ...i, gramos } : i)));
 
   return (
     <div className="space-y-3">
@@ -118,7 +132,7 @@ export default function ComposicionCatalogo({
                     onClick={() => agregar(a)}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50"
                   >
-                    {a.nombre} <span className="text-xs text-slate-600">{a.fuente}</span>
+                    {a.nombre} <Fuente fuente={a.fuente} />
                   </button>
                 </li>
               ))}
@@ -130,9 +144,9 @@ export default function ComposicionCatalogo({
       {ingredientes.length > 0 && (
         <ul className="space-y-2">
           {ingredientes.map((i) => (
-            <li key={i.id} className="flex items-center gap-2 text-sm">
+            <li key={claveIngrediente(i)} className="flex items-center gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate text-slate-800">
-                {i.nombre} <span className="text-xs text-slate-600">{i.fuente}</span>
+                {i.nombre} <Fuente fuente={i.fuente} />
               </span>
               <input
                 type="number"
@@ -142,7 +156,7 @@ export default function ComposicionCatalogo({
                 aria-label={`Gramos de ${i.nombre}`}
                 value={i.gramos}
                 disabled={soloLectura}
-                onChange={(e) => cambiarGramos(i.id, e.target.value)}
+                onChange={(e) => cambiarGramos(claveIngrediente(i), e.target.value)}
                 className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm text-slate-900 disabled:bg-slate-100"
               />
               <span className="text-xs text-slate-600">g en la foto</span>
@@ -150,7 +164,7 @@ export default function ComposicionCatalogo({
                 <button
                   type="button"
                   aria-label={`Quitar ${i.nombre}`}
-                  onClick={() => onIngredientes(ingredientes.filter((x) => x.id !== i.id))}
+                  onClick={() => onIngredientes(ingredientes.filter((x) => claveIngrediente(x) !== claveIngrediente(i)))}
                   className="rounded p-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 >
                   ✕

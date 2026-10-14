@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/(researcher)/validacion/actions', () => ({
   getPendienteDetalleAction: vi.fn(),
+  buscarAlimentosPropiosAction: vi.fn(),
   modificarPendienteAction: vi.fn(),
   validarPendienteAction: vi.fn(),
   descartarPendienteAction: vi.fn(),
@@ -21,6 +22,7 @@ import {
   getPendienteDetalleAction,
   modificarPendienteAction,
   validarPendienteAction,
+  buscarAlimentosPropiosAction,
 } from '@/app/(researcher)/validacion/actions';
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
 import { OCURRENCIA, PENDIENTE } from './fixtures/validacion';
@@ -78,6 +80,7 @@ beforeEach(() => {
   vi.mocked(validarPendienteAction)
     .mockReset()
     .mockResolvedValue({ ok: true, idAlimento: null, itemsAfectados: 2 });
+  vi.mocked(buscarAlimentosPropiosAction).mockReset().mockResolvedValue([]);
   vi.mocked(descartarPendienteAction).mockReset().mockResolvedValue({ ok: true, itemsAfectados: 2 });
   vi.mocked(searchAlimentosAction)
     .mockReset()

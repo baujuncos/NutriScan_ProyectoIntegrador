@@ -8,15 +8,20 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/app/alimentacion/actions', () => ({ searchAlimentosAction: vi.fn() }));
+vi.mock('@/app/(researcher)/validacion/actions', () => ({ buscarAlimentosPropiosAction: vi.fn() }));
 
 import ComposicionCatalogo from '@/app/(researcher)/validacion/ComposicionCatalogo';
 import { aEditables, type ComponenteComposicion, type ComponenteEditable } from '@/lib/composicion';
 import { searchAlimentosAction } from '@/app/alimentacion/actions';
+import { buscarAlimentosPropiosAction } from '@/app/(researcher)/validacion/actions';
 import { OCURRENCIA } from './fixtures/validacion';
 
 const ACEITE = { id_alimento: 31, nombre: 'Aceite de oliva', categoria: 'aceites', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 800, proteinas_100g: 0, grasas_100g: 90, carbs_100g: 0 };
 const VINAGRE = { id_alimento: 32, nombre: 'Vinagre de alcohol', categoria: 'aderezos', fuente: 'SARA2', marca: null, denominacion: null, kcal_100g: 20, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 4 };
 const SIN_DATOS = { ...VINAGRE, id_alimento: 99, nombre: 'Misterio', kcal_100g: null };
+
+// Un propio con el MISMO id que el aceite del catálogo: son alimentos distintos.
+const PAN_PROPIO = { id_alimento: 31, nombre: 'Pan casero', categoria: 'panes', fuente: 'PROPIO', marca: null, denominacion: null, kcal_100g: 250, proteinas_100g: 8, grasas_100g: 3, carbs_100g: 48 };
 
 const FOTO_20 = { ...OCURRENCIA, idGuardadoItem: 10, gramosFinal: 20 };
 
@@ -56,6 +61,7 @@ const resultado = () => screen.getByRole('region', { name: 'Resultado de la comp
 beforeEach(() => {
   vi.mocked(searchAlimentosAction).mockReset().mockResolvedValue([]);
   mockBusqueda();
+  vi.mocked(buscarAlimentosPropiosAction).mockReset().mockImplementation(async (q: string) => (q.startsWith('pan') ? [PAN_PROPIO] : []));
 });
 
 describe('ComposicionCatalogo', () => {
@@ -165,5 +171,48 @@ describe('ComposicionCatalogo', () => {
   it('sin fotos con peso avisa que no hay referencia', () => {
     render(<Wrapper foto={null} />);
     expect(screen.getByText(/No hay una foto de referencia con peso/)).toBeInTheDocument();
+  });
+
+  it('los propios aparecen en el buscador con la etiqueta PROPIO, antes que los del catálogo', async () => {
+    const user = userEvent.setup();
+    vi.mocked(searchAlimentosAction).mockResolvedValue([{ ...ACEITE, id_alimento: 77, nombre: 'Pan de molde', fuente: 'SARA2' }]);
+    render(<Wrapper />);
+    await user.type(screen.getByLabelText('Agregar alimento del catálogo'), 'pan');
+    const botones = await screen.findAllByRole('button', { name: /^Agregar/ });
+    expect(botones.map((b) => b.getAttribute('aria-label'))).toEqual(['Agregar Pan casero', 'Agregar Pan de molde']);
+    expect(within(botones[0]).getByText('PROPIO')).toBeInTheDocument();
+    expect(within(botones[1]).queryByText('PROPIO')).not.toBeInTheDocument();
+  });
+
+  it('un propio y un alimento del catálogo con el mismo id se agregan como ingredientes distintos', async () => {
+    const user = userEvent.setup();
+    render(<Wrapper />);
+    await agregar(user, 'aceite', 'Aceite de oliva'); // catálogo id 31, arranca con 20 g
+    await agregar(user, 'pan', 'Pan casero'); // propio id 31
+    await gramos(user, 'Aceite de oliva', '10');
+    await gramos(user, 'Pan casero', '10');
+    expect(screen.getAllByLabelText(/^Gramos de /)).toHaveLength(2);
+    // (800 × 10 + 250 × 10) / 20 = 525
+    expect(within(resultado()).getByText(/525 kcal/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Quitar Pan casero' }));
+    expect(screen.getByLabelText('Gramos de Aceite de oliva')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Gramos de Pan casero')).not.toBeInTheDocument();
+  });
+
+  it('agregar dos veces el mismo propio no lo repite', async () => {
+    const user = userEvent.setup();
+    render(<Wrapper />);
+    await agregar(user, 'pan', 'Pan casero');
+    await user.type(screen.getByLabelText('Agregar alimento del catálogo'), 'pan');
+    await user.click(await screen.findByRole('button', { name: /Agregar Pan casero/ }));
+    expect(screen.getAllByLabelText('Gramos de Pan casero')).toHaveLength(1);
+  });
+
+  it('si falla el buscador de propios igual se ven los del catálogo', async () => {
+    const user = userEvent.setup();
+    vi.mocked(buscarAlimentosPropiosAction).mockRejectedValue(new Error('boom'));
+    render(<Wrapper />);
+    await user.type(screen.getByLabelText('Agregar alimento del catálogo'), 'aceite');
+    expect(await screen.findByRole('button', { name: /Agregar Aceite de oliva/ })).toBeInTheDocument();
   });
 });

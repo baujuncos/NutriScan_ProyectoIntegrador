@@ -1,0 +1,222 @@
+{
+  "info": {
+    "name": "NutriScan – Chat de comidas (NUT-190)",
+    "description": "POST /api/chat/meal. Primero corré '0. Login Supabase' (guarda el access_token en la variable accessToken). Completá supabaseUrl, anonKey, email y password en la pestaña Variables. Ver docs/chat-meal-api.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "supabaseUrl",
+      "value": "https://TU-PROYECTO.supabase.co"
+    },
+    {
+      "key": "anonKey",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "0. Login Supabase (obtiene accessToken)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('login OK', () => pm.expect(body.access_token).to.be.a('string'));",
+              "if (body.access_token) pm.collectionVariables.set('accessToken', body.access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "apikey",
+            "value": "{{anonKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{supabaseUrl}}/auth/v1/token?grant_type=password",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "1. Comida completa (tostadas con jamón y queso)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"tostadas con jamón y queso\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "2a. Ambigua (comí empanadas) → needs_clarification",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"comí empanadas\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "2b. Multi-turno: respuesta a la aclaración → complete",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"comí empanadas\" },\n    { \"role\": \"assistant\", \"content\": \"¿Cuántas empanadas comiste, de qué eran y fueron al horno o fritas?\" },\n    { \"role\": \"user\", \"content\": \"3 de carne al horno\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Off-topic → mensaje fijo",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"¿cuál es la capital de Francia?\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Vacío → 400 (no llama a Gemini)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"   \" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "5. Último mensaje del asistente → 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"comí una banana\" },\n    { \"role\": \"assistant\", \"content\": \"Listo\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "6. Sin token → 401",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"comí una banana\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Guardar registro (confirm) – diario + hidratación + auditoría",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/chat/meal/confirm",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"fecha\": \"2026-10-08\",\n  \"tipoIngesta\": \"almuerzo\",\n  \"items\": [\n    {\n      \"ingrediente\": \"Empanada de carne\",\n      \"tipo\": \"otro\",\n      \"unidad\": \"g\",\n      \"origin\": \"edited\",\n      \"macroSource\": \"estimado_ia\",\n      \"idAlimento\": null,\n      \"confidence\": 0.7,\n      \"gramosIa\": 240,\n      \"gramosFinal\": 120,\n      \"macrosIa\": {\n        \"kcal\": 600,\n        \"proteinas_g\": 25.2,\n        \"carbs_g\": 64.8,\n        \"grasas_g\": 26.4\n      }\n    },\n    {\n      \"ingrediente\": \"Banana\",\n      \"tipo\": \"fruta\",\n      \"unidad\": \"g\",\n      \"origin\": \"removed\",\n      \"macroSource\": \"sara2\",\n      \"idAlimento\": 375,\n      \"confidence\": 0.9,\n      \"gramosIa\": 120,\n      \"gramosFinal\": null,\n      \"macrosIa\": {\n        \"kcal\": 110.4,\n        \"proteinas_g\": 1.44,\n        \"carbs_g\": 24.48,\n        \"grasas_g\": 0.24\n      }\n    },\n    {\n      \"ingrediente\": \"Agua\",\n      \"tipo\": \"bebida\",\n      \"unidad\": \"ml\",\n      \"origin\": \"ai\",\n      \"macroSource\": \"estimado_ia\",\n      \"idAlimento\": null,\n      \"confidence\": 0.9,\n      \"gramosIa\": 250,\n      \"gramosFinal\": 250,\n      \"macrosIa\": {\n        \"kcal\": 0,\n        \"proteinas_g\": 0,\n        \"carbs_g\": 0,\n        \"grasas_g\": 0\n      }\n    }\n  ]\n}"
+        }
+      },
+      "description": "Cambiá 'fecha' por hoy (o hasta 7 días atrás). Requiere haber aplicado supabase/012_chat_ia_registros_nut191.sql."
+    }
+  ]
+}

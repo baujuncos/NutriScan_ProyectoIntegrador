@@ -1,22 +1,24 @@
 'use client';
 
 /**
- * NUT-119 — Detalle de un alimento de la cola de validación: contexto de cada
- * ocurrencia (foto + bounding box, nombre IA vs final, respuestas, gramaje) y los
- * valores por 100 g en tres pestañas: IA (la estimación de Gemini), Del catálogo
- * (gramos reales de alimentos del catálogo sobre el peso de la foto) y A mano.
- * El borrador guarda la pestaña y la composición; el resultado y lo que se valida
- * salen de la pestaña activa. Validar / Descartar piden confirmación.
+ * NUT-119 — "Revisar alimento" (rediseño). Hoja responsive: en el celular una sola columna
+ * (contexto → pasos → resultado) con el pie fijo; en escritorio dos columnas (contexto +
+ * resultado a la izquierda, pasos a la derecha). Paso 1: nombre. Paso 2: de dónde salen los
+ * valores por 100 g (IA / Del catálogo / A mano). El resultado se muestra una sola vez.
+ * El borrador guarda el método y la composición; lo que se valida sale del método activo.
+ * Validar / Descartar piden confirmación; el pie explica por qué Validar está deshabilitado.
  */
 import { useEffect, useState } from 'react';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
-import Modal from '@/components/ui/Modal';
+import HojaRevision from './HojaRevision';
+import ContextoComidas from './ContextoComidas';
+import TarjetaResultado from './TarjetaResultado';
 import ComposicionCatalogo from './ComposicionCatalogo';
 import NuevoAlimentoPropio, { PROPIO_VACIO, propioListo, type PropioForm } from './NuevoAlimentoPropio';
 import { formatFechaCorta } from '@/lib/date';
+import { fmt } from '@/lib/numeros';
 import { FUENTES_DATO, MOTIVO_RETIRO_MIN } from '@/lib/verificacionAlimento';
-import { macrosItem, macrosPlausibles, type Macros100 } from '@/lib/macros';
+import { macrosPlausibles, type Macros100 } from '@/lib/macros';
 import {
   aComponentes,
   aEditables,
@@ -55,7 +57,7 @@ interface Datos {
   propio: PropioInfo | null;
 }
 
-/** Todo lo editable del detalle; se compara con el último estado guardado para el indicador de cambios. */
+/** Todo lo editable del detalle; se compara con el último estado guardado para el aviso "Sin guardar". */
 interface Form {
   modo: ModoComposicion;
   nombre: string;
@@ -69,23 +71,20 @@ interface Form {
   propio: PropioForm;
 }
 
-const PESTANIAS: Array<{ modo: ModoComposicion; titulo: string; ayuda: string }> = [
-  { modo: 'ia', titulo: 'IA', ayuda: 'Usa la estimación de Gemini tal cual. Elegila si te parece razonable.' },
-  {
-    modo: 'catalogo',
-    titulo: 'Del catálogo',
-    ayuda:
-      'Tomá los valores de uno o más alimentos de SARA2 o ANMAT e indicá cuántos gramos de cada uno hay en la foto. Sirve para equivalencias ("esto es palta") y para compuestos ("aceite y vinagre").',
-  },
-  { modo: 'manual', titulo: 'A mano', ayuda: 'Cargá los cuatro valores vos.' },
+const METODOS: Array<{ modo: ModoComposicion; titulo: string; etiqueta?: string; ayuda: string }> = [
+  { modo: 'ia', titulo: 'IA', etiqueta: 'Rápido', ayuda: 'Estimación de Gemini. Revisala antes de usarla.' },
+  { modo: 'catalogo', titulo: 'Del catálogo', etiqueta: 'Más preciso', ayuda: 'Combiná alimentos de SARA2 o ANMAT.' },
+  { modo: 'manual', titulo: 'A mano', ayuda: 'Cargá los 4 valores vos, por ejemplo desde la etiqueta.' },
 ];
+const FUENTE_RESULTADO: Record<ModoComposicion, string> = { ia: 'IA (Gemini)', catalogo: 'Del catálogo', manual: 'A mano' };
 
-const redondear1 = (n: number) => Math.round(n * 10) / 10;
 const aNumero = (s: string): number | null => (s.trim() === '' || !Number.isFinite(Number(s)) ? null : Number(s));
 const plural = (n: number) => `${n} ítem${n === 1 ? '' : 's'}`;
 const texto = (n: number | null) => (n == null ? '' : String(n));
+const resumenMacros = (m: Macros100) =>
+  `${fmt(m.kcal_100g)} kcal · P ${fmt(m.proteinas_100g)} · C ${fmt(m.carbs_100g)} · G ${fmt(m.grasas_100g)}`;
 
-/** Estado inicial: el borrador guardado (con su pestaña y composición) o, si no hay, la estimación de Gemini. */
+/** Estado inicial: el borrador guardado (con su método y composición) o, si no hay, la estimación de Gemini. */
 function formInicial(p: PendienteFila): Form {
   const comp = restaurarComposicion(p.composicion);
   const hayGemini = p.gemini_kcal_100g != null;
@@ -104,7 +103,7 @@ function formInicial(p: PendienteFila): Form {
   };
 }
 
-/** Lo derivado del formulario: valores de cada pestaña y el resultado de la activa. */
+/** Lo derivado del formulario: valores de cada método y el resultado del activo. */
 function calcular(f: Form, p: PendienteFila, ocurrencias: OcurrenciaDetalle[]) {
   const ia: Macros100 | null =
     p.gemini_kcal_100g == null || p.gemini_proteinas_100g == null || p.gemini_grasas_100g == null || p.gemini_carbs_100g == null
@@ -124,77 +123,50 @@ function calcular(f: Form, p: PendienteFila, ocurrencias: OcurrenciaDetalle[]) {
   const referencia = ocurrencias.find((o) => o.esReferencia) ?? null;
   const pesoFoto = referencia?.gramosFinal ?? 0;
   const resumen = resumirComposicion(componentes, pesoFoto);
-  const macros =
-    f.modo === 'ia' ? ia : f.modo === 'manual' ? manual : problemas.length === 0 ? resumen.macros : null;
-  return { macros, componentes, problemas, referencia, pesoFoto, resumen };
+  const catalogo = problemas.length === 0 ? resumen.macros : null;
+  const macros = f.modo === 'ia' ? ia : f.modo === 'manual' ? manual : catalogo;
+  return { ia, manual, catalogo, macros, componentes, problemas, referencia, pesoFoto, resumen };
 }
 
-function FotoOcurrencia({ o }: { o: OcurrenciaDetalle }) {
-  if (!o.fotoUrl) {
-    return (
-      <div className="flex h-40 w-full items-center justify-center rounded-xl bg-slate-100 text-xs text-slate-600 sm:w-40">
-        Sin foto
+function Paso({ n, titulo, pista, children }: { n: number; titulo: string; pista?: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-2.5">
+        <span aria-hidden="true" className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-700 text-[13px] font-bold text-white">
+          {n}
+        </span>
+        <h2 className="text-base font-bold text-slate-900">{titulo}</h2>
+        {pista && <span className="ml-auto hidden text-xs text-slate-600 md:inline">{pista}</span>}
       </div>
-    );
-  }
-  return (
-    <div className="relative h-40 w-full shrink-0 overflow-hidden rounded-xl bg-slate-900 sm:w-40">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={o.fotoUrl}
-        alt={`Foto del plato de ${o.deportista ?? 'un deportista'}, ${formatFechaCorta(o.fecha)}`}
-        className="h-full w-full object-cover"
-      />
-      {o.bbox && (
-        <div
-          data-testid="bbox"
-          aria-hidden="true"
-          className="pointer-events-none absolute rounded border-2 border-amber-400"
-          style={{
-            left: `${o.bbox.x * 100}%`,
-            top: `${o.bbox.y * 100}%`,
-            width: `${o.bbox.width * 100}%`,
-            height: `${o.bbox.height * 100}%`,
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-600">{label}</p>
       {children}
-    </div>
+    </section>
   );
 }
 
-function Plegable({
-  titulo,
-  abierto,
-  onAlternar,
-  children,
-}: {
-  titulo: string;
-  abierto: boolean;
-  onAlternar: () => void;
-  children: React.ReactNode;
+const claseCampo =
+  'h-11 w-full rounded-xl border-[1.5px] border-slate-200 bg-white px-3.5 text-[15px] text-slate-900 placeholder-slate-500 focus:border-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:bg-slate-100 disabled:text-slate-600';
+
+function CampoValor({ etiqueta, unidad, ariaLabel, valor, onChange, disabled }: {
+  etiqueta: string; unidad: string; ariaLabel: string; valor: string; onChange: (v: string) => void; disabled: boolean;
 }) {
   return (
-    <section>
-      <button
-        type="button"
-        aria-expanded={abierto}
-        onClick={onAlternar}
-        className="flex w-full items-center gap-2 rounded py-1 text-left text-sm font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
-      >
-        <span aria-hidden="true">{abierto ? '▾' : '▸'}</span>
-        {titulo}
-      </button>
-      {abierto && <div className="mt-2">{children}</div>}
-    </section>
+    <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-slate-700">
+      {etiqueta}
+      <span className="flex h-11 items-center gap-1.5 rounded-[10px] border-[1.5px] border-slate-200 bg-white px-2.5 focus-within:border-blue-700 focus-within:ring-4 focus-within:ring-blue-200">
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="0.1"
+          aria-label={ariaLabel}
+          value={valor}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-base font-bold text-slate-900 focus:outline-none disabled:text-slate-600"
+        />
+        <span className="font-semibold text-slate-600">{unidad}</span>
+      </span>
+    </label>
   );
 }
 
@@ -204,7 +176,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const [form, setForm] = useState<Form | null>(null);
   /** Serialización del último estado guardado (o cargado): si difiere del actual hay cambios sin guardar. */
   const [base, setBase] = useState('');
-  const [abiertos, setAbiertos] = useState({ ocurrencias: true, preview: false, mas: false });
+  const [masDatos, setMasDatos] = useState(false);
 
   const [confirmando, setConfirmando] = useState<'validar' | 'descartar' | null>(null);
   const [trabajando, setTrabajando] = useState(false);
@@ -227,7 +199,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     setVerificacionPropio(null);
     setRetirando(false);
     setMotivoRetiro('');
-    setAbiertos({ ocurrencias: true, preview: false, mas: false });
+    setMasDatos(false);
     void getPendienteDetalleAction(idPendiente).then((r) => {
       if (cancelado) return;
       if ('error' in r) {
@@ -245,7 +217,6 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   }, [idPendiente]);
 
   const cambiar = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
-  const alternar = (k: keyof typeof abiertos) => setAbiertos((a) => ({ ...a, [k]: !a[k] }));
 
   const p = datos?.pendiente;
   const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
@@ -255,12 +226,21 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const soloLectura = p != null && p.estado !== 'pendiente';
   const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
   const total = datos?.totalOcurrencias ?? 0;
-  const puedeResolver =
-    !soloLectura &&
-    macros != null &&
-    (form?.nombre.trim() ?? '') !== '' &&
-    !trabajando &&
-    (!creaPropio || propioListo(form!.propio, verificacionPropio));
+
+  /** Qué falta para poder validar (el primero se muestra en el pie). */
+  const pendientes: string[] = [];
+  if (form && calc) {
+    if (form.nombre.trim() === '') pendientes.push('Poné un nombre al alimento');
+    if (form.modo === 'ia' && !calc.ia) pendientes.push('Gemini no estimó este alimento: elegí otra fuente');
+    if (form.modo === 'catalogo') {
+      if (form.ingredientes.length === 0) pendientes.push('Agregá al menos un alimento del catálogo');
+      else if (calc.problemas.length > 0) pendientes.push(calc.problemas[0]);
+      else if (calc.pesoFoto <= 0) pendientes.push('No hay una foto de referencia con peso para calcular');
+    }
+    if (form.modo === 'manual' && !calc.manual) pendientes.push('Completá los 4 valores');
+    if (creaPropio && !propioListo(form.propio, verificacionPropio)) pendientes.push('Completá la evaluación del alimento propio');
+  }
+  const puedeResolver = !soloLectura && pendientes.length === 0 && macros != null && !trabajando;
 
   const argsForm = () => ({
     id: p!.id_pendiente,
@@ -269,7 +249,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     observaciones: form!.obs.trim() || null,
   });
 
-  /** Valores que se mandan: lo tipeado en A mano; en las otras pestañas, el resultado (o null si todavía no hay). */
+  /** Valores que se mandan: lo tipeado en A mano; en los otros métodos, el resultado (o null si todavía no hay). */
   const valores = () =>
     form!.modo === 'manual'
       ? { kcal: aNumero(form!.kcal), proteinas: aNumero(form!.prot), grasas: aNumero(form!.grasas), carbs: aNumero(form!.carbs) }
@@ -281,8 +261,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         };
 
   /**
-   * Composición a mandar. El borrador conserva los ingredientes cargados aunque la pestaña
-   * activa sea otra (no se pierde lo armado); al validar sólo cuenta la pestaña activa.
+   * Composición a mandar. El borrador conserva los ingredientes cargados aunque el método
+   * activo sea otro (no se pierde lo armado); al validar sólo cuenta el método activo.
    */
   const composicion = (conservarIngredientes: boolean) =>
     form!.modo === 'catalogo' || (conservarIngredientes && calc!.componentes.length > 0)
@@ -369,313 +349,363 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     onResuelto();
   };
 
-  const pestaniaActiva = PESTANIAS.find((x) => x.modo === form?.modo);
   const vinculo = form?.modo === 'catalogo' && calc?.resumen.esVinculoPuro ? calc.componentes[0].nombre : null;
+  const textoVacio =
+    form?.modo === 'catalogo'
+      ? 'Agregá alimentos y sus gramos para ver el resultado.'
+      : form?.modo === 'ia'
+        ? 'Gemini no estimó este alimento: elegí otra fuente.'
+        : 'Completá los 4 valores para ver el resultado.';
 
-  return (
-    <Modal open={idPendiente != null} onClose={onClose} title="Revisar alimento" wide>
-      {errorCarga && <p className="text-sm text-red-600">{errorCarga}</p>}
-      {!datos && !errorCarga && <p className="text-sm text-slate-600">Cargando…</p>}
+  const resumenDe = (modo: ModoComposicion): string => {
+    if (!calc) return '';
+    const m = modo === 'ia' ? calc.ia : modo === 'catalogo' ? calc.catalogo : calc.manual;
+    if (m && (modo !== 'catalogo' || form!.ingredientes.length > 0)) return resumenMacros(m);
+    return modo === 'ia' ? 'Sin estimación' : modo === 'catalogo' ? 'Elegí alimentos' : 'Sin cargar';
+  };
 
-      {datos && p && form && calc && (
-        <div className="space-y-5">
-          {soloLectura && (
-            <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">
-              Resuelto como <strong>{p.estado}</strong>
-              {p.resuelto_at ? ` el ${formatFechaCorta(p.resuelto_at)}` : ''}. Solo lectura.
+  const pie =
+    datos && p && form && calc ? (
+      soloLectura ? (
+        error ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {error}
+          </p>
+        ) : null
+      ) : confirmando ? (
+        <div role="alertdialog" aria-label="Confirmar acción" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-900">
+          {confirmando === 'validar' ? (
+            <p>
+              Se actualizarán <strong>{plural(total)}</strong> del diario con estos valores
+              {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
+              {creaPropio ? ` Además se agregará «${form.nombre.trim()}» al catálogo propio.` : ''}
+            </p>
+          ) : (
+            <p>
+              <strong>{plural(total)}</strong> quedarán marcados como descartados. Los ítems no se borran: se conservan con su
+              nombre y gramos, pero sin kcal ni macros.
             </p>
           )}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              loading={trabajando}
+              disabled={confirmando === 'validar' && !puedeResolver}
+              onClick={() => (confirmando === 'validar' ? void validar() : void descartar())}
+            >
+              Confirmar
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmando(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:gap-3">
+          <div aria-hidden="true" className="flex flex-wrap items-baseline gap-2 text-[13px] text-slate-600 md:hidden">
+            {macros ? (
+              <>
+                <b className="text-xl tracking-tight text-slate-900">{fmt(macros.kcal_100g)} kcal</b> por 100 g · P {fmt(macros.proteinas_100g)} · C{' '}
+                {fmt(macros.carbs_100g)} · G {fmt(macros.grasas_100g)}
+              </>
+            ) : (
+              'Todavía sin resultado'
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            {error && (
+              <p role="alert" className="text-sm font-semibold text-red-700">
+                {error}
+              </p>
+            )}
+            {aviso && !sinGuardar && <p className="text-sm font-semibold text-green-800">{aviso}</p>}
+            <div
+              role="status"
+              aria-label="Estado de la validación"
+              className={`flex items-center gap-2 text-[13px] font-semibold ${pendientes.length === 0 ? 'text-green-800' : 'text-amber-700'}`}
+            >
+              <i aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-current" />
+              <span>{pendientes.length === 0 ? 'Listo para validar' : pendientes[0]}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 items-center gap-2.5 md:flex">
+            <button
+              type="button"
+              disabled={trabajando}
+              onClick={() => setConfirmando('descartar')}
+              className="order-3 h-11 whitespace-nowrap rounded-xl border-[1.5px] border-transparent px-[18px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60 md:order-1"
+            >
+              Descartar
+            </button>
+            <button
+              type="button"
+              disabled={trabajando}
+              onClick={() => void guardarBorrador()}
+              className="order-2 h-11 whitespace-nowrap rounded-xl border-[1.5px] border-blue-700 bg-white px-[18px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+            >
+              Guardar borrador
+            </button>
+            <button
+              type="button"
+              disabled={!puedeResolver}
+              title={pendientes[0] ?? ''}
+              onClick={() => setConfirmando('validar')}
+              className="order-1 col-span-2 h-[50px] whitespace-nowrap rounded-xl bg-[linear-gradient(90deg,#1d4ed8,#0f766e)] px-[26px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-200 disabled:text-slate-600 md:order-3 md:col-span-1 md:h-11"
+            >
+              Validar
+            </button>
+          </div>
+        </div>
+      )
+    ) : null;
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-            <Input
-              id="pv-nombre"
-              label="Nombre"
-              value={form.nombre}
-              disabled={soloLectura}
-              onChange={(e) => cambiar({ nombre: e.target.value })}
-            />
-            <section aria-label="Estimación original de Gemini" role="region" className="text-sm text-slate-700">
-              {p.gemini_kcal_100g == null ? (
-                <p>Gemini no pudo estimar este alimento: cargá los valores vos.</p>
-              ) : (
-                <p>
-                  IA estimó (por 100 g): {p.gemini_kcal_100g} kcal · P {p.gemini_proteinas_100g} g · C {p.gemini_carbs_100g} g · G{' '}
-                  {p.gemini_grasas_100g} g
-                  {p.gemini_modelo ? <span className="text-slate-600"> · {p.gemini_modelo}</span> : null}
-                </p>
-              )}
-            </section>
+  return (
+    <HojaRevision
+      open={idPendiente != null}
+      onClose={onClose}
+      titulo="Revisar alimento"
+      subtitulo="Confirmá el nombre y elegí de dónde salen los valores nutricionales."
+      sinGuardar={sinGuardar && !soloLectura}
+      pie={pie}
+    >
+      {errorCarga && <p className="p-6 text-sm font-semibold text-red-700">{errorCarga}</p>}
+      {!datos && !errorCarga && <p className="p-6 text-sm text-slate-600">Cargando…</p>}
+
+      {datos && p && form && calc && (
+        <div className="grid grid-cols-1 md:min-h-full md:grid-cols-[340px_1fr] md:grid-rows-[auto_1fr]">
+          {/* CONTEXTO */}
+          <div className="order-1 border-b border-slate-200 bg-slate-50 p-4 md:col-start-1 md:row-start-1 md:border-b-0 md:border-r md:px-6 md:py-5">
+            <ContextoComidas ocurrencias={datos.ocurrencias} total={total} />
           </div>
 
-          <Plegable
-            titulo={`Dónde apareció (${total} ${total === 1 ? 'ocurrencia' : 'ocurrencias'})`}
-            abierto={abiertos.ocurrencias}
-            onAlternar={() => alternar('ocurrencias')}
+          {/* RESULTADO (único lugar donde se muestra) */}
+          <div className="order-3 border-t border-slate-200 bg-slate-50 p-4 md:col-start-1 md:row-start-2 md:border-r md:border-t-0 md:px-6 md:pb-5 md:pt-0">
+            <div className="md:sticky md:bottom-4 md:pt-1">
+              <TarjetaResultado
+                macros={macros}
+                fuente={FUENTE_RESULTADO[form.modo]}
+                ocurrencias={datos.ocurrencias}
+                incoherente={incoherente}
+                vacio={textoVacio}
+                listo={pendientes.length === 0}
+              />
+            </div>
+          </div>
+
+          {/* PASOS */}
+          <form
+            onSubmit={(e) => e.preventDefault()}
+            className="order-2 flex min-w-0 flex-col gap-[22px] p-4 md:col-start-2 md:row-span-2 md:row-start-1 md:gap-[26px] md:px-7 md:pb-7 md:pt-[22px]"
           >
-            <ul className="space-y-3">
-              {datos.ocurrencias.map((o) => (
-                <li key={o.idGuardadoItem} className="flex flex-col gap-3 rounded-xl border border-slate-100 p-3 sm:flex-row">
-                  <FotoOcurrencia o={o} />
-                  <div className="min-w-0 flex-1 space-y-2 text-sm">
-                    <div className="flex flex-wrap items-center gap-x-3 text-slate-600">
-                      <span className="font-medium text-slate-800">{o.deportista ?? 'Deportista'}</span>
-                      <span>{formatFechaCorta(o.fecha)}</span>
-                      {o.esReferencia && (
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-800">
-                          Foto de referencia
+            {soloLectura && (
+              <p className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                Resuelto como <strong>{p.estado}</strong>
+                {p.resuelto_at ? ` el ${formatFechaCorta(p.resuelto_at)}` : ''}. Solo lectura.
+              </p>
+            )}
+
+            <Paso n={1} titulo="Nombre del alimento">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="pv-nombre" className="sr-only">
+                  Nombre
+                </label>
+                <input
+                  id="pv-nombre"
+                  type="text"
+                  autoComplete="off"
+                  value={form.nombre}
+                  disabled={soloLectura}
+                  onChange={(e) => cambiar({ nombre: e.target.value })}
+                  className={claseCampo}
+                />
+                <span className="text-xs text-slate-600">Así se va a guardar en tu catálogo.</span>
+              </div>
+              {!soloLectura && form.nombre.trim() !== p.nombre_original.trim() && (
+                <button
+                  type="button"
+                  onClick={() => cambiar({ nombre: p.nombre_original })}
+                  className="self-start rounded-full border-[1.5px] border-dashed border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                  Usar «{p.nombre_original}»
+                </button>
+              )}
+            </Paso>
+
+            <Paso n={2} titulo="¿De dónde salen los valores?" pista="Valores por 100 g">
+              <fieldset className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
+                <legend className="sr-only">Fuente de los valores nutricionales</legend>
+                {METODOS.map((m) => {
+                  const sel = form.modo === m.modo;
+                  const sinIA = m.modo === 'ia' && !calc.ia;
+                  return (
+                    <div
+                      key={m.modo}
+                      className={`rounded-2xl border-[1.5px] bg-white transition-shadow ${
+                        sel ? 'border-blue-700 shadow-[0_0_0_4px_#bfdbfe]' : 'border-slate-200'
+                      }`}
+                    >
+                      <label className={`flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5 md:flex-nowrap ${sinIA ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <input
+                          type="radio"
+                          name="metodo-valores"
+                          value={m.modo}
+                          checked={sel}
+                          disabled={sinIA}
+                          onChange={() => cambiar({ modo: m.modo })}
+                          className="peer sr-only"
+                        />
+                        <span
+                          aria-hidden="true"
+                          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-blue-700 ${
+                            sel ? 'border-blue-700' : 'border-slate-500'
+                          }`}
+                        >
+                          {sel && <span className="h-2.5 w-2.5 rounded-full bg-blue-700" />}
                         </span>
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <b className="text-[15px] text-slate-900">
+                            {m.titulo}
+                            {m.etiqueta && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-px align-[1px] text-[11px] font-bold text-slate-600">{m.etiqueta}</span>}
+                          </b>
+                          <small className="text-[12.5px] text-slate-600">{sinIA ? 'Gemini no pudo estimar este alimento.' : m.ayuda}</small>
+                        </span>
+                        <span className="w-full pl-8 text-left text-[12.5px] font-semibold text-slate-900 md:ml-auto md:w-auto md:pl-0 md:text-right md:whitespace-nowrap">
+                          {resumenDe(m.modo)}
+                        </span>
+                      </label>
+
+                      {sel && (
+                        <div className="flex flex-col gap-3 px-3.5 pb-3.5 pt-0.5 md:pb-4 md:pl-12 md:pr-4">
+                          {m.modo === 'ia' && calc.ia && (
+                            <div role="region" aria-label="Estimación original de Gemini" className="space-y-2.5">
+                              <p className="text-[13px] text-slate-600">
+                                Gemini estimó estos valores por 100 g
+                                {p.gemini_modelo ? ` (modelo ${p.gemini_modelo})` : ''}. Si te parecen razonables, quedan como resultado.
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {[
+                                  `${fmt(calc.ia.kcal_100g)} kcal`,
+                                  `P ${fmt(calc.ia.proteinas_100g)} g`,
+                                  `C ${fmt(calc.ia.carbs_100g)} g`,
+                                  `G ${fmt(calc.ia.grasas_100g)} g`,
+                                ].map((t) => (
+                                  <span key={t} className="rounded-[10px] border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] font-semibold text-slate-900">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {m.modo === 'catalogo' && (
+                            <ComposicionCatalogo
+                              foto={calc.referencia}
+                              ingredientes={form.ingredientes}
+                              onIngredientes={(ingredientes) => cambiar({ ingredientes })}
+                              soloLectura={soloLectura}
+                            />
+                          )}
+                          {m.modo === 'manual' && (
+                            <>
+                              <div className="grid grid-cols-2 gap-3">
+                                <CampoValor etiqueta="Energía" unidad="kcal" ariaLabel="Energía en kcal por 100 g" valor={form.kcal} disabled={soloLectura} onChange={(v) => cambiar({ kcal: v })} />
+                                <CampoValor etiqueta="Proteínas" unidad="g" ariaLabel="Proteínas en gramos por 100 g" valor={form.prot} disabled={soloLectura} onChange={(v) => cambiar({ prot: v })} />
+                                <CampoValor etiqueta="Carbohidratos" unidad="g" ariaLabel="Carbohidratos en gramos por 100 g" valor={form.carbs} disabled={soloLectura} onChange={(v) => cambiar({ carbs: v })} />
+                                <CampoValor etiqueta="Grasas" unidad="g" ariaLabel="Grasas en gramos por 100 g" valor={form.grasas} disabled={soloLectura} onChange={(v) => cambiar({ grasas: v })} />
+                              </div>
+                              {!soloLectura && (
+                                <NuevoAlimentoPropio
+                                  nombre={form.nombre}
+                                  valores={{ kcal: aNumero(form.kcal), proteinas: aNumero(form.prot), grasas: aNumero(form.grasas), carbs: aNumero(form.carbs) }}
+                                  propio={form.propio}
+                                  onChange={(patch) => setForm((f) => (f ? { ...f, propio: { ...f.propio, ...patch } } : f))}
+                                  onVerificacion={setVerificacionPropio}
+                                />
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Campo label="La IA detectó">
-                        <span>{o.nombreIa ?? 'Agregado a mano'}</span>
-                      </Campo>
-                      <Campo label="Nombre final">
-                        <span>{o.nombreFinal}</span>
-                      </Campo>
-                    </div>
-                    <p className="text-slate-600">
-                      IA: {o.gramosIa != null ? `${redondear1(o.gramosIa)} g` : '—'} · final: {redondear1(o.gramosFinal)} g
-                    </p>
-                    {o.respuestas.length > 0 && (
-                      <ul className="space-y-0.5 text-xs text-slate-600">
-                        {o.respuestas.map((r, i) => (
-                          <li key={i}>
-                            <span>{r.question}</span> → <span className="font-medium text-slate-700">{r.answer ?? 'No sé'}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {total > datos.ocurrencias.length && (
-              <p className="mt-2 text-xs text-slate-600">y {total - datos.ocurrencias.length} más</p>
-            )}
-          </Plegable>
+                  );
+                })}
+              </fieldset>
+            </Paso>
 
-          {datos.propio && (
-            <section aria-label="Alimento propio" role="region" className="space-y-2 rounded-xl border border-violet-200 bg-violet-50/50 p-3 text-sm">
-              <h3 className="font-semibold text-slate-900">
-                <span className="mr-2 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-semibold text-violet-800">PROPIO</span>
-                Se agregó al catálogo propio
-              </h3>
-              <p className="text-slate-700">
-                Fuente: {FUENTES_DATO.find((f) => f.valor === datos.propio!.fuenteDato)?.etiqueta ?? datos.propio.fuenteDato}.{' '}
-                {datos.propio.justificacion}
-              </p>
-              {datos.propio.estado === 'retirado' ? (
-                <p className="text-slate-800">
-                  Retirado del catálogo propio{datos.propio.motivoRetiro ? `: ${datos.propio.motivoRetiro}` : '.'}
-                </p>
-              ) : retirando ? (
-                <div className="space-y-2">
-                  <div>
-                    <label htmlFor="pv-motivo-retiro" className="block text-sm font-medium text-slate-700">
-                      Motivo del retiro
-                    </label>
-                    <textarea
-                      id="pv-motivo-retiro"
-                      value={motivoRetiro}
-                      onChange={(e) => setMotivoRetiro(e.target.value)}
-                      rows={2}
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                    />
-                    <span className="text-xs text-slate-600">
-                      {motivoRetiro.trim().length}/{MOTIVO_RETIRO_MIN} caracteres como mínimo. Los ítems ya validados no cambian.
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      loading={trabajando}
-                      disabled={motivoRetiro.trim().length < MOTIVO_RETIRO_MIN}
-                      onClick={() => void retirarPropio()}
-                    >
-                      Confirmar retiro
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setRetirando(false)}>
-                      Cancelar
-                    </Button>
-                  </div>
+            <section className="rounded-2xl border border-slate-200 bg-white">
+              <button
+                type="button"
+                aria-expanded={masDatos}
+                onClick={() => setMasDatos((v) => !v)}
+                className="flex min-h-12 w-full items-center gap-2 rounded-2xl px-4 py-3.5 text-left font-semibold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+              >
+                <span aria-hidden="true" className="text-slate-600">{masDatos ? '▾' : '▸'}</span>
+                Más datos <small className="font-normal text-slate-600">· categoría y observaciones (opcional)</small>
+              </button>
+              {masDatos && (
+                <div className="grid gap-3 px-4 pb-4 md:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-slate-700">
+                    Categoría
+                    <input className={claseCampo} value={form.categoria} disabled={soloLectura} onChange={(e) => cambiar({ categoria: e.target.value })} />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-slate-700">
+                    Observaciones
+                    <input className={claseCampo} placeholder="Opcional" value={form.obs} disabled={soloLectura} onChange={(e) => cambiar({ obs: e.target.value })} />
+                  </label>
                 </div>
-              ) : (
-                <Button type="button" size="sm" variant="outline" onClick={() => setRetirando(true)}>
-                  Retirar del catálogo propio
-                </Button>
               )}
             </section>
-          )}
 
-          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-slate-900">Valores por 100 g</h3>
-              <div role="tablist" aria-label="Origen de los valores" className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
-                {PESTANIAS.map((t) => (
-                  <button
-                    key={t.modo}
-                    type="button"
-                    role="tab"
-                    id={`pv-tab-${t.modo}`}
-                    aria-selected={form.modo === t.modo}
-                    aria-controls="pv-panel"
-                    onClick={() => cambiar({ modo: t.modo })}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${
-                      form.modo === t.modo ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-700 hover:bg-white/60'
-                    }`}
-                  >
-                    {t.titulo}
-                  </button>
-                ))}
-              </div>
-
-              <div id="pv-panel" role="tabpanel" aria-labelledby={`pv-tab-${form.modo}`} className="space-y-3">
-                <p className="text-sm text-slate-700">{pestaniaActiva?.ayuda}</p>
-                {form.modo === 'ia' && (
-                  <p className="text-sm text-slate-800">
-                    {calc.macros
-                      ? 'Se usan los valores estimados por Gemini (arriba).'
-                      : 'Gemini no estimó este alimento: usá "Del catálogo" o "A mano".'}
-                  </p>
-                )}
-                {form.modo === 'catalogo' && (
-                  <ComposicionCatalogo
-                    foto={calc.referencia}
-                    ingredientes={form.ingredientes}
-                    onIngredientes={(ingredientes) => cambiar({ ingredientes })}
-                    soloLectura={soloLectura}
-                  />
-                )}
-                {form.modo === 'manual' && (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <Input id="pv-kcal" label="kcal / 100 g" type="number" min={0} step="0.1" value={form.kcal} disabled={soloLectura} onChange={(e) => cambiar({ kcal: e.target.value })} />
-                      <Input id="pv-prot" label="Proteínas (g / 100 g)" type="number" min={0} step="0.1" value={form.prot} disabled={soloLectura} onChange={(e) => cambiar({ prot: e.target.value })} />
-                      <Input id="pv-grasas" label="Grasas (g / 100 g)" type="number" min={0} step="0.1" value={form.grasas} disabled={soloLectura} onChange={(e) => cambiar({ grasas: e.target.value })} />
-                      <Input id="pv-carbs" label="Carbohidratos (g / 100 g)" type="number" min={0} step="0.1" value={form.carbs} disabled={soloLectura} onChange={(e) => cambiar({ carbs: e.target.value })} />
-                    </div>
-                    {!soloLectura && (
-                      <NuevoAlimentoPropio
-                        nombre={form.nombre}
-                        valores={{ kcal: aNumero(form.kcal), proteinas: aNumero(form.prot), grasas: aNumero(form.grasas), carbs: aNumero(form.carbs) }}
-                        propio={form.propio}
-                        onChange={(patch) => setForm((f) => (f ? { ...f, propio: { ...f.propio, ...patch } } : f))}
-                        onVerificacion={setVerificacionPropio}
-                      />
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div role="region" aria-label="Resultado por 100 g" className="rounded-xl bg-slate-50 p-3 text-sm">
-              {macros ? (
-                <p className="font-medium text-slate-900">
-                  Resultado por 100 g: {redondear1(macros.kcal_100g)} kcal · P {redondear1(macros.proteinas_100g)} g · C{' '}
-                  {redondear1(macros.carbs_100g)} g · G {redondear1(macros.grasas_100g)} g
+            {datos.propio && (
+              <section aria-label="Alimento propio" role="region" className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/50 p-4 text-sm">
+                <h3 className="font-semibold text-slate-900">
+                  <span className="mr-2 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-semibold text-violet-800">PROPIO</span>
+                  Se agregó al catálogo propio
+                </h3>
+                <p className="text-slate-700">
+                  Fuente: {FUENTES_DATO.find((f) => f.valor === datos.propio!.fuenteDato)?.etiqueta ?? datos.propio.fuenteDato}.{' '}
+                  {datos.propio.justificacion}
                 </p>
-              ) : (
-                <p className="text-slate-700">Completá los valores de esta pestaña para ver el resultado.</p>
-              )}
-            </div>
-
-            {incoherente && (
-              <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                Estos valores no parecen coherentes (las kcal no cierran con 4/4/9 o algún macro es excesivo). Podés
-                validarlos igual: la decisión es tuya.
-              </p>
-            )}
-
-            <Plegable titulo="Cómo queda en cada ocurrencia" abierto={abiertos.preview} onAlternar={() => alternar('preview')}>
-              <section aria-label="Vista previa por ocurrencia" role="region" className="rounded-xl bg-slate-50 p-3 text-sm">
-                {macros ? (
-                  <ul className="space-y-0.5 text-slate-700">
-                    {datos.ocurrencias.map((o) => {
-                      const m = macrosItem(macros, o.gramosFinal);
-                      return (
-                        <li key={o.idGuardadoItem}>
-                          {o.deportista ?? 'Deportista'} · {redondear1(o.gramosFinal)} g → {redondear1(m.kcal)} kcal · P{' '}
-                          {redondear1(m.proteinas_g)} · C {redondear1(m.carbs_g)} · G {redondear1(m.grasas_g)}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                {datos.propio.estado === 'retirado' ? (
+                  <p className="text-slate-800">
+                    Retirado del catálogo propio{datos.propio.motivoRetiro ? `: ${datos.propio.motivoRetiro}` : '.'}
+                  </p>
+                ) : retirando ? (
+                  <div className="space-y-2">
+                    <div>
+                      <label htmlFor="pv-motivo-retiro" className="block text-sm font-medium text-slate-700">
+                        Motivo del retiro
+                      </label>
+                      <textarea
+                        id="pv-motivo-retiro"
+                        value={motivoRetiro}
+                        onChange={(e) => setMotivoRetiro(e.target.value)}
+                        rows={2}
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                      />
+                      <span className="text-xs text-slate-600">
+                        {motivoRetiro.trim().length}/{MOTIVO_RETIRO_MIN} caracteres como mínimo. Los ítems ya validados no cambian.
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" loading={trabajando} disabled={motivoRetiro.trim().length < MOTIVO_RETIRO_MIN} onClick={() => void retirarPropio()}>
+                        Confirmar retiro
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setRetirando(false)}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-slate-700">Completá los valores para ver la vista previa.</p>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setRetirando(true)}>
+                    Retirar del catálogo propio
+                  </Button>
                 )}
               </section>
-            </Plegable>
-
-            <Plegable titulo="Más datos (categoría y observaciones)" abierto={abiertos.mas} onAlternar={() => alternar('mas')}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input id="pv-categoria" label="Categoría" value={form.categoria} disabled={soloLectura} onChange={(e) => cambiar({ categoria: e.target.value })} />
-                <Input id="pv-obs" label="Observaciones" value={form.obs} disabled={soloLectura} onChange={(e) => cambiar({ obs: e.target.value })} />
-              </div>
-            </Plegable>
-
-            <div aria-live="polite" className="min-h-5 text-sm">
-              {error && (
-                <p role="alert" className="text-red-600">
-                  {error}
-                </p>
-              )}
-              {aviso && !sinGuardar && <p role="status" className="text-emerald-700">{aviso}</p>}
-            </div>
-
-            {confirmando && (
-              <div role="alertdialog" aria-label="Confirmar acción" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
-                {confirmando === 'validar' ? (
-                  <p>
-                    Se actualizarán <strong>{plural(total)}</strong> del diario con estos valores
-                    {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
-                    {creaPropio ? ` Además se agregará «${form.nombre.trim()}» al catálogo propio.` : ''}
-                  </p>
-                ) : (
-                  <p>
-                    <strong>{plural(total)}</strong> quedarán marcados como descartados. Los ítems no se borran: se
-                    conservan con su nombre y gramos, pero sin kcal ni macros.
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    loading={trabajando}
-                    disabled={confirmando === 'validar' && !puedeResolver}
-                    onClick={() => (confirmando === 'validar' ? void validar() : void descartar())}
-                  >
-                    Confirmar
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmando(null)}>
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {!soloLectura && !confirmando && (
-              <div className="flex flex-wrap items-center gap-2">
-                {sinGuardar && (
-                  <p role="status" className="mr-auto text-sm font-medium text-amber-700">
-                    ● Cambios sin guardar
-                  </p>
-                )}
-                <Button type="button" variant="outline" disabled={trabajando} onClick={() => void guardarBorrador()}>
-                  Guardar borrador
-                </Button>
-                <Button type="button" disabled={!puedeResolver} onClick={() => setConfirmando('validar')}>
-                  Validar
-                </Button>
-                <Button type="button" variant="ghost" disabled={trabajando} onClick={() => setConfirmando('descartar')}>
-                  Descartar
-                </Button>
-              </div>
             )}
           </form>
         </div>
       )}
-    </Modal>
+    </HojaRevision>
   );
 }

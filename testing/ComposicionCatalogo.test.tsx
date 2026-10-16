@@ -65,9 +65,16 @@ beforeEach(() => {
 });
 
 describe('ComposicionCatalogo', () => {
-  it('muestra cuánto pesa el alimento en la foto de referencia', () => {
+  it('el resultado por 100 g NO se repite acá (vive una sola vez en la tarjeta de resultado) y la ayuda explica qué cargar', () => {
     render(<Wrapper />);
-    expect(screen.getByText(/En la foto de Ana Pérez/)).toHaveTextContent('pesa 20 g');
+    expect(screen.getByText(/Indicá cuántos gramos de cada alimento hay en la foto/)).toBeInTheDocument();
+    expect(screen.queryByText(/Por 100 g del alimento/)).not.toBeInTheDocument();
+  });
+
+  it('sin ingredientes se invita a buscar, y no hay barra de gramos', () => {
+    render(<Wrapper />);
+    expect(screen.getByText(/Todavía no agregaste alimentos/)).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('el primer ingrediente arranca con el peso total de la foto; los siguientes, vacío', async () => {
@@ -87,8 +94,9 @@ describe('ComposicionCatalogo', () => {
     await gramos(user, 'Aceite de oliva', '15');
     await gramos(user, 'Vinagre de alcohol', '5');
     expect(within(resultado()).getByText(/Sumás 20 g de 20 g/)).toBeInTheDocument();
-    expect(within(resultado()).getByText(/605 kcal/)).toBeInTheDocument();
-    expect(within(resultado()).getByText(/G 67\.5 g/)).toBeInTheDocument();
+    const barra = screen.getByRole('progressbar', { name: 'Gramos asignados de la foto' });
+    expect(barra).toHaveAttribute('aria-valuenow', '20');
+    expect(barra).toHaveAttribute('aria-valuemax', '20');
     expect(within(resultado()).queryByText(/restantes/)).not.toBeInTheDocument();
   });
 
@@ -99,7 +107,7 @@ describe('ComposicionCatalogo', () => {
     await gramos(user, 'Aceite de oliva', '8');
     expect(within(resultado()).getByText(/Sumás 8 g de 20 g/)).toBeInTheDocument();
     expect(within(resultado()).getByText(/12 g restantes se cuentan sin aporte/)).toBeInTheDocument();
-    expect(within(resultado()).getByText(/320 kcal/)).toBeInTheDocument(); // 800 × 8 / 20
+    expect(screen.getByText('aporta 64 kcal a la foto')).toBeInTheDocument(); // 800 × 8 / 100
   });
 
   it('si se pasa del peso de la foto avisa que revise', async () => {
@@ -115,13 +123,6 @@ describe('ComposicionCatalogo', () => {
     render(<Wrapper />);
     await agregar(user, 'aceite', 'Aceite de oliva');
     expect(within(resultado()).getByText(/mismo alimento del catálogo/)).toHaveTextContent('Aceite de oliva');
-    expect(within(resultado()).getByText(/800 kcal/)).toBeInTheDocument();
-  });
-
-  it('sin ingredientes lo dice y no muestra valores', () => {
-    render(<Wrapper />);
-    expect(within(resultado()).getByText(/Agregá al menos un alimento/)).toBeInTheDocument();
-    expect(within(resultado()).queryByText(/kcal/)).not.toBeInTheDocument();
   });
 
   it('un gramaje vacío se pide por nombre y bloquea el resultado', async () => {
@@ -192,8 +193,8 @@ describe('ComposicionCatalogo', () => {
     await gramos(user, 'Aceite de oliva', '10');
     await gramos(user, 'Pan casero', '10');
     expect(screen.getAllByLabelText(/^Gramos de /)).toHaveLength(2);
-    // (800 × 10 + 250 × 10) / 20 = 525
-    expect(within(resultado()).getByText(/525 kcal/)).toBeInTheDocument();
+    expect(screen.getByText('aporta 80 kcal a la foto')).toBeInTheDocument(); // 800 × 10 / 100
+    expect(screen.getByText('aporta 25 kcal a la foto')).toBeInTheDocument(); // 250 × 10 / 100
     await user.click(screen.getByRole('button', { name: 'Quitar Pan casero' }));
     expect(screen.getByLabelText('Gramos de Aceite de oliva')).toBeInTheDocument();
     expect(screen.queryByLabelText('Gramos de Pan casero')).not.toBeInTheDocument();

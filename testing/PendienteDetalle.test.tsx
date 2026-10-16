@@ -62,7 +62,9 @@ async function abrir(over: Partial<typeof PENDIENTE> = {}, ocurrencias = [OCURRE
   return { user, onClose, onResuelto, onGuardado };
 }
 
-const pestana = (nombre: string) => screen.getByRole('tab', { name: nombre });
+/** Los métodos (IA / Del catálogo / A mano) son tarjetas con un radio. */
+const pestana = (nombre: string) => screen.getByRole('radio', { name: new RegExp(`^${nombre}`) });
+const contexto = () => screen.getByRole('region', { name: 'Dónde apareció' });
 const resultado = () => screen.getByRole('region', { name: 'Resultado por 100 g' });
 
 async function agregar(user: ReturnType<typeof userEvent.setup>, busqueda: string, nombre: string) {
@@ -111,9 +113,9 @@ describe('PendienteDetalle — contexto', () => {
     expect(screen.getByText('Postre blanco')).toBeInTheDocument();
     expect(screen.getByText('¿Qué es el postre?')).toBeInTheDocument();
     expect(screen.getByText('Flan')).toBeInTheDocument();
-    expect(screen.getByText(/IA: 100 g/)).toBeInTheDocument();
-    expect(screen.getByText(/final: 120 g/)).toBeInTheDocument();
-    expect(screen.getByText('Ana Pérez')).toBeInTheDocument();
+    expect(screen.getByText(/IA estimó 100 g/)).toBeInTheDocument();
+    expect(screen.getByText(/Pesa 120 g en la foto/)).toBeInTheDocument();
+    expect(within(contexto()).getByText('Ana Pérez')).toBeInTheDocument();
   });
 
   it('sin foto muestra un aviso en vez de la imagen', async () => {
@@ -125,7 +127,7 @@ describe('PendienteDetalle — contexto', () => {
   it('muestra los valores originales de Gemini (solo lectura) y el modelo', async () => {
     await abrir();
     const gem = screen.getByRole('region', { name: 'Estimación original de Gemini' });
-    expect(within(gem).getByText(/150 kcal/)).toBeInTheDocument();
+    expect(within(gem).getByText('150 kcal')).toBeInTheDocument();
     expect(within(gem).getByText(/gemini-x/)).toBeInTheDocument();
   });
 
@@ -145,8 +147,9 @@ describe('PendienteDetalle — contexto', () => {
     const otra = { ...OCURRENCIA, idGuardadoItem: 2, gramosFinal: 60, deportista: 'Beto Gómez', esReferencia: false };
     const { user } = await abrir({}, [{ ...FOTO_20 }, otra]);
     expect(screen.getAllByText('Foto de referencia')).toHaveLength(1);
+    expect(screen.getByText(/Pesa 20 g en la foto/)).toBeInTheDocument();
+    expect(screen.queryByText(/Pesa 60 g en la foto/)).not.toBeInTheDocument(); // la otra comida va plegada
     await user.click(pestana('Del catálogo'));
-    expect(screen.getByText(/En la foto de Ana Pérez/)).toHaveTextContent('pesa 20 g');
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
@@ -158,54 +161,58 @@ describe('PendienteDetalle — contexto', () => {
     expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
   });
 
-  it('las ocurrencias se pueden plegar', async () => {
-    const { user } = await abrir();
-    const boton = screen.getByRole('button', { name: /Dónde apareció/ });
-    expect(boton).toHaveAttribute('aria-expanded', 'true');
-    await user.click(boton);
+  it('las otras comidas van plegadas bajo "Ver otras N comidas" y se pueden abrir', async () => {
+    const otra = { ...OCURRENCIA, idGuardadoItem: 2, gramosFinal: 60, deportista: 'Beto Gómez', esReferencia: false };
+    const { user } = await abrir({}, [{ ...FOTO_20 }, otra]);
+    const boton = screen.getByRole('button', { name: /Ver otras 1 comida/ });
     expect(boton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('Postre blanco')).not.toBeInTheDocument();
+    expect(within(contexto()).queryByText('Beto Gómez')).not.toBeInTheDocument();
+    await user.click(boton);
+    expect(boton).toHaveAttribute('aria-expanded', 'true');
+    expect(within(contexto()).getByText('Beto Gómez')).toBeInTheDocument();
+    expect(screen.getByText(/Pesa 60 g en la foto/)).toBeInTheDocument();
   });
+
 });
 
 describe('PendienteDetalle — pestañas y apertura', () => {
   it('abre en IA cuando Gemini dio valores, con su explicación y el resultado', async () => {
     await abrir();
-    expect(pestana('IA')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByText(/Usa la estimación de Gemini tal cual/)).toBeInTheDocument();
-    expect(within(resultado()).getByText(/150 kcal/)).toBeInTheDocument();
+    expect(pestana('IA')).toBeChecked();
+    expect(screen.getByText(/Estimación de Gemini\. Revisala antes de usarla/)).toBeInTheDocument();
+    expect(within(resultado()).getByText('150')).toBeInTheDocument();
   });
 
   it('abre en A mano cuando Gemini no pudo estimar', async () => {
     await abrir({ gemini_kcal_100g: null, gemini_proteinas_100g: null, gemini_grasas_100g: null, gemini_carbs_100g: null });
-    expect(pestana('A mano')).toHaveAttribute('aria-selected', 'true');
+    expect(pestana('A mano')).toBeChecked();
     expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
   });
 
   it('un borrador viejo sin composición (sólo valores finales) abre en A mano con esos valores', async () => {
     await abrir({ nombre_final: 'Flan de vainilla', final_kcal_100g: 160, final_proteinas_100g: 3, final_grasas_100g: 5, final_carbs_100g: 25 });
-    expect(pestana('A mano')).toHaveAttribute('aria-selected', 'true');
+    expect(pestana('A mano')).toBeChecked();
     expect(screen.getByLabelText('Nombre')).toHaveValue('Flan de vainilla');
-    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(160);
+    expect(screen.getByLabelText('Energía en kcal por 100 g')).toHaveValue(160);
   });
 
   it('un borrador con composición abre en Del catálogo con sus ingredientes y gramos', async () => {
     await abrir({ composicion: COMP_GUARDADA, final_kcal_100g: 605, final_proteinas_100g: 0, final_grasas_100g: 67.5, final_carbs_100g: 1 }, [FOTO_20]);
-    expect(pestana('Del catálogo')).toHaveAttribute('aria-selected', 'true');
+    expect(pestana('Del catálogo')).toBeChecked();
     expect(screen.getByLabelText('Gramos de Aceite de oliva')).toHaveValue(15);
     expect(screen.getByLabelText('Gramos de Vinagre de alcohol')).toHaveValue(5);
-    expect(within(resultado()).getByText(/605 kcal/)).toBeInTheDocument();
+    expect(within(resultado()).getByText('605')).toBeInTheDocument();
   });
 
   it('una composición corrupta no rompe la pantalla (abre como un borrador común)', async () => {
     await abrir({ composicion: { modo: 'raro' } });
-    expect(pestana('IA')).toHaveAttribute('aria-selected', 'true');
+    expect(pestana('IA')).toBeChecked();
   });
 
   it('cambiar de pestaña no pierde lo cargado en las otras', async () => {
     const { user } = await abrir({}, [FOTO_20]);
     await user.click(pestana('A mano'));
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     expect(kcal).toHaveValue(150); // arranca con la estimación de Gemini
     await user.clear(kcal);
     await user.type(kcal, '200');
@@ -214,9 +221,9 @@ describe('PendienteDetalle — pestañas y apertura', () => {
     await agregar(user, 'aceite', 'Aceite de oliva');
 
     await user.click(pestana('IA'));
-    expect(within(resultado()).getByText(/150 kcal/)).toBeInTheDocument();
+    expect(within(resultado()).getByText('150')).toBeInTheDocument();
     await user.click(pestana('A mano'));
-    expect(screen.getByLabelText('kcal / 100 g')).toHaveValue(200);
+    expect(screen.getByLabelText('Energía en kcal por 100 g')).toHaveValue(200);
     await user.click(pestana('Del catálogo'));
     expect(screen.getByLabelText('Gramos de Aceite de oliva')).toHaveValue(20);
   });
@@ -226,19 +233,18 @@ describe('PendienteDetalle — A mano y vista previa', () => {
   it('editar kcal actualiza la vista previa para el gramaje de cada ocurrencia', async () => {
     const { user } = await abrir();
     await user.click(pestana('A mano'));
-    await user.click(screen.getByRole('button', { name: 'Cómo queda en cada ocurrencia' }));
-    const preview = screen.getByRole('region', { name: 'Vista previa por ocurrencia' });
-    expect(within(preview).getByText(/180 kcal/)).toBeInTheDocument(); // 150 × 120 / 100
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const preview = () => screen.getByRole('region', { name: 'Vista previa por ocurrencia' });
+    expect(within(preview()).getByText(/180 kcal/)).toBeInTheDocument(); // 150 × 120 / 100
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '200');
-    expect(within(preview).getByText(/240 kcal/)).toBeInTheDocument();
+    expect(within(preview()).getByText(/240 kcal/)).toBeInTheDocument();
   });
 
   it('avisa si los valores no son plausibles pero NO bloquea', async () => {
     const { user } = await abrir();
     await user.click(pestana('A mano'));
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '800');
     expect(screen.getByText(/no parecen coherentes/)).toBeInTheDocument();
@@ -276,12 +282,12 @@ describe('PendienteDetalle — borrador', () => {
 
   it('indica los cambios sin guardar y lo apaga al guardar', async () => {
     const { user } = await abrir();
-    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Sin guardar$/)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Nombre'), ' 2');
-    expect(screen.getByText(/Cambios sin guardar/)).toBeInTheDocument();
+    expect(screen.getByText(/^Sin guardar$/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
     await screen.findByText('Guardado hace un momento');
-    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Sin guardar$/)).not.toBeInTheDocument();
   });
 
   it('si el guardado falla muestra el error, mantiene el indicador y no refresca', async () => {
@@ -290,7 +296,7 @@ describe('PendienteDetalle — borrador', () => {
     await user.type(screen.getByLabelText('Nombre'), ' 2');
     await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo completar');
-    expect(screen.getByText(/Cambios sin guardar/)).toBeInTheDocument();
+    expect(screen.getByText(/^Sin guardar$/)).toBeInTheDocument();
     expect(onGuardado).not.toHaveBeenCalled();
   });
 
@@ -399,7 +405,8 @@ describe('PendienteDetalle — Del catálogo y validación', () => {
     const { user } = await abrir({}, [FOTO_20]);
     await user.click(pestana('Del catálogo'));
     await agregar(user, 'mist', 'Misterio');
-    expect(screen.getByText(/Misterio no tiene datos nutricionales/)).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Resultado de la composición' })).getByText(/Misterio no tiene datos nutricionales/)).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Estado de la validación' })).toHaveTextContent(/Misterio no tiene datos nutricionales/);
     expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
   });
 
@@ -432,7 +439,7 @@ describe('PendienteDetalle — validar y descartar con confirmación', () => {
   it('Validar a mano manda la composición manual con los valores cargados', async () => {
     const { user } = await abrir();
     await user.click(pestana('A mano'));
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '160');
     await confirmarValidar(user);
@@ -473,11 +480,11 @@ describe('PendienteDetalle — validar y descartar con confirmación', () => {
     expect(screen.queryByRole('button', { name: 'Descartar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Guardar borrador' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Nombre')).toBeDisabled();
-    expect(pestana('Del catálogo')).toHaveAttribute('aria-selected', 'true');
+    expect(pestana('Del catálogo')).toBeChecked();
     expect(screen.getByLabelText('Gramos de Aceite de oliva')).toBeDisabled();
     expect(screen.queryByLabelText('Agregar alimento del catálogo')).not.toBeInTheDocument();
     await user.click(pestana('A mano')); // se puede mirar la otra pestaña sin editar
-    expect(screen.getByLabelText('kcal / 100 g')).toBeDisabled();
+    expect(screen.getByLabelText('Energía en kcal por 100 g')).toBeDisabled();
   });
 });
 
@@ -591,7 +598,7 @@ describe('PendienteDetalle — crear un alimento propio desde A mano', () => {
 
     let resolver: (v: Awaited<ReturnType<typeof verificarAlimentoPropioAction>>) => void = () => {};
     vi.mocked(verificarAlimentoPropioAction).mockImplementation(() => new Promise((r) => { resolver = r; }));
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '160');
     await waitFor(() => expect(verificarAlimentoPropioAction).toHaveBeenLastCalledWith(expect.objectContaining({ kcal: 160 })));
@@ -626,7 +633,7 @@ describe('PendienteDetalle — crear un alimento propio desde A mano', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar borrador' })); // cambiar de pestaña ya es un cambio: se guarda primero
     await screen.findByText('Guardado hace un momento');
     await user.click(screen.getByLabelText(CASILLA));
-    expect(screen.queryByText(/Cambios sin guardar/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Sin guardar$/)).not.toBeInTheDocument();
   });
 });
 
@@ -651,7 +658,7 @@ describe('PendienteDetalle — las confirmaciones no sobreviven a una edición',
 
   it('al editar un valor se pide confirmar de nuevo la advertencia', async () => {
     const { user } = await prepararConfirmado();
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '50');
     const casilla = await screen.findByLabelText('Confirmo que las kcal son correctas');
@@ -664,7 +671,7 @@ describe('PendienteDetalle — las confirmaciones no sobreviven a una edición',
     await user.click(screen.getByRole('button', { name: 'Validar' }));
     const confirmar = within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' });
     expect(confirmar).toBeEnabled();
-    const kcal = screen.getByLabelText('kcal / 100 g');
+    const kcal = screen.getByLabelText('Energía en kcal por 100 g');
     await user.clear(kcal);
     await user.type(kcal, '50');
     expect(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirmar' })).toBeDisabled();
@@ -726,5 +733,52 @@ describe('PendienteDetalle — retirar un alimento propio', () => {
   it('un alimento validado sin propio, o uno todavía pendiente, no muestra la sección', async () => {
     await abrir({ estado: 'validado' });
     expect(screen.queryByRole('region', { name: 'Alimento propio' })).not.toBeInTheDocument();
+  });
+});
+
+describe('PendienteDetalle — rediseño: pasos, resultado único y pie con estado', () => {
+  it('muestra los dos pasos numerados y el resultado una sola vez con su fuente', async () => {
+    await abrir();
+    expect(screen.getByRole('heading', { name: 'Nombre del alimento' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '¿De dónde salen los valores?' })).toBeInTheDocument();
+    const card = resultado();
+    expect(within(card).getByText('IA (Gemini)')).toBeInTheDocument();
+    expect(within(card).getByText(/150/)).toBeInTheDocument();
+    expect(within(card).getByText('kcal por 100 g')).toBeInTheDocument();
+    expect(within(card).getByText(/Así queda en tu comida/)).toBeInTheDocument();
+  });
+
+  it('la fuente del resultado cambia con el método elegido', async () => {
+    const { user } = await abrir({}, [FOTO_20]);
+    await user.click(pestana('A mano'));
+    expect(within(resultado()).getByText('A mano')).toBeInTheDocument();
+    await user.click(pestana('Del catálogo'));
+    expect(within(resultado()).getByText('Del catálogo')).toBeInTheDocument();
+  });
+
+  it('el pie explica por qué Validar está deshabilitado y avisa cuando está listo', async () => {
+    const { user } = await abrir();
+    const estado = screen.getByRole('status', { name: 'Estado de la validación' });
+    expect(estado).toHaveTextContent('Listo para validar');
+    await user.clear(screen.getByLabelText('Nombre'));
+    expect(estado).toHaveTextContent('Poné un nombre al alimento');
+    expect(screen.getByRole('button', { name: 'Validar' })).toBeDisabled();
+    await user.click(pestana('Del catálogo'));
+    await user.type(screen.getByLabelText('Nombre'), 'Flan');
+    expect(estado).toHaveTextContent('Agregá al menos un alimento del catálogo');
+  });
+
+  it('si el nombre cambió ofrece volver al original con un toque', async () => {
+    const { user } = await abrir();
+    expect(screen.queryByRole('button', { name: /Usar «Flan casero»/ })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Nombre'), ' 2');
+    await user.click(screen.getByRole('button', { name: /Usar «Flan casero»/ }));
+    expect(screen.getByLabelText('Nombre')).toHaveValue('Flan casero');
+  });
+
+  it('con una sola comida listada no hay "Ver otras"', async () => {
+    await abrir();
+    expect(screen.queryByRole('button', { name: /Ver otras/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Dónde apareció · 2 comidas/)).toBeInTheDocument(); // totalOcurrencias del fixture
   });
 });

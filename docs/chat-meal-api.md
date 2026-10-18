@@ -179,7 +179,7 @@ Es lo que hace el botón **"Confirmar y guardar registro"**. Guarda **todo en un
 
 ## Antes de usarlo: aplicar el SQL
 
-Correr `supabase/012_chat_ia_registros_nut191.sql` en el SQL Editor de Supabase (es re-ejecutable). Sin eso, el endpoint responde `500 PERSISTENCE_ERROR` y el log del servidor dice `Could not find the function ... confirmar_chat_ia_registro`.
+Correr `supabase/schema_consolidado.sql` (sección «012 (NUT-191) chat IA») en el SQL Editor de Supabase (es re-ejecutable). Sin eso, el endpoint responde `500 PERSISTENCE_ERROR` y el log del servidor dice `Could not find the function ... confirmar_chat_ia_registro`.
 
 ## Request
 
@@ -220,7 +220,7 @@ Errores (`{ "error": { "code", "message" } }`): `400 BAD_REQUEST` (payload invá
 
 El chat de la app **siempre usa Gemini** (no hay variable para cambiarlo), así que cada mensaje gasta cuota. Para verificar el guardado sin gastar nada de Gemini, mandá la request **7. Guardar registro (confirm)** de la colección de Postman: no llama a Gemini y arma el mismo guardado que hace el botón.
 
-1. Aplicá `supabase/012_chat_ia_registros_nut191.sql`.
+1. Aplicá `supabase/schema_consolidado.sql` (sección «012 (NUT-191) chat IA»).
 2. Para probar con la interfaz: `npm run dev`, en `/alimentacion` (elegí fecha y comida) → **Registrar por chat** → por ejemplo "comí empanadas" y, al preguntar, "3 de carne al horno" (2 llamadas a Gemini).
 3. Probá: **Editar** una cantidad, **Quitar** un ítem, **Confirmar y guardar registro**. (La request 7 de Postman equivale a editar la empanada a 120 g, quitar la banana y dejar el agua: Empanada de carne `estimado_ia`, Banana de SARA2 y Agua 250 ml.)
 5. Verificá en el SQL Editor (reemplazá el uuid por el de tu usuario, en Authentication → Users):

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { todayAR, daysAgoAR } from '@/lib/date';
 
 function formatFechaTitle(fecha: string): string {
@@ -24,7 +25,6 @@ import ChatFoodModal from './ChatFoodModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import BusquedaAlimento, { type BusquedaAlimentoHandle } from './BusquedaAlimento';
 import CantidadSelector from './CantidadSelector';
-import type { FoodChatResult } from '@/lib/chatFood';
 
 type ItemRow = {
   id_item: number;
@@ -122,6 +122,7 @@ export default function AlimentacionClient({
   fecha: string;
   hideNutrition: boolean;
 }) {
+  const router = useRouter();
   const [selectedAlimento, setSelectedAlimento] = useState<AlimentoOption | null>(null);
   const [manualQuery, setManualQuery] = useState('');
   const [cantidadValue, setCantidadValue] = useState('50');
@@ -252,17 +253,21 @@ export default function AlimentacionClient({
         }}
         mealType={tipoIngesta}
         mealLabel={MEAL_LABEL[tipoIngesta]}
+        fecha={fecha}
+        hideNutrition={hideNutrition}
+        // NUT-119: /save ya registró los alimentos en el diario; refrescar la página los muestra.
+        onSaved={() => router.refresh()}
       />
 
       {/* Chat food registration modal (NUT-187) */}
       <ChatFoodModal
         open={showChatModal}
+        fecha={fecha}
+        tipoIngesta={tipoIngesta}
         onClose={() => setShowChatModal(false)}
-        onConfirm={(result: FoodChatResult) => {
-          // NUT-191: acá se debe redirigir/enviar `result` al módulo de
-          // desglose/confirmación de comida cuando ese módulo exista. Por
-          // ahora cerramos el chat y enfocamos el buscador, como con "Otro".
-          console.debug('[NUT-191] alimentos a integrar en el módulo de desglose', result.alimentos);
+        onConfirm={() => {
+          // El chat ya guardó el registro (diario, hidratación y auditoría); acá solo se
+          // cierra y se vuelve al buscador. La lista del diario se refresca desde el chat.
           setShowChatModal(false);
           setTimeout(() => searchHandleRef.current?.focus(), 0);
         }}

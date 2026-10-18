@@ -61,7 +61,7 @@ export default function SportDonut({ basquet, hockey }: SportDonutProps) {
           <div key={entry.name} className="flex items-center gap-2 text-sm text-slate-600">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="font-medium">{entry.name}</span>
-            <span className="text-slate-400">{entry.value}</span>
+            <span className="text-slate-500">{entry.value}</span>
           </div>
         ))}
       </div>
@@ -71,7 +71,7 @@ export default function SportDonut({ basquet, hockey }: SportDonutProps) {
 
 function EmptyState() {
   return (
-    <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+    <div className="flex h-64 items-center justify-center text-sm text-slate-500">
       Sin datos de deportistas todavía
     </div>
   );

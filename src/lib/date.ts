@@ -11,3 +11,13 @@ export function daysAgoAR(days: number): string {
   date.setUTCDate(date.getUTCDate() - days);
   return formatter.format(date);
 }
+
+/** Ventana en la que se puede cargar o editar una comida: hasta 7 días atrás, nunca en el futuro. */
+export function estaEnRangoEditable(fecha: string): boolean {
+  return fecha >= daysAgoAR(7) && fecha <= todayAR();
+}
+
+/** "6/10/2026" a partir de un timestamp ISO, en horario de Argentina (como el resto de la app). */
+export function formatFechaCorta(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ });
+}

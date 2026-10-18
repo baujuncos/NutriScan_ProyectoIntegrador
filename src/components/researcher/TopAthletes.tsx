@@ -23,7 +23,7 @@ function complianceTone(pct: number): string {
 export default function TopAthletes({ athletes }: { athletes: TopAthlete[] }) {
   if (athletes.length === 0) {
     return (
-      <div className="py-8 text-center text-sm text-slate-400">
+      <div className="py-8 text-center text-sm text-slate-500">
         No hay deportistas para rankear todavía.
       </div>
     );
@@ -42,7 +42,7 @@ export default function TopAthletes({ athletes }: { athletes: TopAthlete[] }) {
             <p className="truncate text-sm font-semibold text-slate-900">
               {a.nombre} {a.apellido}
             </p>
-            <p className="truncate text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-500">
               {a.deporte ? DEPORTE_LABELS[a.deporte] ?? a.deporte : 'Sin deporte'}
             </p>
           </div>

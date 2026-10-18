@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Button from '@/components/ui/Button';
 import type { BoundingBox } from '@/lib/deteccion';
 import { PASO_PESO_G, contarDudas, esConfianzaAlta, itemActivo, type WorkingItem } from '@/lib/deteccionResultado';
-import { nutritionProviderMock, type NutritionProvider } from '@/lib/nutritionMock';
 import { IconCheck, IconRepeat, IconRuler, IconSearch, IconTrash } from './icons';
 
 const ACCENT = '#a855f7';
@@ -38,28 +37,16 @@ function BoundingBoxHighlight({ box }: { box: BoundingBox }) {
   );
 }
 
-function MacroBar({ label, grams, maxGrams, color }: { label: string; grams: number; maxGrams: number; color: string }) {
-  const pct = maxGrams > 0 ? Math.min(100, (grams / maxGrams) * 100) : 0;
-  return (
-    <div>
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="text-sm font-bold text-gray-900">{Math.round(grams)} g</p>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-    </div>
-  );
-}
-
 export interface AIRecognitionResultProps {
   photoUrl: string;
   vajillaChip: string;
   items: WorkingItem[];
   mealLabel: string;
-  provider?: NutritionProvider;
   saving: boolean;
   saveError: string | null;
   saveSuccess: boolean;
+  /** Aviso opcional bajo "Guardado en…" (ej. alimentos sin datos nutricionales). */
+  saveNotice?: string | null;
   onRepetir: () => void;
   onResponder: (uiId: string, respuesta: string | null, custom?: boolean) => void;
   onAjustarPeso: (uiId: string, grams: number) => void;
@@ -80,10 +67,10 @@ export default function AIRecognitionResult({
   vajillaChip,
   items,
   mealLabel,
-  provider = nutritionProviderMock,
   saving,
   saveError,
   saveSuccess,
+  saveNotice = null,
   onRepetir,
   onResponder,
   onAjustarPeso,
@@ -103,20 +90,7 @@ export default function AIRecognitionResult({
   const listo = dudas === 0;
   const expandedActualId = expandedId ?? items[0]?.uiId ?? null;
 
-  const totales = items.reduce(
-    (acc, item) => {
-      const n = provider.forGrams(item.name, item.grams);
-      return {
-        grams: acc.grams + item.grams,
-        kcal: acc.kcal + n.kcal,
-        protein: acc.protein + n.protein,
-        carbs: acc.carbs + n.carbs,
-        fat: acc.fat + n.fat,
-      };
-    },
-    { grams: 0, kcal: 0, protein: 0, carbs: 0, fat: 0 },
-  );
-  const maxMacro = Math.max(totales.protein, totales.carbs, totales.fat, 1);
+  const totalGramos = items.reduce((acc, item) => acc + item.grams, 0);
 
   const handleResponder = (uiId: string, respuesta: string) => {
     setShowCustomInput(false);
@@ -147,6 +121,7 @@ export default function AIRecognitionResult({
           </svg>
         </span>
         <p className="text-sm font-semibold text-gray-900">Guardado en {mealLabel}</p>
+        {saveNotice && <p className="text-xs text-gray-500">{saveNotice}</p>}
         <Button type="button" variant="primary" onClick={onListo}>
           Listo
         </Button>
@@ -192,7 +167,6 @@ export default function AIRecognitionResult({
           const esActivo = !listo && activo?.uiId === item.uiId;
           const tieneDudaPendiente = item.pendingQuestions.length > 0;
           const expandidoListo = listo && expandedActualId === item.uiId;
-          const nutricion = provider.forGrams(item.name, item.grams);
 
           return (
             <li
@@ -221,9 +195,6 @@ export default function AIRecognitionResult({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {listo && expandidoListo && (
-                    <span className="text-sm font-semibold text-gray-700">{Math.round(nutricion.kcal)} kcal</span>
-                  )}
                   <span className="inline-flex items-center gap-1 text-sm font-semibold text-violet-700">
                     {Math.round(item.grams)} g
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -378,28 +349,9 @@ export default function AIRecognitionResult({
         </button>
       )}
 
-      {listo ? (
-        <div className="space-y-3 rounded-2xl border border-gray-100 bg-gray-50 p-3">
-          <div className="flex items-baseline justify-between">
-            <p className="text-xs font-medium text-gray-400">Total · {Math.round(totales.grams)} g</p>
-            <p className="text-2xl font-bold text-gray-900">{Math.round(totales.kcal)} kcal</p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <MacroBar label="Proteínas" grams={totales.protein} maxGrams={maxMacro} color="#3b82f6" />
-            <MacroBar label="Carbohidratos" grams={totales.carbs} maxGrams={maxMacro} color="#22c55e" />
-            <MacroBar label="Grasas" grams={totales.fat} maxGrams={maxMacro} color="#f59e0b" />
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-baseline justify-between">
-          <p className="text-sm font-semibold text-gray-700">Total estimado {Math.round(totales.grams)} g</p>
-          <p className="text-xs text-gray-400">
-            ≈ {Math.round(totales.kcal)} kcal
-            <br />
-            <span className="italic">puede cambiar según tu respuesta</span>
-          </p>
-        </div>
-      )}
+      <p className="text-sm font-semibold text-gray-700">
+        {listo ? 'Total' : 'Total estimado'} · {Math.round(totalGramos)} g
+      </p>
 
       {saveError && (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" aria-live="polite">

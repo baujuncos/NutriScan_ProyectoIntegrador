@@ -65,6 +65,17 @@ export interface SaveRequest {
   mealType: string; // ej. "Desayuno", viene del contexto de la página
   items: FinalItem[];
   removedItemIds: string[]; // ítems de la IA que el usuario quitó (falsos positivos)
+  fecha?: string; // NUT-119: YYYY-MM-DD de la comida en el diario; default hoy (AR). Dentro de la ventana editable (7 días).
+}
+
+/**
+ * NUT-119 — Respuesta de /save. Aditiva: `ok` y `savedId` ya existían.
+ * NUNCA lleva kcal/macros (ni para deportistas ni para particulares): solo contadores.
+ */
+export interface SaveResponse {
+  ok: true;
+  savedId: string;
+  diario: { itemsRegistrados: number; sinDatos: number };
 }
 
 /**
@@ -99,3 +110,10 @@ export function esBoundingBoxValida(bbox: BoundingBox): boolean {
     y + height <= 1 + 1e-6
   );
 }
+
+/**
+ * NUT-119 — Versión del prompt de estimación de macros por 100 g (fallback de
+ * Gemini cuando el alimento no está en la DB). Se persiste junto a cada
+ * estimación. Bumpear cuando cambie la semántica del prompt.
+ */
+export const NUTRITION_PROMPT_VERSION = 'nut119-sara2-v1';

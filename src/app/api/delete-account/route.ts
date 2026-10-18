@@ -1,6 +1,7 @@
 // NO USAMOS ESTE ENDPOINT, USAMOS EL SERVER ACTION EN SU LUGAR PORQUE ES MÁS SENCILLO DE PROTEGER Y MANEJAR ERRORES.
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { borrarFotosDeUsuario } from '@/lib/fotosDeteccion';
 
 const DOMAIN_TABLES = [
   { table: 'ingestas',              col: 'id_usuario' },
@@ -60,6 +61,9 @@ export async function POST(request: NextRequest) {
     tableResults[table] = error ? error.message : 'ok';
     if (error) console.error(`delete-account: error en ${table}:`, error);
   }
+
+  // NUT-119: las fotos del plato viven en Storage y el cascade de la DB no las borra.
+  await borrarFotosDeUsuario(admin, user.id);
 
   const { error: deleteUserError } = await admin.auth.admin.deleteUser(user.id);
   if (deleteUserError) {

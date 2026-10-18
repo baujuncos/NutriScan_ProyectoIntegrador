@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import type { BoundingBox } from '@/lib/deteccion';
-import type { NutritionProvider } from '@/lib/nutritionMock';
 import { searchAlimentosAction, type AlimentoOption } from './actions';
 
 const ACCENT = '#a855f7';
@@ -66,16 +65,15 @@ export interface ChangeFoodTarget {
 
 /**
  * NUT-171 — Hoja "Cambiar alimento": reutiliza el buscador manual existente
- * (`searchAlimentosAction`) para elegir un alimento, pero los valores
- * nutricionales que se muestran salen del `NutritionProvider` mock, no de la
- * base (ver `src/lib/nutritionMock.ts`).
+ * (`searchAlimentosAction`) para elegir un alimento. NUT-119: no muestra
+ * kcal/macros (eran valores del mock) y entrega el `id_alimento` elegido para
+ * que el servidor lo use directo, sin matching.
  */
 export default function ChangeFoodSheet({
   mode,
   target,
   photoUrl,
   mealType,
-  provider,
   onConfirm,
 }: {
   mode: 'replace' | 'add';
@@ -83,8 +81,7 @@ export default function ChangeFoodSheet({
   target?: ChangeFoodTarget;
   photoUrl: string | null;
   mealType: string;
-  provider: NutritionProvider;
-  onConfirm: (alimento: { nombre: string; categoria: string }) => void;
+  onConfirm: (alimento: { nombre: string; categoria: string; idAlimento: number }) => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AlimentoOption[]>([]);
@@ -118,7 +115,11 @@ export default function ChangeFoodSheet({
 
   const handleConfirm = () => {
     if (!selected) return;
-    onConfirm({ nombre: selected.nombre, categoria: selected.categoria ?? 'Sin categoría' });
+    onConfirm({
+      nombre: selected.nombre,
+      categoria: selected.categoria ?? 'Sin categoría',
+      idAlimento: selected.id_alimento,
+    });
   };
 
   const elegido = mode === 'replace' ? 'Reemplaza' : 'Agrega';
@@ -200,7 +201,6 @@ export default function ChangeFoodSheet({
         )}
         <ul className="space-y-1.5">
           {results.slice(0, MAX_RESULTADOS).map((alimento) => {
-            const nutricion = provider.per100g(alimento.nombre);
             const isSelected = selected?.id_alimento === alimento.id_alimento;
             return (
               <li key={alimento.id_alimento}>
@@ -215,17 +215,8 @@ export default function ChangeFoodSheet({
                     isSelected ? { backgroundColor: `${ACCENT}14`, boxShadow: `0 0 0 2px ${ACCENT}` } : undefined
                   }
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-gray-900">{alimento.nombre}</span>
-                    <span className="text-sm font-semibold text-gray-700">{Math.round(nutricion.kcal)} kcal</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-gray-400">{alimento.categoria ?? 'Sin categoría'} · por 100 g</span>
-                    <span className="text-xs text-gray-400">
-                      P {nutricion.protein.toFixed(0)} · C {nutricion.carbs.toFixed(0)} · G{' '}
-                      {nutricion.fat.toFixed(0)}
-                    </span>
-                  </div>
+                  <span className="block text-sm font-semibold text-gray-900">{alimento.nombre}</span>
+                  <span className="block text-xs text-gray-400">{alimento.categoria ?? 'Sin categoría'}</span>
                 </button>
               </li>
             );

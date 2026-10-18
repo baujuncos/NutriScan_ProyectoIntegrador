@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useBodyScrollLock } from '@/lib/overlayMovil';
 
 interface ModalProps {
   open: boolean;
@@ -12,41 +13,21 @@ interface ModalProps {
   onBack?: () => void;
   /** Ícono opcional antes del título (reemplaza a poner un emoji dentro del string de `title`). */
   icon?: React.ReactNode;
+  /** Panel ancho (detalles con foto + formulario). Por defecto `max-w-lg`. */
+  wide?: boolean;
 }
 
-export default function Modal({ open, onClose, title, children, onBack, icon }: ModalProps) {
+export default function Modal({ open, onClose, title, children, onBack, icon, wide }: ModalProps) {
+  // `overflow: hidden` en el body no alcanza en iOS: se fija el body mientras el modal está abierto.
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-
-    // `overflow: hidden` en el body no alcanza en iOS (Safari/PWA instalada):
-    // el touch-scroll de la página de atrás sigue andando igual mientras el
-    // modal está abierto. Fijar el body en su lugar con `position: fixed` sí
-    // lo bloquea de verdad ahí; se restaura el scroll al cerrar.
-    const scrollY = window.scrollY;
-    const { body } = document;
-    const prev = {
-      position: body.style.position,
-      top: body.style.top,
-      width: body.style.width,
-      overflow: body.style.overflow,
-    };
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollY}px`;
-    body.style.width = '100%';
-    body.style.overflow = 'hidden';
-
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      body.style.position = prev.position;
-      body.style.top = prev.top;
-      body.style.width = prev.width;
-      body.style.overflow = prev.overflow;
-      window.scrollTo(0, scrollY);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open || typeof document === 'undefined') return null;
@@ -63,7 +44,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl my-auto"
+        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-white p-6 shadow-xl my-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -73,7 +54,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
                 type="button"
                 onClick={onBack}
                 aria-label="Volver"
-                className="text-gray-400 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                className="text-gray-600 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
@@ -91,7 +72,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon }: 
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="text-gray-400 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+            className="text-gray-600 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" />

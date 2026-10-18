@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.24.0",
     "@hookform/resolvers": "^5.2.2",
     "@serwist/next": "^9.5.12",
     "@supabase/ssr": "^0.10.2",

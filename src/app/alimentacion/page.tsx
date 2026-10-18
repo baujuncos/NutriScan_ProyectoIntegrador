@@ -7,6 +7,7 @@ import { getRoleLabel, shouldHideNutritionInfo } from '@/lib/roles';
 import { createClient } from '@/lib/supabase/server';
 import { INGESTA_TIPOS, isValidDateInput, type IngestaTipo } from '@/lib/nutrition';
 import { todayAR } from '@/lib/date';
+import { ocultarMacros } from '@/lib/ocultarMacros';
 import AlimentacionView from './AlimentacionView';
 
 export const dynamic = 'force-dynamic';
@@ -98,7 +99,8 @@ export default async function AlimentacionPage({
     .eq('id_usuario', user.id)
     .eq('fecha', fecha);
 
-  const ingestas = (ingestasData ?? []) as IngestaRow[];
+  // Deportistas: los macros no deben viajar al cliente (ni en el payload RSC), solo ocultarse en el JSX no alcanza.
+  const ingestas = ocultarMacros((ingestasData ?? []) as IngestaRow[], hideNutrition);
 
   return (
     <>

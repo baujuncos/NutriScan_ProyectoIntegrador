@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { esAltaInvestigador, extractNombreApellido } from '@/lib/roles';
 import { INV_CODE_COOKIE } from '@/lib/inv-code-cookie';
@@ -39,14 +40,17 @@ export async function GET(request: NextRequest) {
 
             if (
               esAltaInvestigador({
-                metaRole: (user.user_metadata as Record<string, unknown>)?.role,
+                // app_metadata: solo escribible con service role (user_metadata lo escribe el propio usuario).
+                appRole: (user.app_metadata as Record<string, unknown> | undefined)?.role,
                 cookieToken: request.cookies.get(INV_CODE_COOKIE)?.value,
                 validCode: process.env.INVITATION_CODE_INVESTIGADOR,
               })
             ) {
-              // Investigador: alta por email (metadata) o Google tras validar el código
+              // Investigador: alta por email (app_metadata) o Google tras validar el código.
+              // Se inserta con el cliente ADMIN: el trigger de profiles no deja que un
+              // usuario común se asigne este rol por su cuenta.
               invConsumido = true;
-              await supabase.from('profiles').insert({
+              await createAdminClient().from('profiles').insert({
                 user_id: user.id,
                 nombre,
                 apellido,

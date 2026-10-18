@@ -34,7 +34,6 @@ import AIRecognitionResult from './AIRecognitionResult';
 import ChangeFoodSheet from './ChangeFoodSheet';
 import { llamarReconocimiento, guardarCorrecciones, ReconocimientoError } from './reconocimientoApi';
 import { leerUltimaVajilla, guardarUltimaVajilla } from '@/lib/vajillaPreferencia';
-import { nutritionProviderMock } from '@/lib/nutritionMock';
 import { IconSparkle } from './icons';
 
 type Stage = 'foto' | 'resultado' | 'cambiar-alimento' | 'agregar-alimento';
@@ -45,12 +44,21 @@ export default function AIRecognitionModal({
   onSelectOtro,
   mealType,
   mealLabel,
+  fecha,
+  hideNutrition = true,
+  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   onSelectOtro: () => void;
   mealType: IngestaTipo;
   mealLabel: string;
+  /** YYYY-MM-DD de la comida en el diario (default del servidor: hoy). */
+  fecha?: string;
+  /** Deportistas UCC: no se les dice nada de datos nutricionales. Por defecto oculto (más seguro). */
+  hideNutrition?: boolean;
+  /** Se llama tras un guardado exitoso (la página refresca el diario). */
+  onSaved?: () => void;
 }) {
   const [stage, setStage] = useState<Stage>('foto');
 
@@ -92,6 +100,7 @@ export default function AIRecognitionModal({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const setImage = (url: string | null) => {
     if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
@@ -127,6 +136,7 @@ export default function AIRecognitionModal({
     setSaving(false);
     setSaveError(null);
     setSaveSuccess(false);
+    setSaveNotice(null);
     resetEncuadre();
   };
 
@@ -305,12 +315,12 @@ export default function AIRecognitionModal({
     setStage('resultado');
   };
 
-  const handleConfirmarAlimento = (alimento: { nombre: string; categoria: string }) => {
+  const handleConfirmarAlimento = (alimento: { nombre: string; categoria: string; idAlimento: number }) => {
     if (stage === 'cambiar-alimento' && changeFoodTarget) {
       const targetId = changeFoodTarget.uiId;
       setItems((prev) => prev.map((i) => (i.uiId === targetId ? reemplazarAlimento(i, alimento) : i)));
     } else {
-      setItems((prev) => [...prev, crearItemManual(alimento.nombre, alimento.categoria)]);
+      setItems((prev) => [...prev, crearItemManual(alimento.nombre, alimento.categoria, alimento.idAlimento)]);
     }
     setChangeFoodTarget(null);
     setStage('resultado');
@@ -321,9 +331,16 @@ export default function AIRecognitionModal({
     setSaving(true);
     setSaveError(null);
     try {
-      const saveRequest = armarSaveRequest(predictionId, mealType, items, removedItemIds);
-      await guardarCorrecciones(saveRequest);
+      const saveRequest = armarSaveRequest(predictionId, mealType, items, removedItemIds, fecha);
+      const { diario } = await guardarCorrecciones(saveRequest);
+      const sinDatos = diario.sinDatos;
+      setSaveNotice(
+        !hideNutrition && sinDatos > 0
+          ? `${sinDatos} alimento${sinDatos === 1 ? '' : 's'} sin datos nutricionales`
+          : null,
+      );
       setSaveSuccess(true);
+      onSaved?.();
     } catch (err) {
       setSaveError(
         err instanceof ReconocimientoError ? err.message : 'No pudimos guardar los cambios. Probá de nuevo.',
@@ -541,6 +558,7 @@ export default function AIRecognitionModal({
             saving={saving}
             saveError={saveError}
             saveSuccess={saveSuccess}
+            saveNotice={saveNotice}
             onRepetir={handleRepetir}
             onResponder={handleResponder}
             onAjustarPeso={handleAjustarPeso}
@@ -568,7 +586,6 @@ export default function AIRecognitionModal({
             }
             photoUrl={imageUrl}
             mealType={mealType}
-            provider={nutritionProviderMock}
             onConfirm={handleConfirmarAlimento}
           />
         )}

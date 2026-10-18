@@ -12,6 +12,7 @@ import {
   GoogleGenerativeAIFetchError,
   type Content,
   type GenerationConfig,
+  type Schema,
 } from '@google/generative-ai';
 import { z } from 'zod';
 import {
@@ -123,10 +124,25 @@ function buildContents(params: ReconocerAlimentosParams): Content[] {
   return [{ role: 'user', parts: [imagePart, instruccionInicial] }];
 }
 
-/** Identifica y estima el peso de todos los alimentos de una foto en una sola llamada a Gemini. */
-export async function reconocerAlimentos(
-  params: ReconocerAlimentosParams,
-): Promise<ReconocerAlimentosResultado> {
+export interface LlamarGeminiJsonOpts<T> {
+  systemInstruction: string;
+  contents: Content[];
+  responseSchema: Schema;
+  /** Devuelve null si el texto no es válido → se reintenta una vez con una instrucción más estricta. */
+  parse: (text: string) => T | null;
+  /** Presupuesto total compartido por TODAS las llamadas (principal + respaldo + reintento JSON). */
+  maxTotalMs: number;
+  /** Techo por intento individual (además acotado por lo que quede del presupuesto total). */
+  timeoutMs: number;
+}
+
+/**
+ * NUT-119 — Llamada a Gemini que devuelve JSON validado: modelo principal con
+ * un único respaldo ante 503/timeout (ver `callWithFallback`), mapeo de
+ * errores a las clases `Gemini*Error` y un único reintento si el JSON no
+ * valida. La comparten el reconocimiento por foto y el fallback de macros.
+ */
+export async function llamarGeminiJson<T>(opts: LlamarGeminiJsonOpts<T>): Promise<{ resultado: T; modeloUsado: string }> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new GeminiConfigError('GEMINI_API_KEY no está configurada.');
@@ -134,19 +150,12 @@ export async function reconocerAlimentos(
   const modelName = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const fallbackModelName = process.env.GEMINI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL;
 
-  const contexto: ContextoCaptura = params.contexto;
-  let systemInstruction = construirSystemPrompt(contexto);
-  if (params.anguloAproximado) {
-    systemInstruction += NOTA_ANGULO_APROXIMADO;
-  }
-
-  const contents = buildContents(params);
   const genAI = new GoogleGenerativeAI(apiKey);
 
   // Presupuesto de tiempo compartido por TODAS las llamadas de esta invocación
   // (principal + fallback + reintento por JSON malformado), para que el total
-  // nunca exceda `MAX_TOTAL_MS` sin importar cuántos intentos hagan falta.
-  const deadlineAt = Date.now() + MAX_TOTAL_MS;
+  // nunca exceda `maxTotalMs` sin importar cuántos intentos hagan falta.
+  const deadlineAt = Date.now() + opts.maxTotalMs;
 
   async function callGemini(instruction: string, model: string): Promise<LlamadaGemini> {
     const remaining = deadlineAt - Date.now();
@@ -158,15 +167,15 @@ export async function reconocerAlimentos(
       systemInstruction: instruction,
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: FOOD_DETECTION_RESPONSE_SCHEMA,
+        responseSchema: opts.responseSchema,
         // Sin esto los modelos 3.x "piensan" ~900 tokens y tardan 35s+; el SDK reenvía el campo tal cual.
         thinkingConfig: { thinkingLevel: 'minimal' },
       } as GenerationConfig,
     });
     try {
       const result = await generativeModel.generateContent(
-        { contents },
-        { timeout: Math.min(TIMEOUT_MS, remaining) },
+        { contents: opts.contents },
+        { timeout: Math.min(opts.timeoutMs, remaining) },
       );
       return { text: result.response.text(), modelo: model };
     } catch (err) {
@@ -213,13 +222,33 @@ export async function reconocerAlimentos(
     }
   }
 
-  const first = await callWithFallback(systemInstruction);
-  const firstParsed = parseGeminiFoodDetectionResult(first.text);
+  const first = await callWithFallback(opts.systemInstruction);
+  const firstParsed = opts.parse(first.text);
   if (firstParsed) return { resultado: firstParsed, modeloUsado: first.modelo };
 
-  const retry = await callWithFallback(systemInstruction + INSTRUCCION_RETRY_JSON);
-  const retryParsed = parseGeminiFoodDetectionResult(retry.text);
+  const retry = await callWithFallback(opts.systemInstruction + INSTRUCCION_RETRY_JSON);
+  const retryParsed = opts.parse(retry.text);
   if (retryParsed) return { resultado: retryParsed, modeloUsado: retry.modelo };
 
   throw new GeminiInvalidResponseError('Gemini no devolvió un JSON válido tras reintentar.');
+}
+
+/** Identifica y estima el peso de todos los alimentos de una foto en una sola llamada a Gemini. */
+export async function reconocerAlimentos(
+  params: ReconocerAlimentosParams,
+): Promise<ReconocerAlimentosResultado> {
+  const contexto: ContextoCaptura = params.contexto;
+  let systemInstruction = construirSystemPrompt(contexto);
+  if (params.anguloAproximado) {
+    systemInstruction += NOTA_ANGULO_APROXIMADO;
+  }
+
+  return llamarGeminiJson<GeminiFoodDetectionResult>({
+    systemInstruction,
+    contents: buildContents(params),
+    responseSchema: FOOD_DETECTION_RESPONSE_SCHEMA,
+    parse: parseGeminiFoodDetectionResult,
+    maxTotalMs: MAX_TOTAL_MS,
+    timeoutMs: TIMEOUT_MS,
+  });
 }

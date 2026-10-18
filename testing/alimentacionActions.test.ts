@@ -56,6 +56,21 @@ describe('searchAlimentosAction', () => {
     expect(resultado).toHaveLength(150);
   });
 
+  it('ordena con SARA2 primero (fuente desc) y luego por nombre, en AMBAS consultas: con 38 mil productos ANMAT, el corte alfabético dejaba afuera a los genéricos SARA2', async () => {
+    supabaseFromMock.mockTable('alimentos', { data: [], error: null });
+    supabaseFromMock.mockTable('alimentos', { data: [], error: null });
+
+    await searchAlimentosAction('arroz', 'almuerzo');
+
+    const orders = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'order');
+    expect(orders.map((o) => [o.args[0], (o.args[1] as { ascending: boolean }).ascending])).toEqual([
+      ['fuente', false],
+      ['nombre', true],
+      ['fuente', false],
+      ['nombre', true],
+    ]);
+  });
+
   it('aplica el filtro de categoría, nombre O denominación "suplemento" en las consultas reales cuando tipoIngesta es suplemento', async () => {
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
     supabaseFromMock.mockTable('alimentos', { data: [], error: null });
@@ -72,10 +87,11 @@ describe('searchAlimentosAction', () => {
 
     await searchAlimentosAction('arroz', 'almuerzo');
 
-    const nots = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'not');
-    expect(nots.some((f) => f.args[0] === 'categoria' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
-    expect(nots.some((f) => f.args[0] === 'nombre' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
-    expect(nots.some((f) => f.args[0] === 'denominacion' && f.args[1] === 'ilike' && f.args[2] === '%suplemento%')).toBe(true);
+    // NULL-safe: los SARA2 tienen denominacion NULL y `NOT ILIKE` los descartaba (regresión df5947c).
+    const ors = supabaseFromMock.filtrosLlamados().filter((f) => f.tabla === 'alimentos' && f.metodo === 'or').map((f) => f.args[0]);
+    for (const col of ['categoria', 'nombre', 'denominacion']) {
+      expect(ors).toContain(`${col}.is.null,${col}.not.ilike.%suplemento%`);
+    }
   });
 });
 

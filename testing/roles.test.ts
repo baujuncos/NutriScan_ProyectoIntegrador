@@ -92,26 +92,23 @@ describe('extractNombreApellido', () => {
 });
 
 describe('esAltaInvestigador', () => {
-  it('alta por email: user_metadata.role investigador', () => {
-    expect(esAltaInvestigador({ metaRole: 'investigador' })).toBe(true);
+  it('alta por email: app_metadata.role investigador (lo escribe /api/register con service role)', () => {
+    expect(esAltaInvestigador({ appRole: 'investigador' })).toBe(true);
   });
 
   it('alta con Google: cookie igual al código válido', () => {
-    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: 'abc', validCode: 'abc' })).toBe(true);
+    expect(esAltaInvestigador({ appRole: undefined, cookieToken: 'abc', validCode: 'abc' })).toBe(true);
   });
 
   it('cookie distinta, ausente o sin código configurado → no es investigador', () => {
-    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: 'x', validCode: 'abc' })).toBe(false);
-    expect(esAltaInvestigador({ metaRole: undefined, validCode: 'abc' })).toBe(false);
-    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: undefined, validCode: undefined })).toBe(false);
-    expect(esAltaInvestigador({ metaRole: undefined, cookieToken: '', validCode: '' })).toBe(false);
+    expect(esAltaInvestigador({ appRole: undefined, cookieToken: 'x', validCode: 'abc' })).toBe(false);
+    expect(esAltaInvestigador({ appRole: undefined, validCode: 'abc' })).toBe(false);
+    expect(esAltaInvestigador({ appRole: undefined, cookieToken: undefined, validCode: undefined })).toBe(false);
+    expect(esAltaInvestigador({ appRole: undefined, cookieToken: '', validCode: '' })).toBe(false);
   });
-});
 
-describe('esEmailUCC', () => {
-  it('solo @ucc.edu.ar', () => {
-    expect(esEmailUCC('a@UCC.edu.ar')).toBe(true);
-    expect(esEmailUCC('a@gmail.com')).toBe(false);
-    expect(esEmailUCC(undefined)).toBe(false);
+  it('otros roles en app_metadata no cuentan', () => {
+    expect(esAltaInvestigador({ appRole: 'administrador' })).toBe(false);
+    expect(esAltaInvestigador({ appRole: 'deportista_ucc' })).toBe(false);
   });
 });

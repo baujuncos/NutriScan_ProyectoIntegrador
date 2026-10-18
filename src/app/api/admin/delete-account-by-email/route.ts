@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { borrarFotosDeUsuario } from '@/lib/fotosDeteccion';
 
 // Only available in development or when called with the service role key.
 // Protected by requiring x-admin-key === SUPABASE_SERVICE_ROLE_KEY.
@@ -62,6 +63,9 @@ export async function POST(request: NextRequest) {
     tableResults[table] = error ? error.message : 'ok';
     if (error) console.error(`delete-by-email: error en ${table}:`, error);
   }
+
+  // --- NUT-119: fotos del plato en Storage (el cascade de la DB no las borra) ---
+  await borrarFotosDeUsuario(admin, userId);
 
   // --- Delete auth user ---
   const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);

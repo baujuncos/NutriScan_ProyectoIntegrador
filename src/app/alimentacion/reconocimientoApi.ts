@@ -5,7 +5,7 @@
  * responden del lado del cliente (sesión 2), no disparan otra llamada.
  */
 import type { EstadoAngulo } from '@/lib/anguloDispositivo';
-import type { DetectionResponse, SaveRequest } from '@/lib/deteccion';
+import type { DetectionResponse, SaveRequest, SaveResponse } from '@/lib/deteccion';
 import type { VajillaTipo } from '@/lib/vajilla';
 
 export class ReconocimientoError extends Error {
@@ -54,10 +54,12 @@ export async function llamarReconocimiento(
 
 /**
  * NUT-172 — Envía las correcciones del usuario sobre una predicción (épica
- * NUT-119). Nunca escribe en el diario real del lado del backend; ver el TODO
- * en `src/app/api/food-recognition/save/route.ts`.
+ * NUT-119). NUT-119: el backend también registra los alimentos en el diario real
+ * y nunca devuelve kcal/macros (solo contadores).
  */
-export async function guardarCorrecciones(saveRequest: SaveRequest): Promise<{ savedId: string }> {
+export async function guardarCorrecciones(
+  saveRequest: SaveRequest,
+): Promise<Pick<SaveResponse, 'savedId' | 'diario'>> {
   const res = await fetch('/api/food-recognition/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -72,5 +74,11 @@ export async function guardarCorrecciones(saveRequest: SaveRequest): Promise<{ s
     );
   }
 
-  return { savedId: String(json.savedId) };
+  return {
+    savedId: String(json.savedId),
+    diario: {
+      itemsRegistrados: Number(json.diario?.itemsRegistrados) || 0,
+      sinDatos: Number(json.diario?.sinDatos) || 0,
+    },
+  };
 }

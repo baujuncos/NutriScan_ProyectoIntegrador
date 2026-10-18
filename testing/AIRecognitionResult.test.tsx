@@ -222,6 +222,14 @@ describe('AIRecognitionResult — estado "listo"', () => {
 });
 
 describe('AIRecognitionResult — confirmación de guardado', () => {
+  it('no muestra kcal ni macros en ningún estado (D13: números del mock ocultos para todos los roles)', () => {
+    render(<Harness initial={crearWorkingItems(DETECTION_SIN_AMBIGUEDAD)} />);
+    expect(screen.queryByText(/kcal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Proteínas')).not.toBeInTheDocument();
+    expect(screen.queryByText('Carbohidratos')).not.toBeInTheDocument();
+    expect(screen.queryByText('Grasas')).not.toBeInTheDocument();
+  });
+
   it('con saveSuccess=true muestra la confirmación y "Listo" cierra', async () => {
     const user = userEvent.setup();
     const onListo = vi.fn();

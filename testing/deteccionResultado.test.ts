@@ -133,6 +133,42 @@ describe('reemplazarAlimento / ajustarPeso / deshacerPeso', () => {
   });
 });
 
+describe('foodRef (alimento elegido en el buscador)', () => {
+  it('los ítems de la IA arrancan sin foodRef', () => {
+    const items = crearWorkingItems(DETECTION_SIN_AMBIGUEDAD);
+    expect(items.every((i) => i.foodRef === null)).toBe(true);
+  });
+
+  it('reemplazarAlimento con idAlimento guarda foodRef como string; sin idAlimento lo deja en null', () => {
+    const arroz = crearWorkingItems(DETECTION_SIN_AMBIGUEDAD).find((i) => i.uiId === 'item-arroz')!;
+    expect(reemplazarAlimento(arroz, { nombre: 'Arroz integral', categoria: 'Cereal', idAlimento: 42 }).foodRef).toBe('42');
+    expect(reemplazarAlimento(arroz, { nombre: 'Arroz integral', categoria: 'Cereal' }).foodRef).toBeNull();
+  });
+
+  it('crearItemManual lo recibe y armarSaveRequest lo propaga', () => {
+    const manual = crearItemManual('Palta', 'Fruta', 7);
+    expect(manual.foodRef).toBe('7');
+    const req = armarSaveRequest('2', 'desayuno', [manual], []);
+    expect(req.items[0].foodRef).toBe('7');
+  });
+
+  it('una respuesta identity cambia qué es el alimento: limpia foodRef; attribute lo conserva', () => {
+    const topping = crearWorkingItems(DETECTION_MOCKUP).find((i) => i.uiId === 'item-topping')!;
+    const conRef = { ...topping, foodRef: '9' };
+    expect(aplicarRespuesta(conRef, 'Yogur griego').foodRef).toBeNull();
+    const soloAttr = { ...conRef, pendingQuestions: [{ question: '¿Frita o al horno?', kind: 'attribute' as const, options: ['Frita', 'Al horno'] }] };
+    expect(aplicarRespuesta(soloAttr, 'Al horno').foodRef).toBe('9');
+  });
+});
+
+describe('armarSaveRequest — fecha', () => {
+  it('incluye fecha solo si se pasa', () => {
+    const items = crearWorkingItems(DETECTION_SIN_AMBIGUEDAD);
+    expect(armarSaveRequest('2', 'desayuno', items, [], '2026-10-06').fecha).toBe('2026-10-06');
+    expect('fecha' in armarSaveRequest('2', 'desayuno', items, [])).toBe(false);
+  });
+});
+
 describe('crearItemManual', () => {
   it('arranca sin sourceItemId, sin aiGrams, origin added_manually y peso inicial 100g', () => {
     const manual = crearItemManual('Palta', 'Fruta');

@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { INGESTA_TIPOS, ITEM_TIPOS, isValidDateInput, toFixed2 } from '@/lib/nutrition';
-import { todayAR, daysAgoAR } from '@/lib/date';
+import { INGESTA_TIPOS, ITEM_TIPOS, MAX_CANTIDAD, isValidDateInput, toFixed2 } from '@/lib/nutrition';
+import { estaEnRangoEditable } from '@/lib/date';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
 import { CAMPOS_DEFAULT, aplicarFiltroSuplemento, buildMarcaDenominacionOr, idsRecientesUnicos, type CamposBusqueda } from './searchQuery';
 
@@ -43,12 +43,16 @@ export async function searchAlimentosAction(
   // Los query builders de supabase-js son "thenables" (PromiseLike), no Promise
   // real — no tienen .catch/.finally — por eso el array se tipa como PromiseLike.
   const promises: Array<PromiseLike<{ data: AlimentoOption[] | null }>> = [];
+  // SARA2 (genéricos, ~900) va primero y después ANMAT (marcas, ~38 mil): sólo ordenando por
+  // nombre, el corte de 100 se llenaba con productos ANMAT ("Aderezo…", "Alfajor…") y el
+  // filtro de fuente (del lado del cliente) no encontraba ningún SARA2. 'SARA2' > 'ANMAT'
+  // alfabéticamente, por eso el orden de `fuente` es descendente.
 
   // Tier 1 (mayor relevancia): matches por nombre.
   if (campos.nombre) {
     let q1 = supabase.from('alimentos').select(SEL).ilike('nombre', `%${q}%`);
     q1 = aplicarFiltroSuplemento(q1, isSuplemento);
-    promises.push(q1.order('nombre', { ascending: true }).limit(100));
+    promises.push(q1.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
   // Tier 2: matches por marca/denominacion que no vinieron ya por nombre.
@@ -57,7 +61,7 @@ export async function searchAlimentosAction(
     let q2 = supabase.from('alimentos').select(SEL).or(marcaDenomOr);
     if (campos.nombre) q2 = q2.not('nombre', 'ilike', `%${q}%`);
     q2 = aplicarFiltroSuplemento(q2, isSuplemento);
-    promises.push(q2.order('nombre', { ascending: true }).limit(100));
+    promises.push(q2.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
   const resultados = await Promise.all(promises);
@@ -91,12 +95,6 @@ export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
   const porId = new Map((alimentos as AlimentoOption[]).map((a) => [a.id_alimento, a]));
   return idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
 }
-
-function isWithinEditableRange(fecha: string): boolean {
-  return fecha >= daysAgoAR(7) && fecha <= todayAR();
-}
-
-const MAX_CANTIDAD = 2000;
 
 function getStringField(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -163,7 +161,7 @@ export async function addItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -224,7 +222,7 @@ export async function addManualItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -272,7 +270,7 @@ export async function addScannedItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }
@@ -402,7 +400,7 @@ export async function updateItemAction(formData: FormData) {
   const cantidadRaw = getStringField(formData, 'cantidad');
 
   if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!isWithinEditableRange(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
     redirect(`/alimentacion?fecha=${fecha}`);
   }

@@ -1,8 +1,13 @@
 /**
- * NUT-154/156/167/168/172 — Endpoint combinado de reconocimiento de
+ * NUT-154/156/167/168/172/119 — Endpoint combinado de reconocimiento de
  * alimentos + estimación de peso vía Gemini (épica NUT-12/NUT-119). Persiste
  * la predicción original (`detecciones_ia`/`detecciones_ia_items`) para el
  * loop de mejora continua. Ver NUT-155/166 para el prompt.
+ *
+ * NUT-119: la imagen ya recortada/procesada que se manda a Gemini también se
+ * guarda en Storage (bucket privado), EN PARALELO con la llamada a Gemini. Si la
+ * subida falla la detección sigue (log); si la detección falla después de
+ * subir, se borra la foto huérfana.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -19,7 +24,9 @@ import {
 } from '@/lib/geminiClient';
 import type { ContextoCaptura } from '@/lib/geminiFoodPrompt';
 import { comprimirImagenParaGemini, ImagenInvalidaError } from '@/lib/geminiImagePrep';
+import { borrarFoto, subirFotoDeteccion } from '@/lib/fotosDeteccion';
 import { errorResponse } from '@/lib/httpErrors';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -76,6 +83,16 @@ function parseJsonField<T>(
   return { ok: true, data: parsed.data };
 }
 
+/** Borra una foto huérfana con el cliente admin (los usuarios no tienen DELETE en el bucket). Nunca lanza. */
+async function limpiarFotoHuerfana(path: string | null): Promise<void> {
+  if (!path) return;
+  try {
+    await borrarFoto(createAdminClient(), path);
+  } catch (err) {
+    console.error('No se pudo limpiar la foto huérfana:', err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   // Requiere sesión: sin esto, cualquiera podría pegarle al endpoint sin
   // loguearse y gastar la cuota de Gemini (que además ahora es facturada).
@@ -129,8 +146,20 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
+  // Arranca la subida YA, en paralelo con Gemini. Nunca rechaza (devuelve null si falla).
+  const fotoPromise = subirFotoDeteccion(supabase, user.id, Buffer.from(imagen.base64, 'base64'));
+  let imagenPath: string | null = null;
+
   try {
-    const { resultado, modeloUsado } = await reconocerAlimentos({ contexto, imagen, anguloAproximado });
+    let reconocimiento: Awaited<ReturnType<typeof reconocerAlimentos>>;
+    try {
+      reconocimiento = await reconocerAlimentos({ contexto, imagen, anguloAproximado });
+    } catch (err) {
+      await limpiarFotoHuerfana(await fotoPromise);
+      throw err;
+    }
+    const { resultado, modeloUsado } = reconocimiento;
+    imagenPath = await fotoPromise;
     const { items, totalEstimatedWeightGrams } = postprocesarDeteccion(resultado);
 
     const { data: deteccionRow, error: insertDeteccionError } = await supabase
@@ -143,7 +172,7 @@ export async function POST(req: NextRequest) {
         vajilla_diametro_cm: diametroCm,
         angulo_captura_grados: anguloCapturaGrados,
         angulo_aproximado: anguloAproximado,
-        imagen_url: null, // NUT-119: no se guarda la foto (participantes de investigación)
+        imagen_path: imagenPath, // NUT-119: path en el bucket privado (null si la subida falló); imagen_url queda sin usar
         total_estimated_weight_grams: totalEstimatedWeightGrams,
       })
       .select('id_deteccion')
@@ -151,6 +180,7 @@ export async function POST(req: NextRequest) {
 
     if (insertDeteccionError || !deteccionRow) {
       console.error('No se pudo persistir la detección:', insertDeteccionError);
+      await limpiarFotoHuerfana(imagenPath);
       return errorResponse(502, 'PERSISTENCE_ERROR', 'No pudimos guardar el resultado. Probá de nuevo.');
     }
 
@@ -172,6 +202,7 @@ export async function POST(req: NextRequest) {
       );
       if (insertItemsError) {
         console.error('No se pudieron persistir los items de la detección:', insertItemsError);
+        await limpiarFotoHuerfana(imagenPath);
         return errorResponse(502, 'PERSISTENCE_ERROR', 'No pudimos guardar el resultado. Probá de nuevo.');
       }
     }

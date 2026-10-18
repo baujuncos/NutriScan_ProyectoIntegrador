@@ -1,7 +1,7 @@
 // NUT-191 — POST /api/chat/meal/confirm: "Confirmar y guardar registro" del chat de comidas.
 // Guarda, en UNA sola transacción (función SQL confirmar_chat_ia_registro): el diario real
 // (ingestas/items), el agua en hidratación y la auditoría para investigadores
-// (chat_ia_registros / chat_ia_registros_items). Ver supabase/012_chat_ia_registros_nut191.sql.
+// (chat_ia_registros / chat_ia_registros_items). Ver supabase/schema_consolidado.sql (sección 012 NUT-191).
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { DEFAULT_GEMINI_MODEL } from '@/lib/ai/gemini';
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await auth.supabase.rpc('confirmar_chat_ia_registro', { p_payload: payload });
   if (error) {
-    // PGRST202 = la función no existe: falta aplicar supabase/012_chat_ia_registros_nut191.sql.
+    // PGRST202 = la función no existe: falta aplicar supabase/schema_consolidado.sql (sección 012 NUT-191).
     console.error(`[chat-confirm] falló el guardado (${error.code}): ${error.message}`);
     return errorResponse('PERSISTENCE_ERROR');
   }

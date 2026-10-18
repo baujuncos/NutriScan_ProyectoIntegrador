@@ -19,6 +19,8 @@ export const PENDIENTE: PendienteFila = {
   id_alimento_vinculado: null,
   estado: 'pendiente',
   observaciones: null,
+  composicion: null,
+  id_alimento_propio: null,
   resuelto_at: null,
   created_at: '2026-10-05T12:00:00Z',
   ocurrencias: 2,
@@ -36,4 +38,5 @@ export const OCURRENCIA: OcurrenciaDetalle = {
   respuestas: [{ question: '¿Qué es el postre?', answer: 'Flan' }],
   bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
   fotoUrl: 'https://signed.example/1.jpg',
+  esReferencia: true,
 };

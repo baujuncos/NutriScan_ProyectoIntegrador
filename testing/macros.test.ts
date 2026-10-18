@@ -50,41 +50,39 @@ describe('macrosPlausibles', () => {
   });
 });
 
-describe('macrosMezcla — varios alimentos del catálogo combinados en uno ("aceite y vinagre")', () => {
+describe('macrosMezcla — gramos REALES de cada alimento del catálogo sobre el peso de la foto', () => {
   const VINAGRE: Macros100 = { kcal_100g: 19, proteinas_100g: 0, grasas_100g: 0, carbs_100g: 0.6 };
+  const PALTA: Macros100 = { kcal_100g: 160, proteinas_100g: 2, grasas_100g: 15, carbs_100g: 8.5 };
 
-  it('promedia ponderando por los gramos y devuelve los valores POR 100 g de mezcla', () => {
-    // 70 g de aceite + 30 g de vinagre = 100 g de mezcla
-    const r = macrosMezcla([
-      { macros: ACEITE, gramos: 70 },
-      { macros: VINAGRE, gramos: 30 },
-    ])!;
-    expect(r.kcal_100g).toBeCloseTo(624.5, 1);
-    expect(r.grasas_100g).toBeCloseTo(70, 1);
-    expect(r.carbs_100g).toBeCloseTo(0.18, 2);
+  it('15 g de aceite + 5 g de vinagre en una foto de 20 g: valores por 100 g del alimento', () => {
+    const r = macrosMezcla([{ macros: ACEITE, gramos: 15 }, { macros: VINAGRE, gramos: 5 }], 20)!;
+    expect(r.kcal_100g).toBeCloseTo((884 * 15 + 19 * 5) / 20, 2); // 667,75
+    expect(r.grasas_100g).toBeCloseTo(75, 2);
+    expect(r.carbs_100g).toBeCloseTo(0.15, 2);
     expect(macrosPlausibles(r)).toBe(true);
   });
 
-  it('los gramos son proporciones: 7 + 3 da lo mismo que 70 + 30 (se normaliza a 100 g)', () => {
-    const a = macrosMezcla([{ macros: ACEITE, gramos: 7 }, { macros: VINAGRE, gramos: 3 }]);
-    const b = macrosMezcla([{ macros: ACEITE, gramos: 70 }, { macros: VINAGRE, gramos: 30 }]);
-    expect(a).toEqual(b);
+  it('equivalencia parcial: 8 g de palta en una foto de 20 g aportan el 40 % (el resto no aporta)', () => {
+    const r = macrosMezcla([{ macros: PALTA, gramos: 8 }], 20)!;
+    expect(r.kcal_100g).toBeCloseTo(64, 2);
+    expect(r.grasas_100g).toBeCloseTo(6, 2);
   });
 
-  it('con 200 g (no suman 100) igual devuelve por 100 g', () => {
-    const r = macrosMezcla([{ macros: ARROZ, gramos: 100 }, { macros: POLLO, gramos: 100 }])!;
-    expect(r.kcal_100g).toBeCloseTo((130 + 165) / 2, 1);
-    expect(r.proteinas_100g).toBeCloseTo((2.7 + 31) / 2, 1);
+  it('un solo ingrediente con todo el peso de la foto devuelve ese mismo alimento', () => {
+    expect(macrosMezcla([{ macros: POLLO, gramos: 40 }], 40)).toEqual(POLLO);
   });
 
-  it('un solo componente devuelve ese mismo alimento', () => {
-    expect(macrosMezcla([{ macros: POLLO, gramos: 40 }])).toEqual(POLLO);
+  it('si los ingredientes pesan más que la foto, igual calcula (el aviso lo da la interfaz)', () => {
+    const r = macrosMezcla([{ macros: ARROZ, gramos: 150 }], 100)!;
+    expect(r.kcal_100g).toBeCloseTo(195, 2);
   });
 
-  it('sin componentes, con gramos 0, negativos o no numéricos → null (no inventa)', () => {
-    expect(macrosMezcla([])).toBeNull();
-    expect(macrosMezcla([{ macros: POLLO, gramos: 0 }])).toBeNull();
-    expect(macrosMezcla([{ macros: POLLO, gramos: 10 }, { macros: ARROZ, gramos: -5 }])).toBeNull();
-    expect(macrosMezcla([{ macros: POLLO, gramos: NaN }])).toBeNull();
+  it('sin componentes, peso de la foto inválido o gramos inválidos → null (no inventa)', () => {
+    expect(macrosMezcla([], 20)).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 10 }], 0)).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 10 }], NaN)).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 0 }], 20)).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: 10 }, { macros: ARROZ, gramos: -5 }], 20)).toBeNull();
+    expect(macrosMezcla([{ macros: POLLO, gramos: NaN }], 20)).toBeNull();
   });
 });

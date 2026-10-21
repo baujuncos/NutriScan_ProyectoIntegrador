@@ -108,7 +108,12 @@ export default function ValidacionClient({ rows, total, params }: Props) {
               return (
                 <li key={r.id_pendiente} aria-label={nombre} className={`flex flex-col gap-2 px-5 py-4 ${GRID}`}>
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{nombre}</p>
+                    <p className="truncate font-medium text-slate-900">
+                      {nombre}
+                      {r.origen === 'manual' && (
+                        <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 align-[1px] text-[11px] font-semibold text-slate-700">A mano</span>
+                      )}
+                    </p>
                     {nombre !== r.nombre_original && (
                       <p className="truncate text-xs text-slate-600">Detectado como: {r.nombre_original}</p>
                     )}
@@ -121,6 +126,12 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                   <span className="text-sm text-slate-700">
                     <span className="sm:hidden text-slate-600">Ocurrencias: </span>
                     <span>{r.ocurrencias}</span>
+                    {r.ocurrencias_manuales > 0 && <span className="block text-xs text-slate-600">+{r.ocurrencias_manuales} a mano</span>}
+                    {r.usuarios_distintos > 0 && (
+                      <span className="block text-xs text-slate-600">
+                        {r.usuarios_distintos} {r.usuarios_distintos === 1 ? 'usuario' : 'usuarios'}
+                      </span>
+                    )}
                   </span>
                   <span className="text-sm text-slate-600">{formatFechaCorta(r.ultima_ocurrencia ?? r.created_at)}</span>
                   <Button

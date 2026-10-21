@@ -25,6 +25,9 @@ export const PENDIENTE: PendienteFila = {
   created_at: '2026-10-05T12:00:00Z',
   ocurrencias: 2,
   ultima_ocurrencia: '2026-10-06T12:00:00Z',
+  origen: 'ia',
+  ocurrencias_manuales: 0,
+  usuarios_distintos: 2,
 };
 
 export const OCURRENCIA: OcurrenciaDetalle = {

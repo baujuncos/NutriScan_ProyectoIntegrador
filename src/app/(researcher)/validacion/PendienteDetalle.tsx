@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import Button from '@/components/ui/Button';
 import HojaRevision from './HojaRevision';
 import ContextoComidas from './ContextoComidas';
+import SolicitudesManuales from './SolicitudesManuales';
 import TarjetaResultado from './TarjetaResultado';
 import ComposicionCatalogo from './ComposicionCatalogo';
 import NuevoAlimentoPropio, { PROPIO_VACIO, propioListo, type PropioForm } from './NuevoAlimentoPropio';
@@ -34,9 +35,11 @@ import {
   modificarPendienteAction,
   validarPendienteAction,
   validarComoPropioAction,
+  type ExistenteCatalogo,
   type OcurrenciaDetalle,
   type PendienteFila,
   type PropioInfo,
+  type SolicitudManual,
   type VerificacionPropio,
 } from './actions';
 
@@ -55,6 +58,10 @@ interface Datos {
   ocurrencias: OcurrenciaDetalle[];
   totalOcurrencias: number;
   propio: PropioInfo | null;
+  /** NUT-192: cargas manuales (sin foto) y avisos de nombre ya existente en SARA2/ANMAT. */
+  solicitudesManuales: SolicitudManual[];
+  totalSolicitudesManuales: number;
+  existentesCatalogo: ExistenteCatalogo[];
 }
 
 /** Todo lo editable del detalle; se compara con el último estado guardado para el aviso "Sin guardar". */
@@ -207,7 +214,15 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         return;
       }
       const inicial = formInicial(r.pendiente);
-      setDatos({ pendiente: r.pendiente, ocurrencias: r.ocurrencias, totalOcurrencias: r.totalOcurrencias, propio: r.propio ?? null });
+      setDatos({
+        pendiente: r.pendiente,
+        ocurrencias: r.ocurrencias,
+        totalOcurrencias: r.totalOcurrencias,
+        propio: r.propio ?? null,
+        solicitudesManuales: r.solicitudesManuales ?? [],
+        totalSolicitudesManuales: r.totalSolicitudesManuales ?? 0,
+        existentesCatalogo: r.existentesCatalogo ?? [],
+      });
       setForm(inicial);
       setBase(JSON.stringify({ ...inicial, propio: null }));
     });
@@ -226,6 +241,11 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const soloLectura = p != null && p.estado !== 'pendiente';
   const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
   const total = datos?.totalOcurrencias ?? 0;
+  const manuales = datos?.totalSolicitudesManuales ?? 0;
+  /** Ítems del diario que se actualizan al resolver: con foto + cargados a mano. */
+  const totalItems = total + manuales;
+  /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano». */
+  const soloManual = datos != null && total === 0;
 
   /** Qué falta para poder validar (el primero se muestra en el pie). */
   const pendientes: string[] = [];
@@ -376,13 +396,13 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         <div role="alertdialog" aria-label="Confirmar acción" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-900">
           {confirmando === 'validar' ? (
             <p>
-              Se actualizarán <strong>{plural(total)}</strong> del diario con estos valores
+              Se actualizarán <strong>{plural(totalItems)}</strong> del diario con estos valores
               {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
               {creaPropio ? ` Además se agregará «${form.nombre.trim()}» al catálogo propio.` : ''}
             </p>
           ) : (
             <p>
-              <strong>{plural(total)}</strong> quedarán marcados como descartados. Los ítems no se borran: se conservan con su
+              <strong>{plural(totalItems)}</strong> quedarán marcados como descartados. Los ítems no se borran: se conservan con su
               nombre y gramos, pero sin kcal ni macros.
             </p>
           )}
@@ -476,7 +496,12 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         <div className="grid grid-cols-1 md:min-h-full md:grid-cols-[340px_1fr] md:grid-rows-[auto_1fr]">
           {/* CONTEXTO */}
           <div className="order-1 border-b border-slate-200 bg-slate-50 p-4 md:col-start-1 md:row-start-1 md:border-b-0 md:border-r md:px-6 md:py-5">
-            <ContextoComidas ocurrencias={datos.ocurrencias} total={total} />
+            {total > 0 && <ContextoComidas ocurrencias={datos.ocurrencias} total={total} />}
+            {manuales > 0 && (
+              <div className={total > 0 ? 'mt-5' : undefined}>
+                <SolicitudesManuales solicitudes={datos.solicitudesManuales} total={manuales} usuarios={p.usuarios_distintos ?? 0} />
+              </div>
+            )}
           </div>
 
           {/* RESULTADO (único lugar donde se muestra) */}
@@ -520,6 +545,13 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                   className={claseCampo}
                 />
                 <span className="text-xs text-slate-600">Así se va a guardar en tu catálogo.</span>
+                {!soloLectura && datos.existentesCatalogo.length > 0 && (
+                  <p role="note" className="rounded-xl bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+                    Ya hay un alimento con este nombre en el catálogo:{' '}
+                    {datos.existentesCatalogo.map((e) => `«${e.nombre}» (${e.fuente})`).join(', ')}.{' '}
+                    {soloManual ? 'Revisá que no sea el mismo antes de validar.' : 'Si es el mismo, usalo desde «Del catálogo».'} No te impide validar.
+                  </p>
+                )}
               </div>
               {!soloLectura && form.nombre.trim() !== p.nombre_original.trim() && (
                 <button
@@ -535,7 +567,13 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
             <Paso n={2} titulo="¿De dónde salen los valores?" pista="Valores por 100 g">
               <fieldset className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
                 <legend className="sr-only">Fuente de los valores nutricionales</legend>
-                {METODOS.map((m) => {
+                {soloManual && (
+                  <p className="text-xs text-slate-600">
+                    Este alimento se cargó a mano, sin foto: no hay una estimación de la IA ni un peso de referencia para armar una
+                    mezcla del catálogo. Cargá los 4 valores.
+                  </p>
+                )}
+                {METODOS.filter((m) => !soloManual || m.modo === 'manual').map((m) => {
                   const sel = form.modo === m.modo;
                   const sinIA = m.modo === 'ia' && !calc.ia;
                   return (

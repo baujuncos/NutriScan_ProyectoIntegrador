@@ -90,8 +90,13 @@ export interface PendienteFila {
   id_alimento_propio: number | null;
   resuelto_at: string | null;
   created_at: string;
+  /** Ocurrencias CON foto (detección por imagen). */
   ocurrencias: number;
   ultima_ocurrencia: string | null;
+  /** NUT-192: cómo se creó la entrada y cuántas cargas manuales (sin foto) y usuarios distintos tiene. */
+  origen: 'ia' | 'manual';
+  ocurrencias_manuales: number;
+  usuarios_distintos: number;
 }
 
 export interface OcurrenciaDetalle {
@@ -109,8 +114,29 @@ export interface OcurrenciaDetalle {
   esReferencia: boolean;
 }
 
+/** NUT-192: una carga manual (sin foto) vinculada a la entrada por items.id_pendiente. */
+export interface SolicitudManual {
+  idItem: number;
+  fecha: string;
+  deportista: string | null;
+  /** Lo que escribió la persona. */
+  nombre: string;
+  gramos: number;
+}
+
 export type PendienteDetalleResultado =
-  | { ok: true; pendiente: PendienteFila; ocurrencias: OcurrenciaDetalle[]; totalOcurrencias: number; propio?: PropioInfo | null }
+  | {
+      ok: true;
+      pendiente: PendienteFila;
+      ocurrencias: OcurrenciaDetalle[];
+      totalOcurrencias: number;
+      propio?: PropioInfo | null;
+      /** Últimas cargas manuales (hasta MAX_OCURRENCIAS) y el total real (`pendiente.ocurrencias_manuales`). */
+      solicitudesManuales?: SolicitudManual[];
+      totalSolicitudesManuales?: number;
+      /** Alimentos de SARA2/ANMAT con el mismo nombre normalizado (aviso no bloqueante). */
+      existentesCatalogo?: ExistenteCatalogo[];
+    }
   | ResultadoError;
 
 /** Ocurrencias que se muestran en el detalle ("y N más" para el resto). */
@@ -304,6 +330,7 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion'); // los ítems del diario (también los cargados a mano) cambian de valores
   const r = data as { id_alimento: number | null; items_afectados: number };
   return { ok: true, idAlimento: r.id_alimento, itemsAfectados: r.items_afectados };
 }
@@ -321,6 +348,7 @@ export async function descartarPendienteAction(input: DescartarInput): Promise<D
   if (error) return { error: errorDeRpc(error).error };
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion'); // los ítems descartados dejan de mostrar valores
   return { ok: true, itemsAfectados: (data as { items_afectados: number }).items_afectados };
 }
 
@@ -372,6 +400,7 @@ export async function validarComoPropioAction(input: ValidarComoPropioInput): Pr
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion');
   const r = data as { id_alimento_propio: number; items_afectados: number };
   return { ok: true, idAlimentoPropio: r.id_alimento_propio, itemsAfectados: r.items_afectados };
 }

@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, MAX_CANTIDAD, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { estaEnRangoEditable } from '@/lib/date';
+import { shouldHideNutritionInfo } from '@/lib/roles';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
 import { CAMPOS_DEFAULT, aplicarFiltroSuplemento, buildMarcaDenominacionOr, idsRecientesUnicos, type CamposBusqueda } from './searchQuery';
 
@@ -26,6 +27,20 @@ export type AlimentoOption = {
 const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion, kcal_100g, proteinas_100g, grasas_100g, carbs_100g' as const;
 
 const CAP_RESULTADOS = 150;
+
+/**
+ * Estudio a ciegas (NUT-192): a un deportista_ucc no le llegan kcal/macros por 100 g del buscador,
+ * ni siquiera en el payload (con ellos, el selector de cantidad le mostraba una vista previa con
+ * números). El cálculo del ítem lo hace el trigger calculate_item_nutrients en el servidor.
+ */
+function sinMacros100g(a: AlimentoOption): AlimentoOption {
+  const copia = { ...a };
+  delete copia.kcal_100g;
+  delete copia.proteinas_100g;
+  delete copia.grasas_100g;
+  delete copia.carbs_100g;
+  return copia;
+}
 
 export async function searchAlimentosAction(
   query: string,
@@ -65,8 +80,15 @@ export async function searchAlimentosAction(
     promises.push(q2.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
-  const resultados = await Promise.all(promises);
-  return resultados.flatMap((r) => r.data ?? []).slice(0, CAP_RESULTADOS) as AlimentoOption[];
+  // El rol se consulta en paralelo con las búsquedas (sin sumar latencia). Si no se puede determinar,
+  // se ocultan los macros: ante la duda, el estudio a ciegas manda.
+  const [perfilRes, resultados] = await Promise.all([
+    supabase.from('profiles').select('role').eq('user_id', user.id).single(),
+    Promise.all(promises),
+  ]);
+  const filas = resultados.flatMap((r) => r.data ?? []).slice(0, CAP_RESULTADOS) as AlimentoOption[];
+  const role = (perfilRes?.data as { role?: string } | null)?.role;
+  return role && !shouldHideNutritionInfo(role) ? filas : filas.map(sinMacros100g);
 }
 
 export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {

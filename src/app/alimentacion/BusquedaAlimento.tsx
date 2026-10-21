@@ -8,7 +8,7 @@ import { useBodyScrollLock, useEsMobile, useVisualViewportBox } from '@/lib/over
 
 export type BusquedaAlimentoHandle = { focus: () => void; clear: () => void };
 
-type FuenteFiltro = 'todas' | 'SARA2' | 'ANMAT';
+type FuenteFiltro = 'todas' | 'SARA2' | 'ANMAT' | 'VALIDADO';
 
 /**
  * Una fila de resultado (búsqueda o "Recientes"): nombre (con la coincidencia
@@ -54,7 +54,11 @@ function FilaResultado({
           ) : a.nombre}
         </span>
         <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold flex-shrink-0 ${
-          a.fuente === 'ANMAT' ? 'bg-[#ECFDF3] text-[#067647]' : 'bg-[#EFF6FF] text-[#1D4ED8]'
+          a.fuente === 'ANMAT'
+            ? 'bg-[#ECFDF3] text-[#067647]'
+            : a.fuente === 'VALIDADO'
+              ? 'bg-[#FEF3C7] text-[#92400E]'
+              : 'bg-[#EFF6FF] text-[#1D4ED8]'
         }`}>
           {a.fuente}
         </span>
@@ -150,6 +154,7 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
   const countTodas = searchResults.length;
   const countSARA2 = searchResults.filter((a) => a.fuente === 'SARA2').length;
   const countANMAT = searchResults.filter((a) => a.fuente === 'ANMAT').length;
+  const countVALIDADO = searchResults.filter((a) => a.fuente === 'VALIDADO').length;
 
   const filtered = selectedAlimento
     ? []
@@ -314,6 +319,8 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
                         ['todas', `Todas (${countTodas})`],
                         ['SARA2', `SARA2 (${countSARA2})`],
                         ['ANMAT', `ANMAT (${countANMAT})`],
+                        // Solo aparece si hay alimentos validados en los resultados: sin ellos la barra queda como antes.
+                        ...(countVALIDADO > 0 ? ([['VALIDADO', `Validados (${countVALIDADO})`]] as const) : []),
                       ] as const).map(([key, label]) => (
                         <button
                           key={key}

@@ -29,6 +29,17 @@ const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion, kcal_1
 const CAP_RESULTADOS = 150;
 
 /**
+ * Orden dentro de cada tanda de resultados: SARA2, luego VALIDADO, luego el resto (ANMAT). La consulta
+ * ordena `fuente` descendente (VALIDADO > SARA2 > ANMAT) para que el corte de 100 no se llene de ANMAT;
+ * acá se reacomoda en memoria. `Array.prototype.sort` es estable: dentro de cada fuente queda el
+ * orden por nombre de la base, y con solo SARA2/ANMAT el resultado es idéntico al de la consulta.
+ */
+const PESO_FUENTE: Record<string, number> = { SARA2: 0, VALIDADO: 1 };
+function ordenarPorFuente(filas: AlimentoOption[]): AlimentoOption[] {
+  return [...filas].sort((a, b) => (PESO_FUENTE[a.fuente] ?? 2) - (PESO_FUENTE[b.fuente] ?? 2));
+}
+
+/**
  * Estudio a ciegas (NUT-192): a un deportista_ucc no le llegan kcal/macros por 100 g del buscador,
  * ni siquiera en el payload (con ellos, el selector de cantidad le mostraba una vista previa con
  * números). El cálculo del ítem lo hace el trigger calculate_item_nutrients en el servidor.
@@ -86,7 +97,7 @@ export async function searchAlimentosAction(
     supabase.from('profiles').select('role').eq('user_id', user.id).single(),
     Promise.all(promises),
   ]);
-  const filas = resultados.flatMap((r) => r.data ?? []).slice(0, CAP_RESULTADOS) as AlimentoOption[];
+  const filas = resultados.flatMap((r) => ordenarPorFuente((r.data ?? []) as AlimentoOption[])).slice(0, CAP_RESULTADOS);
   const role = (perfilRes?.data as { role?: string } | null)?.role;
   return role && !shouldHideNutritionInfo(role) ? filas : filas.map(sinMacros100g);
 }
@@ -116,7 +127,12 @@ export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
   if (!alimentos) return [];
 
   const porId = new Map((alimentos as AlimentoOption[]).map((a) => [a.id_alimento, a]));
-  return idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
+  const recientes = idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
+
+  // Estudio a ciegas (NUT-192): mismos macros fuera del payload que en la búsqueda; falla cerrado si no hay rol.
+  const { data: perfil } = await supabase.from('profiles').select('role').eq('user_id', user.id).single();
+  const role = (perfil as { role?: string } | null)?.role;
+  return role && !shouldHideNutritionInfo(role) ? recientes : recientes.map(sinMacros100g);
 }
 
 function getStringField(formData: FormData, key: string): string {

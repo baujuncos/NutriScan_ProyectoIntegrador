@@ -267,7 +267,7 @@ const BusquedaAlimento = forwardRef<BusquedaAlimentoHandle, {
                   placeholder={
                     tipoIngesta === 'suplemento'
                       ? 'Buscar suplemento: proteína, creatina...'
-                      : 'Buscar en SARA2 y ANMAT: arroz, pollo, banana...'
+                      : 'Buscar en SARA2, ANMAT y validados: arroz, pollo, banana...'
                   }
                   className="w-full pl-10 pr-10 py-3.5 rounded-2xl border border-[#E2E8F0] bg-white text-sm text-[#0F172A] placeholder-[#64748B] focus:outline-none focus:ring-2 transition-all"
                   style={{ ['--tw-ring-color' as string]: `${accentColor}40` }}

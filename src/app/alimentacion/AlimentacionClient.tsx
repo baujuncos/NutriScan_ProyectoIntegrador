@@ -386,7 +386,11 @@ export default function AlimentacionClient({
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed">{selectedAlimento.denominacion}</p>
               )}
               <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-semibold ${
-                selectedAlimento.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
+                selectedAlimento.fuente === 'ANMAT'
+                  ? 'bg-green-50 text-green-700'
+                  : selectedAlimento.fuente === 'VALIDADO'
+                    ? 'bg-amber-50 text-amber-800'
+                    : 'bg-blue-50 text-blue-700'
               }`}>
                 {selectedAlimento.fuente}
               </span>

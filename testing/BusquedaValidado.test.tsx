@@ -49,6 +49,22 @@ describe('Buscador: alimentos VALIDADO (NUT-194)', () => {
     expect(badge.className).not.toContain('bg-[#ECFDF3]');
   });
 
+  it('el campo de búsqueda ya no dice que busca solo en SARA2 y ANMAT', () => {
+    render(<AlimentacionClient ingesta={null} tipoIngesta="almuerzo" fecha="2026-10-20" hideNutrition={false} />);
+    expect(screen.getByPlaceholderText(/SARA2, ANMAT y validados/)).toBeInTheDocument();
+  });
+
+  it('el alimento VALIDADO elegido muestra su etiqueta en ámbar (no el azul de SARA2); SARA2 y ANMAT, como antes', async () => {
+    for (const [a, clase] of [[VALIDADO, 'bg-amber-50'], [SARA2, 'bg-blue-50'], [ANMAT, 'bg-green-50']] as const) {
+      const user = await buscar([a]);
+      await user.click(screen.getByText(porNombre(a.nombre)));
+      const etiquetas = screen.getAllByText(a.fuente).filter((el) => el.className.includes('inline-block'));
+      expect(etiquetas).toHaveLength(1);
+      expect(etiquetas[0].className).toContain(clase);
+      document.body.innerHTML = '';
+    }
+  });
+
   it('los badges de SARA2 y ANMAT no cambian', async () => {
     await buscar([SARA2, ANMAT]);
     expect(screen.getByText('SARA2').className).toContain('bg-[#EFF6FF]');

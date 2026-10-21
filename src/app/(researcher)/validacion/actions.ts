@@ -467,6 +467,14 @@ type OcurrenciaRaw = {
   } | null;
 };
 
+type ManualRaw = {
+  id_item: number;
+  nombre_manual: string | null;
+  cantidad: number | string;
+  created_at: string;
+  ingestas: { fecha: string; id_usuario: string } | null;
+};
+
 /**
  * Detalle de una fila de la cola para el modal de `/validacion`: la fila +
  * las últimas MAX_OCURRENCIAS ocurrencias con deportista, nombre/gramos IA vs.
@@ -487,11 +495,18 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
           'detecciones_ia_items(ingredient, estimated_weight_grams, bbox_x, bbox_y, bbox_width, bbox_height)',
       )
       .eq('id_pendiente', idPendiente);
-  const [pendienteRes, ocurrenciasRes, primeraRes] = await Promise.all([
+  const [pendienteRes, ocurrenciasRes, primeraRes, manualesRes] = await Promise.all([
     supabase.from('v_alimentos_pendientes').select('*').eq('id_pendiente', idPendiente).single(),
     seleccion().order('created_at', { ascending: false }).limit(MAX_OCURRENCIAS),
     // La foto de referencia es la PRIMERA ocurrencia (no cambia cuando aparecen más); puede no estar entre las últimas.
     seleccion().order('id_guardado_item', { ascending: true }).limit(1),
+    // NUT-192: cargas manuales (sin foto) de esta entrada.
+    supabase
+      .from('items')
+      .select('id_item, nombre_manual, cantidad, created_at, ingestas(fecha, id_usuario)')
+      .eq('id_pendiente', idPendiente)
+      .order('created_at', { ascending: false })
+      .limit(MAX_OCURRENCIAS),
   ]);
   if (pendienteRes.error || !pendienteRes.data) return { error: 'El alimento pendiente no existe' };
   if (ocurrenciasRes.error || primeraRes.error) {
@@ -503,14 +518,26 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
   const recientes = (ocurrenciasRes.data ?? []) as unknown as OcurrenciaRaw[];
   // La referencia va primero (una sola vez, aunque también esté entre las más recientes).
   const raws = primera ? [primera, ...recientes.filter((r) => r.id_guardado_item !== primera.id_guardado_item)] : recientes;
-  const userIds = [...new Set(raws.map((r) => r.detecciones_guardados?.id_usuario).filter((u): u is string => !!u))];
+  const manuales = ((manualesRes?.data ?? []) as unknown as ManualRaw[]);
+  const userIds = [
+    ...new Set([
+      ...raws.map((r) => r.detecciones_guardados?.id_usuario),
+      ...manuales.map((m) => m.ingestas?.id_usuario),
+    ].filter((u): u is string => !!u)),
+  ];
   const paths = [...new Set(raws.map((r) => r.detecciones_guardados?.detecciones_ia?.imagen_path).filter((p): p is string => !!p))];
 
-  const [perfilesRes, urls] = await Promise.all([
+  const nombreNormalizado = (pendienteRes.data as PendienteFila).nombre_normalizado;
+  const resuelto = (pendienteRes.data as PendienteFila).estado !== 'pendiente';
+  const [perfilesRes, urls, existentesRes] = await Promise.all([
     userIds.length > 0
       ? supabase.from('profiles').select('user_id, nombre, apellido').in('user_id', userIds)
       : Promise.resolve({ data: [] as unknown[] }),
     urlsFirmadas(supabase, paths),
+    // Aviso no bloqueante: ¿ya existe en SARA2/ANMAT? (solo mientras está pendiente; usa la clave normalizada de la cola).
+    resuelto
+      ? Promise.resolve({ data: [] as unknown[] })
+      : supabase.from('alimentos').select('id_alimento, nombre, fuente').eq('nombre_normalizado', nombreNormalizado).in('fuente', ['SARA2', 'ANMAT']).limit(3),
   ]);
   const nombres = new Map(
     ((perfilesRes.data ?? []) as Array<{ user_id: string; nombre: string; apellido: string }>).map((p) => [
@@ -559,5 +586,24 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
       };
     }
   }
-  return { ok: true, pendiente, ocurrencias, totalOcurrencias: Number(pendiente.ocurrencias), propio };
+  const solicitudesManuales: SolicitudManual[] = manuales.map((m) => ({
+    idItem: m.id_item,
+    fecha: m.ingestas?.fecha ?? m.created_at,
+    deportista: nombres.get(m.ingestas?.id_usuario ?? '') ?? null,
+    nombre: m.nombre_manual ?? '',
+    gramos: Number(m.cantidad),
+  }));
+  const existentesCatalogo: ExistenteCatalogo[] = (
+    (existentesRes?.data ?? []) as Array<{ id_alimento: number; nombre: string; fuente: string }>
+  ).map((a) => ({ origen: 'catalogo', id: a.id_alimento, nombre: a.nombre, fuente: a.fuente }));
+  return {
+    ok: true,
+    pendiente,
+    ocurrencias,
+    totalOcurrencias: Number(pendiente.ocurrencias),
+    propio,
+    solicitudesManuales,
+    totalSolicitudesManuales: Number(pendiente.ocurrencias_manuales ?? solicitudesManuales.length),
+    existentesCatalogo,
+  };
 }

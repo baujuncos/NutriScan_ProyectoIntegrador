@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, MAX_CANTIDAD, isValidDateInput, toFixed2 } from '@/lib/nutrition';
@@ -105,7 +106,6 @@ const EAN_REGEX = /^[0-9]{13}$/;
 
 type ItemSource =
   | { kind: 'catalogo'; idAlimento: number }
-  | { kind: 'manual'; nombreManual: string }
   | { kind: 'barcode'; idAlimentoBarcode: number };
 
 async function upsertIngestaAndInsertItem(
@@ -139,9 +139,7 @@ async function upsertIngestaAndInsertItem(
   const itemFields =
     source.kind === 'catalogo'
       ? { id_alimento: source.idAlimento }
-      : source.kind === 'manual'
-        ? { id_alimento: null, nombre_manual: source.nombreManual }
-        : { id_alimento_barcode: source.idAlimentoBarcode };
+      : { id_alimento_barcode: source.idAlimentoBarcode };
 
   const { error: insertError } = await supabase.from('items').insert({
     id_ingesta: ingesta.id_ingesta,
@@ -214,30 +212,38 @@ export async function addItemAction(formData: FormData) {
 
 const MAX_NOMBRE_MANUAL = 120;
 
+const manualItemSchema = z.object({
+  fecha: z.string().refine(isValidDateInput),
+  tipo_ingesta: z.enum(INGESTA_TIPOS),
+  tipo_item: z.enum(ITEM_TIPOS),
+  nombre_manual: z.string().trim().min(1).max(MAX_NOMBRE_MANUAL),
+  cantidad: z.coerce.number().positive().max(MAX_CANTIDAD),
+});
+
+// NUT-192: el alimento personalizado entra a la cola de validación por la RPC
+// registrar_item_manual (service role, como registrar_guardado_deteccion): el
+// ítem queda con origen_macros 'pendiente' (o el estado vigente de la cola) y
+// nunca se le inventan macros en 0.
 export async function addManualItemAction(formData: FormData) {
   const fecha = getStringField(formData, 'fecha');
   const tipoIngesta = getStringField(formData, 'tipo_ingesta');
-  const tipoItem = getStringField(formData, 'tipo_item');
-  const nombreManual = getStringField(formData, 'nombre_manual').slice(0, MAX_NOMBRE_MANUAL);
-  const cantidadRaw = getStringField(formData, 'cantidad');
 
-  if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
-    redirect(`/alimentacion?fecha=${fecha}`);
-  }
-  if (!ITEM_TIPOS.includes(tipoItem as (typeof ITEM_TIPOS)[number])) {
+  const parsed = manualItemSchema.safeParse({
+    fecha,
+    tipo_ingesta: tipoIngesta,
+    tipo_item: getStringField(formData, 'tipo_item'),
+    nombre_manual: getStringField(formData, 'nombre_manual'),
+    cantidad: getStringField(formData, 'cantidad'),
+  });
+  if (!parsed.success) {
+    if (!isValidDateInput(fecha)) redirect('/alimentacion');
+    if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
+      redirect(`/alimentacion?fecha=${fecha}`);
+    }
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
-
-  const cantidad = Number.parseFloat(cantidadRaw);
-
-  if (
-    !nombreManual ||
-    !Number.isFinite(cantidad) || cantidad <= 0 || cantidad > MAX_CANTIDAD
-  ) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  }
+  const datos = parsed.data;
+  if (!estaEnRangoEditable(datos.fecha)) redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
 
   const supabase = await createClient();
   const {
@@ -246,20 +252,21 @@ export async function addManualItemAction(formData: FormData) {
 
   if (!user) redirect('/login');
 
-  const ok = await upsertIngestaAndInsertItem(supabase, {
-    userId: user.id,
-    fecha,
-    tipoIngesta,
-    tipoItem,
-    cantidad,
-    source: { kind: 'manual', nombreManual },
+  const { error } = await createAdminClient().rpc('registrar_item_manual', {
+    p_user_id: user.id,
+    p_fecha: datos.fecha,
+    p_tipo: datos.tipo_ingesta,
+    p_tipo_item: datos.tipo_item,
+    p_nombre: datos.nombre_manual,
+    p_cantidad: toFixed2(datos.cantidad),
   });
-  if (!ok) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (error) {
+    console.error('No se pudo registrar el alimento manual:', error);
+    redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
   }
 
   revalidatePath('/alimentacion');
-  redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
 }
 
 export async function addScannedItemAction(formData: FormData) {

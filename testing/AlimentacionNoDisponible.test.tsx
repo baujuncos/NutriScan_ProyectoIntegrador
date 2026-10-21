@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import AlimentacionView from '@/app/alimentacion/AlimentacionView';
+import { shouldHideNutritionInfo } from '@/lib/roles';
+import { ocultarMacros } from '@/lib/ocultarMacros';
 
 vi.mock('@/lib/date', () => ({
   todayAR: () => '2026-10-20',
@@ -92,5 +94,35 @@ describe('"no disponible" en ítems manuales pendientes o descartados (NUT-192)'
     expect(screen.getByText('Tarta casera')).toBeInTheDocument();
     expect(screen.queryByText(/no disponibles/)).not.toBeInTheDocument();
     expect(screen.queryByText(/kcal/)).not.toBeInTheDocument();
+  });
+
+  describe('estudio a ciegas: deportista_ucc (NUT-192)', () => {
+    // Mismo cálculo que alimentacion/page.tsx: hideNutrition sale del rol y los números se ocultan antes de serializar.
+    function montarComo(role: string, items: unknown[]) {
+      const hide = shouldHideNutritionInfo(role);
+      const ingestas = ocultarMacros([ingesta(items, 130)], hide);
+      return render(<AlimentacionView ingestas={ingestas} fecha="2026-10-20" initialTipo="almuerzo" hideNutrition={hide} />);
+    }
+
+    it('el rol deportista_ucc oculta el aviso, la leyenda del ítem y la nota del total (pendiente y descartado)', () => {
+      montarComo('deportista_ucc', [catalogo, manual('pendiente'), { ...manual('descartado', 'Otra'), id_item: 3 }]);
+      expect(screen.getByText('Tarta casera')).toBeInTheDocument();
+      expect(screen.queryByText(/no disponibles/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No incluye/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/kcal/)).not.toBeInTheDocument();
+    });
+
+    it('el rol particular sí ve la leyenda, la nota del total y el aviso del banner', () => {
+      montarComo('particular', [catalogo, manual('pendiente')]);
+      expect(screen.getByText('Calorías y macros no disponibles')).toBeInTheDocument();
+      expect(screen.getByText(/No incluye 1 ítem con macros no disponibles/)).toBeInTheDocument();
+      expect(screen.getByText(/No incluye 1 ítem con kcal no disponibles/)).toBeInTheDocument();
+    });
+
+    it('un ítem VALIDADO no muestra números a un deportista', () => {
+      montarComo('deportista_ucc', [{ ...manual('validado'), kcal: 320, proteinas_g: 9, grasas_g: 12, carbs_g: 40 }]);
+      expect(screen.queryByText(/320/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/kcal/)).not.toBeInTheDocument();
+    });
   });
 });

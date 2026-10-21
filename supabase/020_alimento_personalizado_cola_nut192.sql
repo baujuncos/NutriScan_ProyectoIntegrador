@@ -53,6 +53,73 @@
 -- ninguna ocurrencia con foto no puede usar esa pestaña (la RPC ya responde
 -- COMPOSICION_INVALIDA); desde /validacion se restringe a "A mano".
 --
+-- ------------------------------------------------------------
+-- NUT-194 — Validar / descartar una entrada con ítems manuales (parte final de
+-- este archivo, "Resolución de los ítems manuales")
+--
+-- Un trigger diferido sobre alimentos_pendientes_validacion completa los ítems
+-- manuales (items.id_pendiente) cuando la entrada pasa a 'validado' o
+-- 'descartado'. NO se edita ninguna función existente de la cola:
+-- registrar_guardado_deteccion, pendiente_modificar, pendiente_validar,
+-- pendiente_validar_como_propio, pendiente_descartar y calcular_composicion
+-- quedan byte por byte como en 013–019. El flujo de IA no cambia: el trigger
+-- no hace nada si la entrada no tiene ítems manuales.
+--
+-- REVERSIÓN PARCIAL DE LA 016: la 016 dejó de insertar alimentos validados en
+-- `alimentos`. Acá se vuelve a insertar UNA fila `fuente = 'VALIDADO'` (id de
+-- alimentos_validados_seq, desde 2.000.000), pero SOLO cuando se valida una
+-- entrada que tiene ítems manuales y no está vinculada a un alimento existente
+-- ni va al catálogo propio. Es lo que hace buscable el alimento (NUT-194). Las
+-- entradas de IA siguen sin generar filas en `alimentos`. match_alimentos sigue
+-- mirando solo SARA2. RIESGO: un re-seed de `alimentos` que haga TRUNCATE
+-- borraría estas filas y rompería las FK de items (items.id_alimento) que las
+-- usen; ningún script del repo hace TRUNCATE de `alimentos`, pero la carga de
+-- SARA2/ANMAT es manual: no re-sembrar con TRUNCATE sin reponer los VALIDADO
+-- (select * from public.alimentos where fuente = 'VALIDADO').
+--
+-- Casos de entradas mixtas (documentados a pedido):
+--   * Creada por IA y con una carga manual posterior (entrada pendiente con
+--     ítems de IA e ítems manuales): al validarla, los ítems de IA se actualizan
+--     exactamente como hoy (RPC existente) y, como hay un ítem manual, el trigger
+--     crea (o reutiliza) la fila VALIDADO y completa los ítems manuales.
+--   * Ya validada por IA que recibe después una carga manual: el ítem manual toma
+--     los valores finales de la cola (registrar_item_manual, como en la IA) y NO
+--     se crea fila en `alimentos`: no hay un cambio de estado que dispare el
+--     trigger. Es el comportamiento actual y no se cambia.
+--
+-- Qué hace el trigger (security definer, search_path fijo):
+--   * 'validado' → si la entrada NO está vinculada a un alimento existente
+--     (id_alimento_vinculado) y NO es un alimento propio (id_alimento_propio),
+--     inserta o reutiliza la fila VALIDADO (reutiliza por nombre normalizado; un
+--     advisory lock evita duplicados si dos entradas se validan con el mismo
+--     nombre final). Los ítems manuales con origen_macros = 'pendiente' reciben
+--     el snapshot por 100 g y origen_macros = 'validado'; id_alimento y
+--     nombre_manual NO cambian (igual que los de IA); los triggers existentes
+--     recalculan el ítem y los totales de la ingesta. Nunca se tocan ítems que no
+--     estén pendientes ni el gramaje.
+--     NO se escribe id_alimento_vinculado: hacerlo cambiaría cómo
+--     registrar_guardado_deteccion trata esa entrada en futuras cargas de IA.
+--     Si la fila VALIDADO ya existía (mismo nombre) se reutiliza tal cual: no se
+--     pisan sus valores.
+--   * 'descartado' → los ítems manuales pendientes pasan a 'descartado' (no se
+--     borran); el motivo opcional ya quedó en `observaciones`.
+--   * Auditoría: una fila 'resolver_manuales' con la cantidad de ítems afectados
+--     y el alimento VALIDADO usado. La fila 'validar'/'descartar' de la RPC
+--     existente no cambia (su items_afectados cuenta solo ítems de IA).
+--
+-- Por qué DIFERIDO (constraint trigger initially deferred, al commit): la RPC
+-- pendiente_validar_como_propio valida con pendiente_validar y recién DESPUÉS
+-- escribe id_alimento_propio en un segundo UPDATE. Un trigger inmediato vería la
+-- fila sin id_alimento_propio y no podría distinguir "como propio" de una
+-- validación "A mano" normal. Diferido, lee el estado FINAL de la fila. Además
+-- corre una sola vez por transacción: el segundo UPDATE no cumple el WHEN
+-- (el estado no cambia) y guardar un borrador tampoco dispara nada.
+-- Locks: cola (ya tomado por la RPC) → ítems manuales → ingestas, ambos ordenados.
+-- En entradas solo manuales ese es el orden de todo el repo; en entradas mixtas
+-- los ítems manuales se toman después de los de IA (la RPC los bloquea primero),
+-- un orden distinto solo contra un usuario que edite la cantidad de un ítem
+-- manual en el mismo instante (el detector de deadlocks aborta una de las dos).
+--
 -- Numeración: la 012 (NUT-191, chat IA) ya estaba integrada en main junto con
 -- 013–019, así que 020 es el siguiente número libre en esta base. Quien tenga
 -- una rama que numere otra migración como 020 debe renumerar la suya.
@@ -333,3 +400,137 @@ cross join lateral (
 
 revoke all on public.v_alimentos_pendientes from anon, authenticated;
 grant select on public.v_alimentos_pendientes to authenticated;
+
+-- ------------------------------------------------------------
+-- Resolución de los ítems manuales (NUT-194)
+-- ------------------------------------------------------------
+
+alter table public.alimentos_pendientes_auditoria
+  drop constraint if exists alimentos_pendientes_auditoria_accion_check;
+alter table public.alimentos_pendientes_auditoria
+  add constraint alimentos_pendientes_auditoria_accion_check
+  check (accion in ('modificar', 'validar', 'descartar', 'crear_propio', 'retirar_propio', 'resolver_manuales'));
+
+create or replace function public.pendiente_resolver_items_manuales()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cola    public.alimentos_pendientes_validacion%rowtype;
+  v_nombre  text;
+  v_norm    text;
+  v_id_alim integer := null;
+  v_creada  boolean := false;
+  v_n       integer := 0;
+begin
+  -- Estado vigente de la fila (el trigger es diferido: puede haber cambiado
+  -- después del evento, por ejemplo con id_alimento_propio).
+  select * into v_cola
+  from public.alimentos_pendientes_validacion c
+  where c.id_pendiente = new.id_pendiente;
+  if not found or v_cola.estado not in ('validado', 'descartado') then
+    return null;
+  end if;
+
+  -- Solo entradas con ítems manuales; las de IA puras no pasan de acá.
+  if not exists (select 1 from public.items it where it.id_pendiente = v_cola.id_pendiente) then
+    return null;
+  end if;
+
+  if v_cola.estado = 'descartado' then
+    perform 1 from public.items it
+    where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente'
+    order by it.id_item
+    for update;
+    perform 1 from public.ingestas g
+    where g.id_ingesta in (
+      select it.id_ingesta from public.items it
+      where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente'
+    )
+    order by g.id_ingesta
+    for update;
+
+    -- El trigger de items deja los macros en 0 (no disponible) y el de ingestas ajusta los totales.
+    update public.items it
+    set origen_macros = 'descartado'
+    where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente';
+    get diagnostics v_n = row_count;
+  else
+    -- Una validación sin los 4 valores no es posible (la RPC lo exige); por las dudas, no se inventa nada.
+    if num_nulls(v_cola.final_kcal_100g, v_cola.final_proteinas_100g, v_cola.final_grasas_100g, v_cola.final_carbs_100g) > 0 then
+      return null;
+    end if;
+
+    -- Fila VALIDADO para el buscador: solo si no es un vínculo a un alimento existente ni un propio.
+    if v_cola.id_alimento_vinculado is null and v_cola.id_alimento_propio is null then
+      v_nombre := coalesce(nullif(btrim(v_cola.nombre_final), ''), v_cola.nombre_original);
+      v_norm := public.norm_alimento(v_nombre);
+      if v_norm is not null then
+        perform pg_advisory_xact_lock(hashtext('alimentos_validado:' || v_norm));
+        select a.id_alimento into v_id_alim
+        from public.alimentos a
+        where a.fuente = 'VALIDADO' and a.nombre_normalizado = v_norm
+        order by a.id_alimento
+        limit 1;
+        if v_id_alim is null then
+          insert into public.alimentos (id_alimento, nombre, categoria, fuente, kcal_100g, proteinas_100g, grasas_100g, carbs_100g)
+          values (
+            nextval('public.alimentos_validados_seq'), v_nombre, nullif(btrim(v_cola.categoria_final), ''), 'VALIDADO',
+            v_cola.final_kcal_100g, v_cola.final_proteinas_100g, v_cola.final_grasas_100g, v_cola.final_carbs_100g
+          )
+          returning id_alimento into v_id_alim;
+          v_creada := true;
+        end if;
+      end if;
+    end if;
+
+    perform 1 from public.items it
+    where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente'
+    order by it.id_item
+    for update;
+    perform 1 from public.ingestas g
+    where g.id_ingesta in (
+      select it.id_ingesta from public.items it
+      where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente'
+    )
+    order by g.id_ingesta
+    for update;
+
+    -- Solo ítems pendientes; id_alimento y nombre_manual no se tocan. El trigger de items
+    -- recalcula con SU cantidad y el de ingestas ajusta los totales.
+    update public.items it
+    set kcal_100g = v_cola.final_kcal_100g,
+        proteinas_100g = v_cola.final_proteinas_100g,
+        grasas_100g = v_cola.final_grasas_100g,
+        carbs_100g = v_cola.final_carbs_100g,
+        origen_macros = 'validado'
+    where it.id_pendiente = v_cola.id_pendiente and it.origen_macros = 'pendiente';
+    get diagnostics v_n = row_count;
+  end if;
+
+  if v_n > 0 or v_creada then
+    insert into public.alimentos_pendientes_auditoria (id_pendiente, accion, id_usuario, antes, despues, items_afectados)
+    values (
+      v_cola.id_pendiente, 'resolver_manuales', auth.uid(),
+      jsonb_build_object('estado', 'pendiente'),
+      jsonb_build_object('estado', v_cola.estado, 'id_alimento_validado', v_id_alim, 'alimento_creado', v_creada),
+      v_n
+    );
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke all on function public.pendiente_resolver_items_manuales() from public, anon, authenticated;
+
+-- Diferido (al commit) y con WHEN: ver el encabezado de esta migración. Se recrea para ser re-ejecutable.
+drop trigger if exists alimentos_pendientes_resolver_manuales on public.alimentos_pendientes_validacion;
+create constraint trigger alimentos_pendientes_resolver_manuales
+  after update on public.alimentos_pendientes_validacion
+  deferrable initially deferred
+  for each row
+  when (old.estado is distinct from new.estado and new.estado in ('validado', 'descartado'))
+  execute function public.pendiente_resolver_items_manuales();

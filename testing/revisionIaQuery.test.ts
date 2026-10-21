@@ -4,7 +4,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createSupabaseFromMock } from './supabaseMock';
-import { PAGE_SIZE, buildRevisionQuery, consultarRevisiones, parseRevisionParams } from '@/lib/revisionIaQuery';
+import { PAGE_SIZE, buildRevisionQuery, consultarRevisiones, contarPorEstado, parseRevisionParams } from '@/lib/revisionIaQuery';
 
 const sb = createSupabaseFromMock();
 beforeEach(() => sb.reset());
@@ -14,6 +14,7 @@ describe('parseRevisionParams', () => {
     expect(parseRevisionParams({})).toEqual({
       estado: 'pendiente',
       motivo: 'todos',
+      vajilla: 'todas',
       desde: '',
       hasta: '',
       q: '',
@@ -24,13 +25,13 @@ describe('parseRevisionParams', () => {
 
   it('lee estado, motivo, fechas, búsqueda, orden y página', () => {
     expect(
-      parseRevisionParams({ estado: 'corregido', motivo: 'item_quitado', desde: '2026-10-01', hasta: '2026-10-15', q: ' flan ', orden: 'confianza', page: '3' }),
-    ).toEqual({ estado: 'corregido', motivo: 'item_quitado', desde: '2026-10-01', hasta: '2026-10-15', q: 'flan', orden: 'confianza', page: 3 });
+      parseRevisionParams({ estado: 'corregido', motivo: 'item_quitado', vajilla: 'plato_hondo', desde: '2026-10-01', hasta: '2026-10-15', q: ' flan ', orden: 'confianza', page: '3' }),
+    ).toEqual({ estado: 'corregido', motivo: 'item_quitado', vajilla: 'plato_hondo', desde: '2026-10-01', hasta: '2026-10-15', q: 'flan', orden: 'confianza', page: 3 });
   });
 
   it('lo inválido cae al default', () => {
-    const p = parseRevisionParams({ estado: 'x', motivo: 'y', desde: 'ayer', hasta: '2026-13', orden: 'z', page: '-4' });
-    expect(p).toMatchObject({ estado: 'pendiente', motivo: 'todos', desde: '', hasta: '', orden: 'fecha', page: 1 });
+    const p = parseRevisionParams({ estado: 'x', motivo: 'y', vajilla: 'z', desde: 'ayer', hasta: '2026-13', orden: 'z', page: '-4' });
+    expect(p).toMatchObject({ estado: 'pendiente', motivo: 'todos', vajilla: 'todas', desde: '', hasta: '', orden: 'fecha', page: 1 });
   });
 });
 
@@ -38,7 +39,9 @@ describe('buildRevisionQuery', () => {
   it('omite lo que vale el default y conserva el resto', () => {
     const base = parseRevisionParams({});
     expect(buildRevisionQuery(base)).toBe('');
-    expect(buildRevisionQuery({ ...base, motivo: 'confianza_baja', page: 2 })).toBe('?motivo=confianza_baja&page=2');
+    expect(buildRevisionQuery({ ...base, motivo: 'confianza_baja', vajilla: 'plato_postre', page: 2 })).toBe(
+      '?motivo=confianza_baja&vajilla=plato_postre&page=2',
+    );
   });
 });
 
@@ -66,6 +69,12 @@ describe('consultarRevisiones', () => {
     expect(f.find((x) => x[0] === 'or')?.[1]).toContain('alimento_ia.ilike.%milanesa%');
   });
 
+  it('filtra por vajilla (eq sobre vajilla_tipo)', async () => {
+    sb.mockTable('v_revision_ia', { data: [], error: null });
+    await consultarRevisiones(sb, parseRevisionParams({ vajilla: 'plato_hondo' }));
+    expect(sb.eqLlamados().map((f) => f.args)).toContainEqual(['vajilla_tipo', 'plato_hondo']);
+  });
+
   it('ordena por confianza ascendente cuando se pide', async () => {
     sb.mockTable('v_revision_ia', { data: [], error: null });
     await consultarRevisiones(sb, parseRevisionParams({ orden: 'confianza' }));
@@ -82,5 +91,20 @@ describe('consultarRevisiones', () => {
   it('un error de PostgREST se propaga', async () => {
     sb.mockTable('v_revision_ia', { data: null, error: { message: 'boom', code: 'X' } });
     await expect(consultarRevisiones(sb, parseRevisionParams({}))).rejects.toThrow(/cola de revisión/);
+  });
+});
+
+describe('contarPorEstado', () => {
+  it('hace un conteo liviano (head) por estado, sin filtros de la pantalla', async () => {
+    sb.mockTable('v_revision_ia', { data: null, error: null, count: 12 } as never);
+    sb.mockTable('v_revision_ia', { data: null, error: null, count: 34 } as never);
+    sb.mockTable('v_revision_ia', { data: null, error: null, count: 9 } as never);
+    expect(await contarPorEstado(sb)).toEqual({ pendiente: 12, confirmado: 34, corregido: 9 });
+    expect(sb.tablasLlamadas()).toEqual(['v_revision_ia', 'v_revision_ia', 'v_revision_ia']);
+  });
+
+  it('un error de PostgREST se propaga', async () => {
+    sb.mockTable('v_revision_ia', { data: null, error: { message: 'boom' } });
+    await expect(contarPorEstado(sb)).rejects.toThrow(/contar la cola/);
   });
 });

@@ -6,7 +6,7 @@
  */
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { PAGE_SIZE, buildRevisionQuery, consultarRevisiones, parseRevisionParams } from '@/lib/revisionIaQuery';
+import { PAGE_SIZE, buildRevisionQuery, consultarRevisiones, contarPorEstado, parseRevisionParams } from '@/lib/revisionIaQuery';
 import RevisionIaClient from './RevisionIaClient';
 import type { RevisionFila } from './actions';
 
@@ -19,11 +19,11 @@ export default async function RevisionIaPage({
 }) {
   const params = parseRevisionParams(await searchParams);
   const supabase = await createClient();
-  const { rows, total } = await consultarRevisiones(supabase, params);
+  const [{ rows, total }, conteos] = await Promise.all([consultarRevisiones(supabase, params), contarPorEstado(supabase)]);
 
   // Quedó en una página que ya no existe (ej. se revisó el último de la última página): ir a la última válida.
   const ultimaPagina = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (params.page > ultimaPagina) redirect(`/revision-ia${buildRevisionQuery(params, { page: ultimaPagina })}`);
 
-  return <RevisionIaClient rows={rows as RevisionFila[]} total={total} params={params} />;
+  return <RevisionIaClient rows={rows as RevisionFila[]} total={total} params={params} conteos={conteos} />;
 }

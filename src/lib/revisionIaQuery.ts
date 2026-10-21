@@ -16,9 +16,13 @@ export type OrdenRevision = (typeof ORDENES_REVISION)[number];
 
 export type MotivoFiltro = MotivoRevision | 'todos';
 
+export const VAJILLAS = ['plato_playo', 'plato_postre', 'plato_hondo'] as const;
+export type VajillaFiltro = (typeof VAJILLAS)[number] | 'todas';
+
 export interface RevisionParams {
   estado: EstadoRevisionFiltro;
   motivo: MotivoFiltro;
+  vajilla: VajillaFiltro;
   /** YYYY-MM-DD, inclusivo; '' = sin límite. */
   desde: string;
   hasta: string;
@@ -27,7 +31,7 @@ export interface RevisionParams {
   page: number;
 }
 
-const DEFAULTS: RevisionParams = { estado: 'pendiente', motivo: 'todos', desde: '', hasta: '', q: '', orden: 'fecha', page: 1 };
+const DEFAULTS: RevisionParams = { estado: 'pendiente', motivo: 'todos', vajilla: 'todas', desde: '', hasta: '', q: '', orden: 'fecha', page: 1 };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -38,6 +42,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 export function parseRevisionParams(sp: SearchParams): RevisionParams {
   const estado = primero(sp.estado);
   const motivo = primero(sp.motivo);
+  const vajilla = primero(sp.vajilla);
   const orden = primero(sp.orden);
   const desde = primero(sp.desde) ?? '';
   const hasta = primero(sp.hasta) ?? '';
@@ -45,6 +50,7 @@ export function parseRevisionParams(sp: SearchParams): RevisionParams {
   return {
     estado: (ESTADOS_REVISION as readonly string[]).includes(estado ?? '') ? (estado as EstadoRevisionFiltro) : DEFAULTS.estado,
     motivo: (MOTIVOS_REVISION as readonly string[]).includes(motivo ?? '') ? (motivo as MotivoRevision) : DEFAULTS.motivo,
+    vajilla: (VAJILLAS as readonly string[]).includes(vajilla ?? '') ? (vajilla as VajillaFiltro) : DEFAULTS.vajilla,
     desde: FECHA.test(desde) ? desde : '',
     hasta: FECHA.test(hasta) ? hasta : '',
     q: (primero(sp.q) ?? '').trim().slice(0, 100),
@@ -59,6 +65,7 @@ export function buildRevisionQuery(params: RevisionParams, overrides: Partial<Re
   const qs = new URLSearchParams();
   if (p.estado !== DEFAULTS.estado) qs.set('estado', p.estado);
   if (p.motivo !== DEFAULTS.motivo) qs.set('motivo', p.motivo);
+  if (p.vajilla !== DEFAULTS.vajilla) qs.set('vajilla', p.vajilla);
   if (p.desde) qs.set('desde', p.desde);
   if (p.hasta) qs.set('hasta', p.hasta);
   if (p.q) qs.set('q', p.q);
@@ -77,6 +84,7 @@ export interface FromClient {
 function filtrar(query: any, params: RevisionParams) {
   if (params.estado !== 'todos') query = query.eq('estado_revision', params.estado);
   if (params.motivo !== 'todos') query = query.contains('motivos_revision', [params.motivo]);
+  if (params.vajilla !== 'todas') query = query.eq('vajilla_tipo', params.vajilla);
   if (params.desde) query = query.gte('created_at', `${params.desde}T00:00:00-03:00`);
   // Inclusivo: hasta el final del día (Argentina, UTC-3 sin horario de verano).
   if (params.hasta) query = query.lte('created_at', `${params.hasta}T23:59:59.999-03:00`);
@@ -114,4 +122,25 @@ export async function consultarRevisiones(
     throw new Error(`No se pudo leer la cola de revisión: ${error.message}`);
   }
   return { rows: (data ?? []) as unknown[], total: count ?? 0 };
+}
+
+export interface ConteosRevision {
+  pendiente: number;
+  confirmado: number;
+  corregido: number;
+}
+
+/** Totales por estado (sin filtros) para los chips del encabezado: 3 conteos livianos, sin traer filas. */
+export async function contarPorEstado(client: FromClient): Promise<ConteosRevision> {
+  const estados = ['pendiente', 'confirmado', 'corregido'] as const;
+  const resultados = await Promise.all(
+    estados.map((estado) =>
+      client.from('v_revision_ia').select('id_deteccion_item', { count: 'exact', head: true }).eq('estado_revision', estado),
+    ),
+  );
+  const [pendiente, confirmado, corregido] = resultados.map((r: { count: number | null; error: { message: string } | null }) => {
+    if (r.error) throw new Error(`No se pudo contar la cola de revisión: ${r.error.message}`);
+    return r.count ?? 0;
+  });
+  return { pendiente, confirmado, corregido };
 }

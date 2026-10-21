@@ -61,8 +61,10 @@ const QUITADO: RevisionFila = {
   origen_usuario: null,
 };
 
+const CONTEOS = { pendiente: 12, confirmado: 34, corregido: 9 };
+
 function renderCliente(over: Partial<React.ComponentProps<typeof RevisionIaClient>> = {}) {
-  return render(<RevisionIaClient rows={[FILA, QUITADO]} total={2} params={parseRevisionParams({})} {...over} />);
+  return render(<RevisionIaClient rows={[FILA, QUITADO]} total={2} params={parseRevisionParams({})} conteos={CONTEOS} {...over} />);
 }
 
 beforeEach(() => {
@@ -70,32 +72,65 @@ beforeEach(() => {
   vi.mocked(getRevisionDetalleAction).mockResolvedValue({ ok: true, fila: FILA, fotoUrl: 'https://x/firmada' });
 });
 
-describe('RevisionIaClient — listado', () => {
-  it('muestra Gemini vs usuario, confianza y los motivos de cada ítem', () => {
+describe('RevisionIaClient — encabezado y filtros', () => {
+  it('muestra los conteos por estado como links que filtran', () => {
     renderCliente();
-    const fila = screen.getByRole('listitem', { name: 'Milanesa' });
-    expect(within(fila).getByText(/150 g/)).toBeInTheDocument();
-    expect(within(fila).getByText(/250 g/)).toBeInTheDocument();
-    expect(within(fila).getByText('Confianza baja')).toBeInTheDocument();
-    expect(within(fila).getByText('Corrección de peso grande')).toBeInTheDocument();
-    expect(within(fila).getByText(/Confianza 45%/)).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Filtrar por estado' });
+    expect(within(nav).getByRole('link', { name: /12\s*Pendientes/ })).toHaveAttribute('aria-current', 'true');
+    expect(within(nav).getByRole('link', { name: /34\s*Confirmados/ })).toHaveAttribute('href', '/revision-ia?estado=confirmado');
+    expect(within(nav).getByRole('link', { name: /9\s*Corregidos/ })).toHaveAttribute('href', '/revision-ia?estado=corregido');
   });
 
-  it('distingue visualmente el ítem quitado (marca, chip rojo y "Lo quitó")', () => {
+  it('el chip activo vuelve a "todos"', () => {
+    renderCliente();
+    expect(screen.getByRole('link', { name: /12\s*Pendientes/ })).toHaveAttribute('href', '/revision-ia?estado=todos');
+  });
+
+  it('tiene las pestañas y los filtros: motivo, búsqueda, vajilla, orden y fechas', () => {
+    renderCliente();
+    expect(screen.getByRole('tab', { name: 'Cola de revisión' })).toHaveAttribute('aria-selected', 'true');
+    for (const label of ['Motivo', 'Buscar por alimento', 'Vajilla', 'Ordenar por', 'Desde', 'Hasta']) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByLabelText('Vajilla')).toHaveValue('todas');
+  });
+});
+
+describe('RevisionIaClient — listado', () => {
+  it('muestra motivos, Gemini vs. final, peso con % y confianza', () => {
+    renderCliente();
+    const fila = screen.getByRole('listitem', { name: 'Milanesa' });
+    expect(within(fila).getByText('Confianza baja')).toBeInTheDocument();
+    expect(within(fila).getByText('Corrección de peso')).toBeInTheDocument();
+    expect(within(fila).getByText('— sin cambio')).toBeInTheDocument();
+    expect(within(fila).getByText('150 g estimado')).toBeInTheDocument();
+    expect(within(fila).getByText('250 g final')).toBeInTheDocument();
+    expect(within(fila).getByText('(+67%)')).toBeInTheDocument();
+    expect(within(fila).getByText('Confianza 45%')).toBeInTheDocument();
+    expect(within(fila).getByText(/Plato playo · 26 cm · 45°/)).toBeInTheDocument();
+  });
+
+  it('un cambio de alimento muestra Gemini → Final', () => {
+    renderCliente({ rows: [{ ...FILA, motivos_revision: ['cambio_alimento'], alimento_usuario: 'Pollo' }] });
+    const fila = screen.getByRole('listitem', { name: 'Milanesa' });
+    expect(within(fila).getByText('Pollo')).toBeInTheDocument();
+    expect(within(fila).queryByText('— sin cambio')).not.toBeInTheDocument();
+  });
+
+  it('distingue visualmente el ítem quitado (marca, chip rojo con ícono y leyenda)', () => {
     renderCliente();
     const quitado = screen.getByRole('listitem', { name: 'Perejil' });
     expect(quitado).toHaveAttribute('data-quitado', 'true');
     expect(within(quitado).getByText('Ítem quitado').closest('li')?.className).toMatch(/red/);
-    expect(within(quitado).getByText(/Lo quitó/)).toBeInTheDocument();
+    expect(within(quitado).getByText(/el usuario lo quitó/)).toBeInTheDocument();
+    expect(within(quitado).queryByText(/g final/)).not.toBeInTheDocument();
     expect(screen.getByRole('listitem', { name: 'Milanesa' })).not.toHaveAttribute('data-quitado');
   });
 
-  it('tiene los filtros: estado, motivo, fechas, búsqueda y orden', () => {
+  it('la miniatura es un placeholder: la lista no pide detalle ni foto', () => {
     renderCliente();
-    for (const label of ['Estado', 'Motivo', 'Desde', 'Hasta', 'Buscar por nombre de alimento', 'Ordenar por']) {
-      expect(screen.getByLabelText(label)).toBeInTheDocument();
-    }
-    expect(screen.getByLabelText('Estado')).toHaveValue('pendiente');
+    expect(screen.queryAllByRole('img')).toHaveLength(0);
+    expect(getRevisionDetalleAction).not.toHaveBeenCalled();
   });
 
   it('sin filas muestra un mensaje vacío', () => {
@@ -103,16 +138,48 @@ describe('RevisionIaClient — listado', () => {
     expect(screen.getByText(/No hay ítems/)).toBeInTheDocument();
   });
 
-  it('la lista no pide el detalle (ni la foto) hasta abrir un ítem', () => {
+  it('un ítem ya revisado muestra su estado en vez de Confirmar / Corregir', () => {
+    renderCliente({ rows: [{ ...FILA, estado_revision: 'confirmado' }] });
+    expect(screen.queryByRole('button', { name: /^Confirmar/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Confirmado')).toBeInTheDocument();
+  });
+});
+
+describe('RevisionIaClient — acciones en la lista', () => {
+  it('Confirmar confirma ese ítem sin abrir el detalle y refresca', async () => {
     renderCliente();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar Milanesa' }));
+    await waitFor(() => expect(confirmarRevisionAction).toHaveBeenCalledWith(1));
+    expect(refresh).toHaveBeenCalled();
     expect(getRevisionDetalleAction).not.toHaveBeenCalled();
+    expect(corregirRevisionAction).not.toHaveBeenCalled();
+  });
+
+  it('la estrella marca como candidato sin confirmar ni corregir', async () => {
+    renderCliente();
+    const estrella = screen.getByRole('button', { name: 'Candidato a ejemplo: Milanesa' });
+    expect(estrella).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(estrella);
+    await waitFor(() => expect(marcarCandidatoAction).toHaveBeenCalledWith(1, true));
+    expect(confirmarRevisionAction).not.toHaveBeenCalled();
+    expect(corregirRevisionAction).not.toHaveBeenCalled();
+  });
+
+  it('un error de la acción se muestra y no refresca', async () => {
+    vi.mocked(confirmarRevisionAction).mockResolvedValueOnce({ error: 'Este ítem ya fue revisado por otra persona' });
+    renderCliente();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar Milanesa' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('ya fue revisado');
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 
 describe('RevisionIaDetalle', () => {
-  async function abrir() {
+  const dialogo = () => within(screen.getByRole('dialog'));
+
+  async function abrir(boton = 'Ver detalle y foto de Milanesa') {
     renderCliente();
-    await userEvent.click(screen.getByRole('button', { name: 'Revisar Milanesa' }));
+    await userEvent.click(screen.getByRole('button', { name: boton }));
     await screen.findByRole('img', { name: /Foto del plato/ });
   }
 
@@ -124,31 +191,30 @@ describe('RevisionIaDetalle', () => {
     expect(screen.getByText(/Plato playo de 26 cm/)).toBeInTheDocument();
   });
 
-  it('Confirmar llama a su acción y refresca', async () => {
+  it('Confirmar en el detalle llama a su acción y refresca', async () => {
     await abrir();
-    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+    await userEvent.click(dialogo().getByRole('button', { name: 'Confirmar' }));
     await waitFor(() => expect(confirmarRevisionAction).toHaveBeenCalledWith(1));
     expect(corregirRevisionAction).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalled();
   });
 
-  it('Corregir exige alimento y/o peso y manda sólo lo del nutricionista', async () => {
-    await abrir();
-    await userEvent.click(screen.getByRole('button', { name: 'Corregir' }));
-    const guardar = screen.getByRole('button', { name: 'Guardar corrección' });
+  it('el botón Corregir de la lista abre el detalle directo en el formulario de corrección', async () => {
+    await abrir('Corregir Milanesa');
+    const guardar = dialogo().getByRole('button', { name: 'Guardar corrección' });
     expect(guardar).toBeDisabled();
-    await userEvent.type(screen.getByLabelText('Peso (g)'), '200');
+    await userEvent.type(dialogo().getByLabelText('Peso (g)'), '200');
     await userEvent.click(guardar);
     await waitFor(() => expect(corregirRevisionAction).toHaveBeenCalledWith({ id: 1, alimento: null, gramos: 200 }));
     expect(confirmarRevisionAction).not.toHaveBeenCalled();
   });
 
-  it('marcar candidato es independiente: no confirma ni corrige', async () => {
+  it('marcar candidato en el detalle es independiente: no confirma ni corrige', async () => {
     await abrir();
-    await userEvent.click(screen.getByRole('button', { name: /Marcar como candidato a ejemplo/ }));
+    await userEvent.click(dialogo().getByRole('button', { name: /Marcar como candidato a ejemplo/ }));
     await waitFor(() => expect(marcarCandidatoAction).toHaveBeenCalledWith(1, true));
     expect(confirmarRevisionAction).not.toHaveBeenCalled();
     expect(corregirRevisionAction).not.toHaveBeenCalled();
-    expect(await screen.findByRole('button', { name: /Candidato a ejemplo/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(await dialogo().findByRole('button', { name: /Candidato a ejemplo/ })).toHaveAttribute('aria-pressed', 'true');
   });
 });

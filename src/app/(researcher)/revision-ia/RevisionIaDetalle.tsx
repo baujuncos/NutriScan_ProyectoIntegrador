@@ -23,6 +23,8 @@ import {
 interface Props {
   /** null = cerrado. */
   idItem: number | null;
+  /** Abre directo en el formulario de corrección (botón Corregir de la lista). */
+  corregirAlAbrir?: boolean;
   onClose: () => void;
   /** Se llama tras cualquier acción exitosa (la página refresca el listado). */
   onCambio: () => void;
@@ -50,7 +52,7 @@ function Columna({ titulo, alimento, gramos, vacio }: { titulo: string; alimento
   );
 }
 
-export default function RevisionIaDetalle({ idItem, onClose, onCambio }: Props) {
+export default function RevisionIaDetalle({ idItem, corregirAlAbrir = false, onClose, onCambio }: Props) {
   const [fila, setFila] = useState<RevisionFila | null>(null);
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export default function RevisionIaDetalle({ idItem, onClose, onCambio }: Props) 
     setFila(null);
     setFotoUrl(null);
     setErrorCarga(null);
-    setCorrigiendo(false);
+    setCorrigiendo(corregirAlAbrir);
     setAlimento('');
     setGramos('');
     setError(null);
@@ -82,6 +84,8 @@ export default function RevisionIaDetalle({ idItem, onClose, onCambio }: Props) 
     return () => {
       cancelado = true;
     };
+    // corregirAlAbrir sólo se lee al abrir: cambiarlo con el modal abierto no tiene que recargar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idItem]);
 
   async function ejecutar(accion: () => Promise<{ ok: true } | { error: string }>, alExito: () => void) {

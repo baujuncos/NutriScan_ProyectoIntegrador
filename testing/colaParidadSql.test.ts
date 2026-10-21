@@ -147,3 +147,60 @@ describe('migración 020', () => {
     expect(normalizar(consolidado)).toContain(normalizar(seccion));
   });
 });
+
+describe('migración 020 — trigger que resuelve los ítems manuales (NUT-194)', () => {
+  const trigger = normalizar(sql020.slice(sql020.indexOf('drop trigger if exists alimentos_pendientes_resolver_manuales')));
+  const fn = cuerpo(sql020, 'pendiente_resolver_items_manuales');
+
+  it('no redefine ninguna función existente de la cola ni de la IA (quedan como en 013–019)', () => {
+    for (const f of [
+      'registrar_guardado_deteccion',
+      'pendiente_modificar',
+      'pendiente_validar',
+      'pendiente_validar_como_propio',
+      'pendiente_descartar',
+      'calcular_composicion',
+    ]) {
+      expect(sql020, f).not.toMatch(new RegExp(`create (or replace )?function public\\.${f}\\(`));
+    }
+  });
+
+  it('es un constraint trigger DIFERIDO, solo ante un cambio de estado a validado/descartado (sin recursión)', () => {
+    expect(trigger).toContain('create constraint trigger alimentos_pendientes_resolver_manuales after update on public.alimentos_pendientes_validacion deferrable initially deferred for each row');
+    expect(trigger).toContain("when (old.estado is distinct from new.estado and new.estado in ('validado', 'descartado'))");
+  });
+
+  it('es security definer con search_path fijo y sin permisos para usuarios', () => {
+    const cabecera = normalizar(sql020.slice(sql020.indexOf('create or replace function public.pendiente_resolver_items_manuales'), sql020.indexOf('declare', sql020.indexOf('pendiente_resolver_items_manuales'))));
+    expect(cabecera).toContain("security definer set search_path = ''");
+    expect(normalizar(sql020)).toContain('revoke all on function public.pendiente_resolver_items_manuales() from public, anon, authenticated');
+  });
+
+  it('solo actúa si hay ítems con id_pendiente y solo completa ítems en origen_macros = pendiente', () => {
+    expect(fn).toMatch(/if not exists \(select 1 from public\.items it where it\.id_pendiente = v_cola\.id_pendiente\) then return null/);
+    const updates = fn.match(/update public\.items it set [^;]*;/g) ?? [];
+    expect(updates).toHaveLength(2);
+    for (const u of updates) expect(u).toContain("it.origen_macros = 'pendiente'");
+  });
+
+  it('no toca id_alimento ni nombre_manual de los ítems, ni la cantidad, ni id_alimento_vinculado', () => {
+    const updates = (fn.match(/update public\.items it set [^;]*;/g) ?? []).join(' ');
+    expect(updates).not.toMatch(/id_alimento\s*=|nombre_manual\s*=|cantidad\s*=/);
+    expect(fn).not.toMatch(/update public\.alimentos_pendientes_validacion/);
+  });
+
+  it('no crea fila VALIDADO si la entrada está vinculada a un alimento existente o es un propio', () => {
+    expect(fn).toContain('if v_cola.id_alimento_vinculado is null and v_cola.id_alimento_propio is null then');
+    expect(fn).toContain("nextval('public.alimentos_validados_seq')");
+  });
+
+  it('serializa la creación de la fila VALIDADO por nombre normalizado (advisory lock) y toma los locks ordenados', () => {
+    expect(fn).toContain("pg_advisory_xact_lock(hashtext('alimentos_validado:' || v_norm))");
+    expect(fn.match(/order by it\.id_item for update/g)).toHaveLength(2);
+    expect(fn.match(/order by g\.id_ingesta for update/g)).toHaveLength(2);
+  });
+
+  it('la auditoría admite la acción resolver_manuales', () => {
+    expect(normalizar(sql020)).toContain("check (accion in ('modificar', 'validar', 'descartar', 'crear_propio', 'retirar_propio', 'resolver_manuales'))");
+  });
+});

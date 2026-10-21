@@ -25,6 +25,7 @@ import { resolverAlimentosConIA, type ResolucionIA, type ResultadoIA } from '@/l
 import { errorResponse } from '@/lib/httpErrors';
 import type { Macros100 } from '@/lib/macros';
 import { matchearAlimentos, type MatchResultado } from '@/lib/matchingAlimentos';
+import { calcularRevisiones, type ItemPredicho } from '@/lib/revisionIa';
 import { MAX_CANTIDAD, isValidDateInput, normalizarTipoIngesta } from '@/lib/nutrition';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { ATHLETE_ROLE } from '@/lib/researcher/athletes';
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
 
   const { data: itemsPrediccion, error: itemsError } = await supabase
     .from('detecciones_ia_items')
-    .select('item_uuid')
+    .select('item_uuid, confidence, estimated_weight_grams')
     .eq('id_deteccion', deteccion.id_deteccion);
 
   if (itemsError) {
@@ -139,7 +140,10 @@ export async function POST(req: NextRequest) {
     return errorResponse(502, 'PERSISTENCE_ERROR', 'No pudimos validar la predicción. Probá de nuevo.');
   }
 
-  const idsValidos = new Set((itemsPrediccion ?? []).map((row: { item_uuid: string }) => row.item_uuid));
+  const predichos: ItemPredicho[] = ((itemsPrediccion ?? []) as Array<{ item_uuid: string; confidence: number | string; estimated_weight_grams: number | string }>).map(
+    (row) => ({ item_uuid: row.item_uuid, confidence: Number(row.confidence), estimated_weight_grams: Number(row.estimated_weight_grams) }),
+  );
+  const idsValidos = new Set(predichos.map((p) => p.item_uuid));
 
   // Regla de negocio no expresable como FK simple: un ítem agregado a mano no
   // puede referenciar un ítem de la predicción; los demás sí, y tiene que
@@ -277,6 +281,8 @@ export async function POST(req: NextRequest) {
     p_items: itemsRpc,
     p_modelo_nutricion: resolucion.modelo,
     p_nutrition_prompt_version: NUTRITION_PROMPT_VERSION,
+    // NUT-149: qué ítems de Gemini entran a la cola de revisión del equipo de nutrición.
+    p_revisiones: calcularRevisiones(predichos, saveRequest.items, saveRequest.removedItemIds),
   });
 
   if (rpcError) {

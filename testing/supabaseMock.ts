@@ -54,6 +54,7 @@ export function createSupabaseFromMock() {
   const llamadas: string[] = [];
   const inserts: InsertLlamado[] = [];
   const filtros: FiltroLlamado[] = [];
+  const eqs: FiltroLlamado[] = [];
 
   function siguiente(tabla: string): TableResult {
     const cola = colas.get(tabla) ?? [];
@@ -78,7 +79,10 @@ export function createSupabaseFromMock() {
           return chain;
         }),
         select: vi.fn(() => chain),
-        eq: vi.fn(() => chain),
+        eq: vi.fn((...args: unknown[]) => {
+          eqs.push({ tabla, metodo: 'eq', args });
+          return chain;
+        }),
         single: vi.fn(() => Promise.resolve(siguiente(tabla))),
         then: (resolve: (v: TableResult) => void) => resolve(siguiente(tabla)),
       },
@@ -142,6 +146,8 @@ export function createSupabaseFromMock() {
     insertsLlamados: () => inserts,
     /** Cada llamada a un método de filtro sin stub explícito (ilike, or, not, order, limit, in, etc.), en orden. */
     filtrosLlamados: () => filtros,
+    /** Llamadas a `.eq(col, valor)`, aparte de `filtrosLlamados` para no alterar el orden que ya assertan otros tests. */
+    eqLlamados: () => eqs,
     reset() {
       colas.clear();
       colasRpc.clear();
@@ -152,6 +158,7 @@ export function createSupabaseFromMock() {
       llamadas.length = 0;
       inserts.length = 0;
       filtros.length = 0;
+      eqs.length = 0;
       from.mockClear();
     },
   };

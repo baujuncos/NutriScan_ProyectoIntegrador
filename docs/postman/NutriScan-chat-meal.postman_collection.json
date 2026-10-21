@@ -216,7 +216,7 @@
           "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"fecha\": \"2026-10-08\",\n  \"tipoIngesta\": \"almuerzo\",\n  \"items\": [\n    {\n      \"ingrediente\": \"Empanada de carne\",\n      \"tipo\": \"otro\",\n      \"unidad\": \"g\",\n      \"origin\": \"edited\",\n      \"macroSource\": \"estimado_ia\",\n      \"idAlimento\": null,\n      \"confidence\": 0.7,\n      \"gramosIa\": 240,\n      \"gramosFinal\": 120,\n      \"macrosIa\": {\n        \"kcal\": 600,\n        \"proteinas_g\": 25.2,\n        \"carbs_g\": 64.8,\n        \"grasas_g\": 26.4\n      }\n    },\n    {\n      \"ingrediente\": \"Banana\",\n      \"tipo\": \"fruta\",\n      \"unidad\": \"g\",\n      \"origin\": \"removed\",\n      \"macroSource\": \"sara2\",\n      \"idAlimento\": 375,\n      \"confidence\": 0.9,\n      \"gramosIa\": 120,\n      \"gramosFinal\": null,\n      \"macrosIa\": {\n        \"kcal\": 110.4,\n        \"proteinas_g\": 1.44,\n        \"carbs_g\": 24.48,\n        \"grasas_g\": 0.24\n      }\n    },\n    {\n      \"ingrediente\": \"Agua\",\n      \"tipo\": \"bebida\",\n      \"unidad\": \"ml\",\n      \"origin\": \"ai\",\n      \"macroSource\": \"estimado_ia\",\n      \"idAlimento\": null,\n      \"confidence\": 0.9,\n      \"gramosIa\": 250,\n      \"gramosFinal\": 250,\n      \"macrosIa\": {\n        \"kcal\": 0,\n        \"proteinas_g\": 0,\n        \"carbs_g\": 0,\n        \"grasas_g\": 0\n      }\n    }\n  ]\n}"
         }
       },
-      "description": "Cambiá 'fecha' por hoy (o hasta 7 días atrás). Requiere haber aplicado supabase/012_chat_ia_registros_nut191.sql."
+      "description": "Cambiá 'fecha' por hoy (o hasta 7 días atrás). Requiere haber aplicado supabase/schema_consolidado.sql (sección 012 NUT-191)."
     }
   ]
 }

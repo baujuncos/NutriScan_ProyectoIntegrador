@@ -48,3 +48,7 @@ next-env.d.ts
 /public/sw.js.map
 /public/swe-worker*.js
 /public/swe-worker*.js.map
+
+# Windows
+desktop.ini
+Thumbs.db

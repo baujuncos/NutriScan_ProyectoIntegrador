@@ -170,10 +170,9 @@ export default function RevisionIaClient({ rows, total, params, conteos }: Props
         <span role="tab" aria-selected="true" className="rounded-lg bg-white px-4 py-2 text-slate-900 shadow-sm">
           Cola de revisión
         </span>
-        {/* Se habilita con el dashboard de métricas (NUT-151). */}
-        <span role="tab" aria-selected="false" aria-disabled="true" title="Próximamente" className="cursor-not-allowed px-4 py-2 text-slate-500">
+        <Link role="tab" aria-selected="false" href="/revision-ia/metricas" className="px-4 py-2 text-slate-600 hover:text-slate-900">
           Métricas
-        </span>
+        </Link>
       </div>
 
       <form

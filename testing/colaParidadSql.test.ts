@@ -125,11 +125,21 @@ describe('migración 020', () => {
   });
 
   it('usuarios_distintos une ambas fuentes con UNION (sin doble conteo) y ocurrencias conserva su semántica', () => {
-    const vista = normalizar(sql020.slice(sql020.indexOf('create view public.v_alimentos_pendientes')));
+    const vista = normalizar(sql020.slice(sql020.indexOf('create or replace view public.v_alimentos_pendientes')));
     expect(vista).toContain('from public.detecciones_guardados_items gi where gi.id_pendiente = p.id_pendiente ) o');
     expect(vista).toContain('join public.detecciones_guardados g on g.id_guardado = gi.id_guardado');
     expect(vista).toContain('join public.ingestas ing on ing.id_ingesta = it.id_ingesta');
     expect(vista).toMatch(/\bunion\b(?! all)/);
+  });
+
+  it('la vista se reemplaza sin drop: columnas existentes en su orden y las nuevas al final', () => {
+    expect(sql020).not.toMatch(/drop view/i);
+    const vista = normalizar(sql020.slice(sql020.indexOf('create or replace view public.v_alimentos_pendientes')));
+    const orden = ['p.id_alimento_propio,', 'o.ocurrencias,', 'as ultima_ocurrencia', 'm.ocurrencias_manuales', 'u.usuarios_distintos', 'p.origen from'];
+    const pos = orden.map((t) => vista.indexOf(t));
+    expect(pos.every((x) => x > -1)).toBe(true);
+    expect([...pos].sort((a, b) => a - b)).toEqual(pos);
+    expect(vista).not.toContain('p.*');
   });
 
   it('la sección 020 está repetida tal cual en schema_consolidado.sql', () => {

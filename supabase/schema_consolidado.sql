@@ -4171,6 +4171,7 @@ revoke all on public.v_metricas_ia_items, public.v_metricas_ia_no_detectados fro
 grant select on public.v_metricas_ia_items, public.v_metricas_ia_no_detectados to authenticated;
 
 
+
 -- ============================================================
 -- 020 (NUT-192/NUT-193) — Alimento personalizado: entra a la cola de validación
 --
@@ -4433,28 +4434,39 @@ comment on function public.registrar_guardado_deteccion(uuid, bigint, date, text
 -- ------------------------------------------------------------
 -- Vista para /validacion
 --
--- Mismas columnas que antes (p.*, ocurrencias, ultima_ocurrencia) +
--- ocurrencias_manuales y usuarios_distintos.
+-- CREATE OR REPLACE VIEW exige conservar nombre, orden y tipo de las columnas
+-- existentes y permite agregar nuevas SOLO al final. Por eso la lista de
+-- columnas de la cola es explícita (`p.*` metería `origen` antes de
+-- `ocurrencias`) y las nuevas van al final:
+--   existentes (sin cambios): las de la cola de 019, ocurrencias, ultima_ocurrencia
+--   nuevas (al final): ocurrencias_manuales, usuarios_distintos, origen
 --   * ocurrencias: sin cambios — ocurrencias CON foto (detecciones_guardados_items).
+--   * ultima_ocurrencia: mismo nombre y tipo; ahora es la más reciente de las dos
+--     fuentes (greatest ignora los null; para entradas solo de IA es idéntica).
 --   * ocurrencias_manuales: ítems cargados a mano vinculados por items.id_pendiente.
 --   * usuarios_distintos: une ambas fuentes (detecciones_guardados.id_usuario e
 --     ingestas.id_usuario) con UNION → un usuario que lo cargó por los dos
 --     caminos cuenta una sola vez.
---   * ultima_ocurrencia: la más reciente de las dos fuentes (greatest ignora
---     los null; para entradas solo de IA es idéntica a la anterior).
--- security_invoker: la RLS del que consulta aplica a cada tabla base.
+-- security_invoker: la RLS del que consulta aplica a cada tabla base. Como
+-- CREATE OR REPLACE conserva los permisos, el revoke/grant solo reafirma lo de 013.
 -- ------------------------------------------------------------
 
-drop view if exists public.v_alimentos_pendientes;
-create view public.v_alimentos_pendientes
+create or replace view public.v_alimentos_pendientes
 with (security_invoker = true)
 as
 select
-  p.*,
+  p.id_pendiente, p.nombre_original, p.nombre_normalizado, p.categoria_ia,
+  p.gemini_kcal_100g, p.gemini_proteinas_100g, p.gemini_grasas_100g, p.gemini_carbs_100g,
+  p.gemini_modelo, p.gemini_prompt_version,
+  p.nombre_final, p.categoria_final,
+  p.final_kcal_100g, p.final_proteinas_100g, p.final_grasas_100g, p.final_carbs_100g,
+  p.id_alimento_vinculado, p.estado, p.observaciones, p.resuelto_por, p.resuelto_at,
+  p.created_at, p.updated_at, p.composicion, p.id_alimento_propio,
   o.ocurrencias,
   greatest(o.ultima_ia, m.ultima_manual) as ultima_ocurrencia,
   m.ocurrencias_manuales,
-  u.usuarios_distintos
+  u.usuarios_distintos,
+  p.origen
 from public.alimentos_pendientes_validacion p
 cross join lateral (
   select count(*) as ocurrencias, max(gi.created_at) as ultima_ia

@@ -94,7 +94,10 @@ const COMMIT_OK = { data: { id_guardado: 7, items_registrados: 1, sin_datos: 0 }
 function escenario(opts: { uuids?: string[]; match?: unknown[] } = {}) {
   const uuids = opts.uuids ?? [ITEM_UUID];
   userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'user-1' }, error: null });
-  userDb.mockTable('detecciones_ia_items', { data: uuids.map((u) => ({ item_uuid: u })), error: null });
+  userDb.mockTable('detecciones_ia_items', {
+    data: uuids.map((u) => ({ item_uuid: u, confidence: 0.9, estimated_weight_grams: 150 })),
+    error: null,
+  });
   userDb.mockTable('detecciones_guardados', { data: [], error: null }); // pre-check: sin guardado previo
   userDb.mockRpc('match_alimentos', { data: opts.match ?? [filaMatch(1)], error: null });
   adminDb.mockRpc('registrar_guardado_deteccion', COMMIT_OK);
@@ -114,6 +117,43 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe('POST /save — cola de revisión (NUT-149)', () => {
+  const revisionesDeLaRpc = () =>
+    (adminDb.rpcLlamadas().find((l) => l.nombre === 'registrar_guardado_deteccion')!.args as { p_revisiones: unknown }).p_revisiones;
+
+  it('manda p_revisiones: ítem quitado, peso corregido y ítem sin motivos', async () => {
+    const OTRO = '44444444-4444-4444-4444-444444444444';
+    escenario({ uuids: [ITEM_UUID, ITEM_UUID_2, OTRO] });
+    const res = await POST(
+      makeRequest(
+        makeSaveRequest({
+          items: [baseItem({ grams: 300 }), baseItem({ sourceItemId: OTRO, name: 'Arroz', grams: 150 })],
+          removedItemIds: [ITEM_UUID_2],
+        }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(revisionesDeLaRpc()).toEqual([
+      { item_uuid: ITEM_UUID, motivos: ['correccion_peso_grande'] },
+      { item_uuid: ITEM_UUID_2, motivos: ['item_quitado'] },
+      { item_uuid: OTRO, motivos: [] },
+    ]);
+  });
+
+  it('un alimento agregado a mano no genera ninguna revisión', async () => {
+    escenario();
+    const res = await POST(
+      makeRequest(
+        makeSaveRequest({
+          items: [baseItem(), baseItem({ sourceItemId: null, aiGrams: null, origin: 'added_manually', name: 'Flan' })],
+        }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(revisionesDeLaRpc()).toEqual([{ item_uuid: ITEM_UUID, motivos: [] }]);
+  });
 });
 
 describe('POST /save — autenticación y validación', () => {

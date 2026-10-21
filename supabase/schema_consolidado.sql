@@ -1548,8 +1548,17 @@ grant execute on function public.cola_lookup(text[]) to service_role;
 --   score_match       real | null
 --   ia                { kcal_100g, proteinas_100g, grasas_100g, carbs_100g } | null
 --
+--
+-- p_revisiones (NUT-149): array jsonb [{ item_uuid, motivos: text[] }], uno por
+-- ítem que predijo Gemini (lo calcula calcularRevisiones en src/lib/revisionIa.ts).
+-- Marca necesita_revision / motivos_revision / estado_revision en
+-- detecciones_ia_items, sólo de esta detección.
+--
 -- Errores (message): NOT_FOUND, ALREADY_SAVED, INVALID, FOOD_REF_INVALIDO
 -- (detail = id). Devuelve { id_guardado, items_registrados, sin_datos }.
+-- NUT-149: la firma ganó p_revisiones; se descarta la anterior para no dejar un overload.
+drop function if exists public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text);
+
 create or replace function public.registrar_guardado_deteccion(
   p_user_id uuid,
   p_id_deteccion bigint,
@@ -1558,7 +1567,8 @@ create or replace function public.registrar_guardado_deteccion(
   p_removed uuid[],
   p_items jsonb,
   p_modelo_nutricion text,
-  p_nutrition_prompt_version text
+  p_nutrition_prompt_version text,
+  p_revisiones jsonb default '[]'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -1778,6 +1788,21 @@ begin
     end if;
   end loop;
 
+  -- NUT-149: cola de revisión. Sólo ítems de ESTA detección; motivos vacíos = no entra.
+  if p_revisiones is not null and jsonb_typeof(p_revisiones) = 'array' then
+    update public.detecciones_ia_items di
+    set necesita_revision = coalesce(array_length(r.motivos, 1), 0) > 0,
+        motivos_revision  = r.motivos,
+        estado_revision   = case when coalesce(array_length(r.motivos, 1), 0) > 0 then 'pendiente' end
+    from (
+      select (e.value ->> 'item_uuid')::uuid as item_uuid,
+             coalesce(array(select jsonb_array_elements_text(e.value -> 'motivos')), '{}') as motivos
+      from jsonb_array_elements(p_revisiones) as e(value)
+    ) r
+    where di.item_uuid = r.item_uuid
+      and di.id_deteccion = p_id_deteccion;
+  end if;
+
   return jsonb_build_object(
     'id_guardado', v_id_guardado,
     'items_registrados', v_registrados,
@@ -1786,9 +1811,9 @@ begin
 end;
 $$;
 
-revoke all on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text)
+revoke all on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text, jsonb)
   from public, anon, authenticated;
-grant execute on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text)
+grant execute on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text, jsonb)
   to service_role;
 
 -- ------------------------------------------------------------
@@ -3877,3 +3902,209 @@ $$;
 
 REVOKE ALL ON FUNCTION public.confirmar_chat_ia_registro(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.confirmar_chat_ia_registro(jsonb) TO authenticated;
+
+-- ============================================================
+-- NUT-149 — Cola de revisión de predicciones IA (equipo de nutrición)
+--
+-- Los campos viven en detecciones_ia_items (una fila por ítem que predijo
+-- Gemini): es la única tabla que cubre también a los ítems QUITADOS por el
+-- usuario, que no tienen fila en detecciones_guardados_items.
+--
+-- Los valores de Gemini (ingredient, estimated_weight_grams, confidence) y los
+-- del usuario (detecciones_guardados_items) NO se tocan nunca: el nutricionista
+-- escribe en nutricionista_alimento / nutricionista_gramos.
+--
+-- Alimentos agregados a mano (falsos negativos) NO entran a la cola. Para la
+-- métrica de "no detectados" (NUT-151):
+--   select count(*) from detecciones_guardados_items where origin = 'added_manually';
+-- ============================================================
+
+alter table public.detecciones_ia_items
+  add column if not exists necesita_revision      boolean,
+  add column if not exists motivos_revision       text[] not null default '{}',
+  add column if not exists estado_revision        text,
+  add column if not exists revisado_por           uuid references auth.users(id) on delete set null,
+  add column if not exists revisado_en            timestamptz,
+  add column if not exists nutricionista_alimento text,
+  add column if not exists nutricionista_gramos   numeric(10,2),
+  add column if not exists candidato_ejemplo      boolean not null default false;
+
+alter table public.detecciones_ia_items
+  drop constraint if exists detecciones_ia_items_estado_revision_check,
+  drop constraint if exists detecciones_ia_items_motivos_revision_check,
+  drop constraint if exists detecciones_ia_items_nutricionista_gramos_check;
+
+alter table public.detecciones_ia_items
+  add constraint detecciones_ia_items_estado_revision_check
+    check (estado_revision in ('pendiente', 'confirmado', 'corregido')),
+  add constraint detecciones_ia_items_motivos_revision_check
+    check (motivos_revision <@ array['item_quitado', 'cambio_alimento', 'correccion_peso_grande', 'confianza_baja']),
+  add constraint detecciones_ia_items_nutricionista_gramos_check
+    check (nutricionista_gramos is null or nutricionista_gramos > 0);
+
+create index if not exists idx_detecciones_ia_items_revision
+  on public.detecciones_ia_items (estado_revision, id_deteccion_item desc) where necesita_revision;
+
+-- Las columnas de revisión sólo se escriben desde el servidor (RPC de guardado
+-- con service_role, RPCs revision_ia_* security definer). El insert de
+-- /api/food-recognition usa el cliente del usuario y las deja en su default.
+create or replace function public.detecciones_ia_items_proteger_revision()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.necesita_revision is not null or new.estado_revision is not null
+       or new.revisado_por is not null or new.revisado_en is not null
+       or new.nutricionista_alimento is not null or new.nutricionista_gramos is not null
+       or new.candidato_ejemplo or cardinality(new.motivos_revision) > 0 then
+      raise exception 'COLUMNA_PROTEGIDA'
+        using detail = 'Las columnas de revisión de detecciones_ia_items sólo se escriben desde el servidor.';
+    end if;
+  elsif (new.necesita_revision, new.motivos_revision, new.estado_revision, new.revisado_por, new.revisado_en,
+         new.nutricionista_alimento, new.nutricionista_gramos, new.candidato_ejemplo)
+        is distinct from
+        (old.necesita_revision, old.motivos_revision, old.estado_revision, old.revisado_por, old.revisado_en,
+         old.nutricionista_alimento, old.nutricionista_gramos, old.candidato_ejemplo) then
+    raise exception 'COLUMNA_PROTEGIDA'
+      using detail = 'Las columnas de revisión de detecciones_ia_items sólo se escriben desde el servidor.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists detecciones_ia_items_proteger_revision on public.detecciones_ia_items;
+create trigger detecciones_ia_items_proteger_revision
+  before insert or update on public.detecciones_ia_items
+  for each row execute function public.detecciones_ia_items_proteger_revision();
+
+-- Vista de la cola: predicción de Gemini + valor final del usuario + contexto de captura.
+-- security_invoker: aplican las RLS del que consulta (un deportista ve sólo lo suyo; la
+-- pantalla /revision-ia es sólo para investigadores). No expone la URL de la foto.
+create or replace view public.v_revision_ia
+with (security_invoker = true)
+as
+select
+  di.id_deteccion_item,
+  di.id_deteccion,
+  di.item_uuid,
+  di.ingredient             as alimento_ia,
+  di.estimated_weight_grams as gramos_ia,
+  di.confidence,
+  di.necesita_revision,
+  di.motivos_revision,
+  ('item_quitado' = any (di.motivos_revision)) as item_quitado,
+  di.estado_revision,
+  di.revisado_por,
+  di.revisado_en,
+  di.nutricionista_alimento,
+  di.nutricionista_gramos,
+  di.candidato_ejemplo,
+  d.created_at,
+  d.id_usuario,
+  d.imagen_path,
+  d.vajilla_tipo,
+  d.vajilla_diametro_cm,
+  d.angulo_captura_grados,
+  d.angulo_aproximado,
+  gi.name                   as alimento_usuario,
+  gi.grams                  as gramos_usuario,
+  gi.origin                 as origen_usuario
+from public.detecciones_ia_items di
+join public.detecciones_ia d on d.id_deteccion = di.id_deteccion
+left join lateral (
+  select g.name, g.grams, g.origin
+  from public.detecciones_guardados_items g
+  where g.source_item_uuid = di.item_uuid
+  order by g.id_guardado_item
+  limit 1
+) gi on true
+where di.necesita_revision;
+
+revoke all on public.v_revision_ia from anon, authenticated;
+grant select on public.v_revision_ia to authenticated;
+
+-- Acciones del nutricionista. security definer + rol chequeado adentro (patrón pendiente_*).
+-- Errores (message): FORBIDDEN, NOT_FOUND, ESTADO_INVALIDO, INVALID.
+create or replace function public.revision_ia_confirmar(p_id bigint)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_estado text;
+begin
+  if coalesce((select public.get_my_role()), '') not in ('investigador', 'administrador') then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  select estado_revision into v_estado
+  from public.detecciones_ia_items where id_deteccion_item = p_id and necesita_revision for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if v_estado <> 'pendiente' then raise exception 'ESTADO_INVALIDO'; end if;
+
+  update public.detecciones_ia_items
+  set estado_revision = 'confirmado', revisado_por = auth.uid(), revisado_en = now()
+  where id_deteccion_item = p_id;
+end;
+$$;
+
+create or replace function public.revision_ia_corregir(p_id bigint, p_alimento text, p_gramos numeric)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_estado text;
+  v_alimento text := nullif(btrim(p_alimento), '');
+begin
+  if coalesce((select public.get_my_role()), '') not in ('investigador', 'administrador') then
+    raise exception 'FORBIDDEN';
+  end if;
+  if v_alimento is null and p_gramos is null then raise exception 'INVALID'; end if;
+  if p_gramos is not null and p_gramos <= 0 then raise exception 'INVALID'; end if;
+
+  select estado_revision into v_estado
+  from public.detecciones_ia_items where id_deteccion_item = p_id and necesita_revision for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if v_estado <> 'pendiente' then raise exception 'ESTADO_INVALIDO'; end if;
+
+  update public.detecciones_ia_items
+  set estado_revision = 'corregido', revisado_por = auth.uid(), revisado_en = now(),
+      nutricionista_alimento = v_alimento, nutricionista_gramos = p_gramos
+  where id_deteccion_item = p_id;
+end;
+$$;
+
+-- Independiente del estado: sólo toca candidato_ejemplo.
+create or replace function public.revision_ia_marcar_candidato(p_id bigint, p_valor boolean)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce((select public.get_my_role()), '') not in ('investigador', 'administrador') then
+    raise exception 'FORBIDDEN';
+  end if;
+  if p_valor is null then raise exception 'INVALID'; end if;
+
+  update public.detecciones_ia_items set candidato_ejemplo = p_valor
+  where id_deteccion_item = p_id and necesita_revision;
+  if not found then raise exception 'NOT_FOUND'; end if;
+end;
+$$;
+
+revoke all on function public.revision_ia_confirmar(bigint) from public, anon;
+revoke all on function public.revision_ia_corregir(bigint, text, numeric) from public, anon;
+revoke all on function public.revision_ia_marcar_candidato(bigint, boolean) from public, anon;
+grant execute on function public.revision_ia_confirmar(bigint) to authenticated;
+grant execute on function public.revision_ia_corregir(bigint, text, numeric) to authenticated;
+grant execute on function public.revision_ia_marcar_candidato(bigint, boolean) to authenticated;

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Avatar from './Avatar';
+import EmptyState from './EmptyState';
+import FilterBar, { type FilterField } from './FilterBar';
+import { CARD_CLASS } from './Card';
+import StatusBadge, { type BadgeTone } from './StatusBadge';
 
 export interface AthleteRow {
   user_id: string;
@@ -23,9 +27,9 @@ interface Props {
   onRowClick: (athlete: AthleteRow) => void;
 }
 
-const DEPORTE_BADGE: Record<string, string> = {
-  basquet: 'bg-blue-50 text-blue-700',
-  hockey: 'bg-emerald-50 text-emerald-700',
+const DEPORTE_TONE: Record<string, BadgeTone> = {
+  basquet: 'blue',
+  hockey: 'emerald',
 };
 const DEPORTE_LABELS: Record<string, string> = {
   basquet: 'Básquet',
@@ -33,10 +37,10 @@ const DEPORTE_LABELS: Record<string, string> = {
 };
 const SEXO_LABELS: Record<string, string> = { F: 'Femenino', M: 'Masculino' };
 
-function complianceTone(pct: number): string {
-  if (pct >= 80) return 'bg-emerald-50 text-emerald-700';
-  if (pct >= 50) return 'bg-amber-50 text-amber-700';
-  return 'bg-rose-50 text-rose-700';
+function complianceTone(pct: number): BadgeTone {
+  if (pct >= 80) return 'emerald';
+  if (pct >= 50) return 'amber';
+  return 'rose';
 }
 
 function normalizeStr(s: string): string {
@@ -147,132 +151,42 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
     setDeporteFilter('');
   }
 
+  const campos: FilterField[] = [
+    { type: 'search', id: 'query', label: 'Buscar', value: query, placeholder: 'Nombre, apellido o email' },
+    { type: 'select', id: 'unidad', label: 'Unidad académica', value: unidadFilter, width: 'lg', options: [{ value: '', label: 'Todas' }, ...unidades.map((u) => ({ value: u, label: u }))] },
+    { type: 'select', id: 'carrera', label: 'Carrera', value: carreraFilter, width: 'lg', disabled: carreras.length === 0, options: [{ value: '', label: 'Todas' }, ...carreras.map((c) => ({ value: c, label: c }))] },
+    { type: 'select', id: 'anio', label: 'Año ingreso', value: anioFilter, width: 'sm', options: [{ value: '', label: 'Todos' }, ...anios.map((y) => ({ value: String(y), label: String(y) }))] },
+    { type: 'select', id: 'deporte', label: 'Deporte', value: deporteFilter, width: 'sm', options: [{ value: '', label: 'Todos' }, { value: 'basquet', label: 'Básquet' }, { value: 'hockey', label: 'Hockey' }] },
+  ];
+
+  // Deportistas filtra en memoria: la búsqueda se aplica al instante (sin debounce) y el estado vive acá, no en la URL.
+  function cambiarFiltro(id: string, value: string) {
+    if (id === 'query') setQuery(value);
+    else if (id === 'unidad') {
+      setUnidadFilter(value);
+      setCarreraFilter('');
+    } else if (id === 'carrera') setCarreraFilter(value);
+    else if (id === 'anio') setAnioFilter(value);
+    else if (id === 'deporte') setDeporteFilter(value);
+  }
+
   return (
-    <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
-      {/* Header + filters */}
-      <div className="border-b border-slate-100 p-5 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Deportistas</h2>
-            <p className="text-sm text-slate-500">
-              {filtered.length !== athletes.length
-                ? `${filtered.length} de ${athletes.length} deportista${athletes.length !== 1 ? 's' : ''}`
-                : `${athletes.length} deportista${athletes.length !== 1 ? 's' : ''} registrado${athletes.length !== 1 ? 's' : ''}`}
-              {selectedIds.size > 0 && (
-                <span className="ml-2 font-medium text-blue-600">
-                  · {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="relative sm:w-64">
-            <svg
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-              width="18"
-              height="18"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.8}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z"
-              />
-            </svg>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar deportista..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-            />
-          </div>
+    <div className="space-y-4">
+      <FilterBar fields={campos} onChange={cambiarFiltro} onClear={clearFilters} canClear={activeFilters > 0 || query !== ''} debounceMs={0} />
+
+      <div className={CARD_CLASS}>
+        <div className="border-b border-slate-100 px-5 py-4">
+          <p className="text-sm text-slate-500">
+            {filtered.length !== athletes.length
+              ? `${filtered.length} de ${athletes.length} deportista${athletes.length !== 1 ? 's' : ''}`
+              : `${athletes.length} deportista${athletes.length !== 1 ? 's' : ''} registrado${athletes.length !== 1 ? 's' : ''}`}
+            {selectedIds.size > 0 && (
+              <span className="ml-2 font-medium text-blue-700">
+                · {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+              </span>
+            )}
+          </p>
         </div>
-
-        {/* Filter dropdowns */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-slate-500">
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"
-              />
-            </svg>
-            Filtros
-          </span>
-
-          <select
-            value={unidadFilter}
-            onChange={(e) => {
-              setUnidadFilter(e.target.value);
-              setCarreraFilter('');
-            }}
-            className="rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          >
-            <option value="">Unidad académica</option>
-            {unidades.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={carreraFilter}
-            onChange={(e) => setCarreraFilter(e.target.value)}
-            disabled={carreras.length === 0}
-            className="rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-50"
-          >
-            <option value="">Carrera</option>
-            {carreras.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={anioFilter}
-            onChange={(e) => setAnioFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          >
-            <option value="">Año ingreso</option>
-            {anios.map((y) => (
-              <option key={y} value={String(y)}>
-                {y}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={deporteFilter}
-            onChange={(e) => setDeporteFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          >
-            <option value="">Deporte</option>
-            <option value="basquet">Básquet</option>
-            <option value="hockey">Hockey</option>
-          </select>
-
-          {(activeFilters > 0 || query) && (
-            <button
-              onClick={clearFilters}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            >
-              Limpiar
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
@@ -323,13 +237,7 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
                 </td>
                 <td className="cursor-pointer px-5 py-3" onClick={() => onRowClick(a)}>
                   {a.deporte ? (
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                        DEPORTE_BADGE[a.deporte] ?? 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {DEPORTE_LABELS[a.deporte] ?? a.deporte}
-                    </span>
+                    <StatusBadge tone={DEPORTE_TONE[a.deporte] ?? 'slate'}>{DEPORTE_LABELS[a.deporte] ?? a.deporte}</StatusBadge>
                   ) : (
                     <span className="text-slate-300">—</span>
                   )}
@@ -365,11 +273,9 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
                         style={{ width: `${a.compliance}%` }}
                       />
                     </div>
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${complianceTone(a.compliance)}`}
-                    >
+                    <StatusBadge tone={complianceTone(a.compliance)} className="font-semibold">
                       {a.compliance}%
-                    </span>
+                    </StatusBadge>
                   </div>
                 </td>
                 <td className="px-5 py-3 text-center">
@@ -386,12 +292,18 @@ export default function AthletesTable({ athletes, onSelectionChange, onRowClick 
         </table>
 
         {filtered.length === 0 && (
-          <div className="py-10 text-center text-sm text-slate-500">
-            {athletes.length === 0
-              ? 'No hay deportistas registrados aún.'
-              : 'No se encontraron deportistas con los filtros aplicados.'}
-          </div>
+          <EmptyState
+            title={athletes.length === 0 ? 'No hay deportistas registrados aún.' : 'No se encontraron deportistas con los filtros aplicados.'}
+            action={
+              athletes.length > 0 ? (
+                <button type="button" onClick={clearFilters} className="text-sm font-medium text-blue-700 hover:underline">
+                  Limpiar filtros
+                </button>
+              ) : undefined
+            }
+          />
         )}
+      </div>
       </div>
     </div>
   );

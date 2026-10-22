@@ -11,6 +11,8 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { formatFechaCorta } from '@/lib/date';
 import { fmt } from '@/lib/numeros';
+import { cajaDeFila } from '@/lib/marcaFoto';
+import FotoConMarca from './FotoConMarca';
 import MotivosRevision from './MotivosRevision';
 import {
   confirmarRevisionAction,
@@ -56,7 +58,6 @@ function Columna({ titulo, alimento, gramos, vacio }: { titulo: string; alimento
 }
 
 export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, corregirAlAbrir = false, onClose, onCambio }: Props) {
-  const [fotoRota, setFotoRota] = useState(false);
   const [corrigiendo, setCorrigiendo] = useState(corregirAlAbrir);
   const [alimento, setAlimento] = useState('');
   const [gramos, setGramos] = useState('');
@@ -86,20 +87,13 @@ export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, corregir
         <div className="space-y-5">
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
-              {fotoUrl && !fotoRota ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={fotoUrl}
-                  src={fotoUrl}
-                  alt={`Foto de la comida: ${fila.alimento_ia}`}
-                  onError={async () => {
-                    if (!(await onFotoFallo(fotoUrl))) setFotoRota(true);
-                  }}
-                  className="w-full rounded-xl bg-slate-900 object-contain"
-                />
-              ) : (
-                <p className="rounded-xl bg-slate-100 px-3 py-10 text-center text-sm text-slate-600">No se pudo cargar la foto</p>
-              )}
+              <FotoConMarca
+                src={fotoUrl}
+                alt={`Foto de la comida: ${fila.alimento_ia}`}
+                caja={cajaDeFila(fila)}
+                etiqueta={fila.alimento_ia}
+                onFallo={onFotoFallo}
+              />
               <p className="mt-2 text-xs text-slate-600">
                 {VAJILLA_LABEL[fila.vajilla_tipo] ?? fila.vajilla_tipo} de {fmt(fila.vajilla_diametro_cm)} cm · ángulo{' '}
                 {fila.angulo_aproximado ? '≈ ' : ''}

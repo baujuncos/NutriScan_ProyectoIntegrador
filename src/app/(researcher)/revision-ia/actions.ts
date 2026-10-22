@@ -13,6 +13,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
+import { MAX_CANTIDAD } from '@/lib/nutrition';
 import { TTL_URL_LISTA_S, urlsFirmadas } from '@/lib/fotosDeteccion';
 import type { MotivoRevision } from '@/lib/revisionIa';
 
@@ -68,7 +69,7 @@ const id = z.number().int().positive();
 const corregirSchema = z.object({
   id,
   alimento: z.string().trim().max(200).nullish().transform((v) => v || null),
-  gramos: z.number().positive().max(100_000).nullish().transform((v) => v ?? null),
+  gramos: z.number().positive().max(MAX_CANTIDAD).nullish().transform((v) => v ?? null),
 });
 const candidatoSchema = z.object({ id, valor: z.boolean() });
 

@@ -304,30 +304,29 @@ describe('RevisionIaDetalle', () => {
     expect(renovarFotoAction).toHaveBeenCalledTimes(1);
   });
 
-  it('Confirmar en el detalle llama a su acción y refresca', async () => {
+  it('"Confirmar sin cambios" del modal llama a su acción y refresca la lista', async () => {
     await abrir();
-    await userEvent.click(dialogo().getByRole('button', { name: 'Confirmar' }));
+    await userEvent.click(dialogo().getByRole('button', { name: 'Confirmar sin cambios' }));
     await waitFor(() => expect(confirmarRevisionAction).toHaveBeenCalledWith(1));
     expect(corregirRevisionAction).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalled();
   });
 
-  it('el botón Corregir de la lista abre el detalle directo en el formulario de corrección', async () => {
+  it('el botón Corregir de la lista abre el mismo modal, con el formulario "Tu corrección"', async () => {
     await abrir('Corregir Milanesa');
-    const guardar = dialogo().getByRole('button', { name: 'Guardar corrección' });
-    expect(guardar).toBeDisabled();
-    await userEvent.type(dialogo().getByLabelText('Peso (g)'), '200');
-    await userEvent.click(guardar);
-    await waitFor(() => expect(corregirRevisionAction).toHaveBeenCalledWith({ id: 1, alimento: null, gramos: 200 }));
+    expect(dialogo().getByText('Tu corrección')).toBeInTheDocument();
+    await userEvent.click(dialogo().getByRole('button', { name: 'Guardar corrección' }));
+    await waitFor(() => expect(corregirRevisionAction).toHaveBeenCalledWith({ id: 1, alimento: 'Milanesa', gramos: 250 }));
     expect(confirmarRevisionAction).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled(); // la lista se actualiza sin recargar la página
   });
 
-  it('marcar candidato en el detalle es independiente: no confirma ni corrige', async () => {
+  it('marcar "Ejemplo para la IA" en el modal es independiente: no confirma ni corrige', async () => {
     await abrir();
-    await userEvent.click(dialogo().getByRole('button', { name: /Marcar como candidato a ejemplo/ }));
+    await userEvent.click(dialogo().getByRole('checkbox', { name: 'Ejemplo para la IA' }));
     await waitFor(() => expect(marcarCandidatoAction).toHaveBeenCalledWith(1, true));
     expect(confirmarRevisionAction).not.toHaveBeenCalled();
     expect(corregirRevisionAction).not.toHaveBeenCalled();
-    expect(refresh).toHaveBeenCalled(); // la lista se refresca y trae el valor nuevo
+    expect(refresh).toHaveBeenCalled();
   });
 });

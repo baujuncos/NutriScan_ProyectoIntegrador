@@ -382,7 +382,6 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
         fila={filaAbierta}
         fotoUrl={filaAbierta?.imagen_path ? urls[filaAbierta.imagen_path] ?? null : null}
         onFotoFallo={(fallida) => (filaAbierta?.imagen_path ? renovarFoto(filaAbierta.imagen_path, fallida) : Promise.resolve(null))}
-        corregirAlAbrir={abierto?.corregir ?? false}
         onClose={() => setAbierto(null)}
         onCambio={() => router.refresh()}
       />

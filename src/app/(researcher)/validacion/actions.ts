@@ -164,7 +164,13 @@ const modificarSchema = z.object({
   carbs: valor.nullable(),
   composicion,
 });
-// En modo catálogo los 4 valores los calcula el servidor; en los demás casos son obligatorios.
+// NUT-225: vínculo directo con un alimento existente (idAlimentoExistente, sin composición): los 4 valores
+// salen de la fila de `alimentos`, que la acción relee en el servidor; lo que mande el cliente no se usa.
+const esVinculoDirecto = (f: { idAlimentoExistente?: number | null; composicion: unknown }) =>
+  f.idAlimentoExistente != null && f.composicion == null;
+
+// En modo catálogo los 4 valores los calcula el servidor; en los demás casos son obligatorios
+// (salvo el vínculo directo con un alimento existente).
 const validarSchema = z
   .object({
     ...formBase,
@@ -175,7 +181,12 @@ const validarSchema = z
     idAlimentoExistente: id.nullish(),
     composicion,
   })
-  .refine((f) => f.composicion?.modo === 'catalogo' || [f.kcal, f.proteinas, f.grasas, f.carbs].every((v) => v !== null));
+  .refine(
+    (f) =>
+      f.composicion?.modo === 'catalogo' ||
+      [f.kcal, f.proteinas, f.grasas, f.carbs].every((v) => v !== null) ||
+      esVinculoDirecto(f),
+  );
 const descartarSchema = z.object({ id, observaciones: textoOpcional(2000) });
 
 const valorVerificacion = z.number().min(-100_000).max(100_000).nullable(); // el negativo llega a la RPC, que lo informa
@@ -308,6 +319,35 @@ export async function modificarPendienteAction(input: ModificarInput): Promise<M
   return { ok: true };
 }
 
+const CAMPOS_100G = ['kcal_100g', 'proteinas_100g', 'grasas_100g', 'carbs_100g'] as const;
+
+/** Un valor presente: número finito (o numérico en texto, como llega `numeric`). Un 0 es válido; NULL o vacío, no. */
+const esValorNumerico = (v: unknown) =>
+  (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
+
+/**
+ * NUT-225 — Relee el alimento al que se quiere vincular (nunca se confía en lo que manda el cliente) y
+ * exige que exista y tenga los 4 valores por 100 g: la RPC no lo valida y dejaría la entrada validada con
+ * valores nulos (y los ítems manuales sin completar).
+ */
+async function verificarAlimentoVinculable(supabase: Supabase, idAlimento: number): Promise<ResultadoError | null> {
+  const { data, error } = await supabase
+    .from('alimentos')
+    .select(`id_alimento, ${CAMPOS_100G.join(', ')}`)
+    .eq('id_alimento', idAlimento)
+    .single();
+  if (error && (error as { code?: string }).code !== 'PGRST116') {
+    console.error('No se pudo leer el alimento a vincular:', error);
+    return { error: 'No se pudo comprobar el alimento elegido. Probá de nuevo.' };
+  }
+  if (error || !data) return { error: 'El alimento elegido no existe' };
+  const fila = data as unknown as Record<string, unknown>;
+  if (!CAMPOS_100G.every((c) => esValorNumerico(fila[c]))) {
+    return { error: 'El alimento elegido no tiene sus 4 valores nutricionales cargados: elegí otro' };
+  }
+  return null;
+}
+
 export async function validarPendienteAction(input: ValidarInput): Promise<ValidarResultado> {
   const parsed = validarSchema.safeParse(input);
   if (!parsed.success) return { error: 'Datos inválidos: nombre y los 4 valores por 100 g (≥ 0) son obligatorios' };
@@ -315,6 +355,10 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if ('error' in auth) return auth;
 
   const f = parsed.data;
+  if (esVinculoDirecto(f)) {
+    const invalido = await verificarAlimentoVinculable(auth.supabase, f.idAlimentoExistente!);
+    if (invalido) return invalido;
+  }
   const { data, error } = await auth.supabase.rpc('pendiente_validar', {
     p_id: f.id,
     p_nombre: f.nombre,

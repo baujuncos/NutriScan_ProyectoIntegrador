@@ -14,9 +14,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const leer = (archivo: string) => readFileSync(path.resolve(__dirname, '../supabase', archivo), 'utf8');
-const sql013 = leer('013_matching_macros_validacion_nut119.sql');
 const sql020 = leer('020_alimento_personalizado_cola_nut192.sql');
 const consolidado = leer('schema_consolidado.sql');
+// Las migraciones sueltas 011–019 ya no existen (PR #29): lo anterior a la 020 vive en schema_consolidado.sql.
+const sql013 = consolidado.slice(0, consolidado.indexOf('-- 020 (NUT-192/NUT-193)'));
 
 /** Sin comentarios SQL y con espacios colapsados. */
 const normalizar = (s: string) => s.replace(/--.*$/gm, '').replace(/\s+/g, ' ').trim();

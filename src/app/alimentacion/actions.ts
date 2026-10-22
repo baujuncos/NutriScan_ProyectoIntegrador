@@ -2,10 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { INGESTA_TIPOS, ITEM_TIPOS, MAX_CANTIDAD, isValidDateInput, toFixed2 } from '@/lib/nutrition';
 import { estaEnRangoEditable } from '@/lib/date';
+import { shouldHideNutritionInfo } from '@/lib/roles';
 import { obtenerProductoPorEAN } from '@/lib/openFoodFacts';
 import { CAMPOS_DEFAULT, aplicarFiltroSuplemento, buildMarcaDenominacionOr, idsRecientesUnicos, type CamposBusqueda } from './searchQuery';
 
@@ -25,6 +27,31 @@ export type AlimentoOption = {
 const SEL = 'id_alimento, nombre, categoria, fuente, marca, denominacion, kcal_100g, proteinas_100g, grasas_100g, carbs_100g' as const;
 
 const CAP_RESULTADOS = 150;
+
+/**
+ * Orden dentro de cada tanda de resultados: SARA2, luego VALIDADO, luego el resto (ANMAT). La consulta
+ * ordena `fuente` descendente (VALIDADO > SARA2 > ANMAT) para que el corte de 100 no se llene de ANMAT;
+ * acá se reacomoda en memoria. `Array.prototype.sort` es estable: dentro de cada fuente queda el
+ * orden por nombre de la base, y con solo SARA2/ANMAT el resultado es idéntico al de la consulta.
+ */
+const PESO_FUENTE: Record<string, number> = { SARA2: 0, VALIDADO: 1 };
+function ordenarPorFuente(filas: AlimentoOption[]): AlimentoOption[] {
+  return [...filas].sort((a, b) => (PESO_FUENTE[a.fuente] ?? 2) - (PESO_FUENTE[b.fuente] ?? 2));
+}
+
+/**
+ * Estudio a ciegas (NUT-192): a un deportista_ucc no le llegan kcal/macros por 100 g del buscador,
+ * ni siquiera en el payload (con ellos, el selector de cantidad le mostraba una vista previa con
+ * números). El cálculo del ítem lo hace el trigger calculate_item_nutrients en el servidor.
+ */
+function sinMacros100g(a: AlimentoOption): AlimentoOption {
+  const copia = { ...a };
+  delete copia.kcal_100g;
+  delete copia.proteinas_100g;
+  delete copia.grasas_100g;
+  delete copia.carbs_100g;
+  return copia;
+}
 
 export async function searchAlimentosAction(
   query: string,
@@ -64,8 +91,15 @@ export async function searchAlimentosAction(
     promises.push(q2.order('fuente', { ascending: false }).order('nombre', { ascending: true }).limit(100));
   }
 
-  const resultados = await Promise.all(promises);
-  return resultados.flatMap((r) => r.data ?? []).slice(0, CAP_RESULTADOS) as AlimentoOption[];
+  // El rol se consulta en paralelo con las búsquedas (sin sumar latencia). Si no se puede determinar,
+  // se ocultan los macros: ante la duda, el estudio a ciegas manda.
+  const [perfilRes, resultados] = await Promise.all([
+    supabase.from('profiles').select('role').eq('user_id', user.id).single(),
+    Promise.all(promises),
+  ]);
+  const filas = resultados.flatMap((r) => ordenarPorFuente((r.data ?? []) as AlimentoOption[])).slice(0, CAP_RESULTADOS);
+  const role = (perfilRes?.data as { role?: string } | null)?.role;
+  return role && !shouldHideNutritionInfo(role) ? filas : filas.map(sinMacros100g);
 }
 
 export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
@@ -93,7 +127,12 @@ export async function getAlimentosRecientesAction(): Promise<AlimentoOption[]> {
   if (!alimentos) return [];
 
   const porId = new Map((alimentos as AlimentoOption[]).map((a) => [a.id_alimento, a]));
-  return idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
+  const recientes = idsEnOrden.map((id) => porId.get(id)).filter((a): a is AlimentoOption => a != null);
+
+  // Estudio a ciegas (NUT-192): mismos macros fuera del payload que en la búsqueda; falla cerrado si no hay rol.
+  const { data: perfil } = await supabase.from('profiles').select('role').eq('user_id', user.id).single();
+  const role = (perfil as { role?: string } | null)?.role;
+  return role && !shouldHideNutritionInfo(role) ? recientes : recientes.map(sinMacros100g);
 }
 
 function getStringField(formData: FormData, key: string): string {
@@ -105,7 +144,6 @@ const EAN_REGEX = /^[0-9]{13}$/;
 
 type ItemSource =
   | { kind: 'catalogo'; idAlimento: number }
-  | { kind: 'manual'; nombreManual: string }
   | { kind: 'barcode'; idAlimentoBarcode: number };
 
 async function upsertIngestaAndInsertItem(
@@ -139,9 +177,7 @@ async function upsertIngestaAndInsertItem(
   const itemFields =
     source.kind === 'catalogo'
       ? { id_alimento: source.idAlimento }
-      : source.kind === 'manual'
-        ? { id_alimento: null, nombre_manual: source.nombreManual }
-        : { id_alimento_barcode: source.idAlimentoBarcode };
+      : { id_alimento_barcode: source.idAlimentoBarcode };
 
   const { error: insertError } = await supabase.from('items').insert({
     id_ingesta: ingesta.id_ingesta,
@@ -214,30 +250,38 @@ export async function addItemAction(formData: FormData) {
 
 const MAX_NOMBRE_MANUAL = 120;
 
+const manualItemSchema = z.object({
+  fecha: z.string().refine(isValidDateInput),
+  tipo_ingesta: z.enum(INGESTA_TIPOS),
+  tipo_item: z.enum(ITEM_TIPOS),
+  nombre_manual: z.string().trim().min(1).max(MAX_NOMBRE_MANUAL),
+  cantidad: z.coerce.number().positive().max(MAX_CANTIDAD),
+});
+
+// NUT-192: el alimento personalizado entra a la cola de validación por la RPC
+// registrar_item_manual (service role, como registrar_guardado_deteccion): el
+// ítem queda con origen_macros 'pendiente' (o el estado vigente de la cola) y
+// nunca se le inventan macros en 0.
 export async function addManualItemAction(formData: FormData) {
   const fecha = getStringField(formData, 'fecha');
   const tipoIngesta = getStringField(formData, 'tipo_ingesta');
-  const tipoItem = getStringField(formData, 'tipo_item');
-  const nombreManual = getStringField(formData, 'nombre_manual').slice(0, MAX_NOMBRE_MANUAL);
-  const cantidadRaw = getStringField(formData, 'cantidad');
 
-  if (!isValidDateInput(fecha)) redirect('/alimentacion');
-  if (!estaEnRangoEditable(fecha)) redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
-    redirect(`/alimentacion?fecha=${fecha}`);
-  }
-  if (!ITEM_TIPOS.includes(tipoItem as (typeof ITEM_TIPOS)[number])) {
+  const parsed = manualItemSchema.safeParse({
+    fecha,
+    tipo_ingesta: tipoIngesta,
+    tipo_item: getStringField(formData, 'tipo_item'),
+    nombre_manual: getStringField(formData, 'nombre_manual'),
+    cantidad: getStringField(formData, 'cantidad'),
+  });
+  if (!parsed.success) {
+    if (!isValidDateInput(fecha)) redirect('/alimentacion');
+    if (!INGESTA_TIPOS.includes(tipoIngesta as (typeof INGESTA_TIPOS)[number])) {
+      redirect(`/alimentacion?fecha=${fecha}`);
+    }
     redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
   }
-
-  const cantidad = Number.parseFloat(cantidadRaw);
-
-  if (
-    !nombreManual ||
-    !Number.isFinite(cantidad) || cantidad <= 0 || cantidad > MAX_CANTIDAD
-  ) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
-  }
+  const datos = parsed.data;
+  if (!estaEnRangoEditable(datos.fecha)) redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
 
   const supabase = await createClient();
   const {
@@ -246,20 +290,21 @@ export async function addManualItemAction(formData: FormData) {
 
   if (!user) redirect('/login');
 
-  const ok = await upsertIngestaAndInsertItem(supabase, {
-    userId: user.id,
-    fecha,
-    tipoIngesta,
-    tipoItem,
-    cantidad,
-    source: { kind: 'manual', nombreManual },
+  const { error } = await createAdminClient().rpc('registrar_item_manual', {
+    p_user_id: user.id,
+    p_fecha: datos.fecha,
+    p_tipo: datos.tipo_ingesta,
+    p_tipo_item: datos.tipo_item,
+    p_nombre: datos.nombre_manual,
+    p_cantidad: toFixed2(datos.cantidad),
   });
-  if (!ok) {
-    redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  if (error) {
+    console.error('No se pudo registrar el alimento manual:', error);
+    redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
   }
 
   revalidatePath('/alimentacion');
-  redirect(`/alimentacion?fecha=${fecha}&tipo=${tipoIngesta}`);
+  redirect(`/alimentacion?fecha=${datos.fecha}&tipo=${datos.tipo_ingesta}`);
 }
 
 export async function addScannedItemAction(formData: FormData) {

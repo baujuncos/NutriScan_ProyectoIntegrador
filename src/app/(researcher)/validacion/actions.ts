@@ -90,8 +90,13 @@ export interface PendienteFila {
   id_alimento_propio: number | null;
   resuelto_at: string | null;
   created_at: string;
+  /** Ocurrencias CON foto (detección por imagen). */
   ocurrencias: number;
   ultima_ocurrencia: string | null;
+  /** NUT-192: cómo se creó la entrada y cuántas cargas manuales (sin foto) y usuarios distintos tiene. */
+  origen: 'ia' | 'manual';
+  ocurrencias_manuales: number;
+  usuarios_distintos: number;
 }
 
 export interface OcurrenciaDetalle {
@@ -109,8 +114,29 @@ export interface OcurrenciaDetalle {
   esReferencia: boolean;
 }
 
+/** NUT-192: una carga manual (sin foto) vinculada a la entrada por items.id_pendiente. */
+export interface SolicitudManual {
+  idItem: number;
+  fecha: string;
+  deportista: string | null;
+  /** Lo que escribió la persona. */
+  nombre: string;
+  gramos: number;
+}
+
 export type PendienteDetalleResultado =
-  | { ok: true; pendiente: PendienteFila; ocurrencias: OcurrenciaDetalle[]; totalOcurrencias: number; propio?: PropioInfo | null }
+  | {
+      ok: true;
+      pendiente: PendienteFila;
+      ocurrencias: OcurrenciaDetalle[];
+      totalOcurrencias: number;
+      propio?: PropioInfo | null;
+      /** Últimas cargas manuales (hasta MAX_OCURRENCIAS) y el total real (`pendiente.ocurrencias_manuales`). */
+      solicitudesManuales?: SolicitudManual[];
+      totalSolicitudesManuales?: number;
+      /** Alimentos de SARA2/ANMAT con el mismo nombre normalizado (aviso no bloqueante). */
+      existentesCatalogo?: ExistenteCatalogo[];
+    }
   | ResultadoError;
 
 /** Ocurrencias que se muestran en el detalle ("y N más" para el resto). */
@@ -138,7 +164,13 @@ const modificarSchema = z.object({
   carbs: valor.nullable(),
   composicion,
 });
-// En modo catálogo los 4 valores los calcula el servidor; en los demás casos son obligatorios.
+// NUT-225: vínculo directo con un alimento existente (idAlimentoExistente, sin composición): los 4 valores
+// salen de la fila de `alimentos`, que la acción relee en el servidor; lo que mande el cliente no se usa.
+const esVinculoDirecto = (f: { idAlimentoExistente?: number | null; composicion: unknown }) =>
+  f.idAlimentoExistente != null && f.composicion == null;
+
+// En modo catálogo los 4 valores los calcula el servidor; en los demás casos son obligatorios
+// (salvo el vínculo directo con un alimento existente).
 const validarSchema = z
   .object({
     ...formBase,
@@ -149,7 +181,12 @@ const validarSchema = z
     idAlimentoExistente: id.nullish(),
     composicion,
   })
-  .refine((f) => f.composicion?.modo === 'catalogo' || [f.kcal, f.proteinas, f.grasas, f.carbs].every((v) => v !== null));
+  .refine(
+    (f) =>
+      f.composicion?.modo === 'catalogo' ||
+      [f.kcal, f.proteinas, f.grasas, f.carbs].every((v) => v !== null) ||
+      esVinculoDirecto(f),
+  );
 const descartarSchema = z.object({ id, observaciones: textoOpcional(2000) });
 
 const valorVerificacion = z.number().min(-100_000).max(100_000).nullable(); // el negativo llega a la RPC, que lo informa
@@ -282,6 +319,35 @@ export async function modificarPendienteAction(input: ModificarInput): Promise<M
   return { ok: true };
 }
 
+const CAMPOS_100G = ['kcal_100g', 'proteinas_100g', 'grasas_100g', 'carbs_100g'] as const;
+
+/** Un valor presente: número finito (o numérico en texto, como llega `numeric`). Un 0 es válido; NULL o vacío, no. */
+const esValorNumerico = (v: unknown) =>
+  (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
+
+/**
+ * NUT-225 — Relee el alimento al que se quiere vincular (nunca se confía en lo que manda el cliente) y
+ * exige que exista y tenga los 4 valores por 100 g: la RPC no lo valida y dejaría la entrada validada con
+ * valores nulos (y los ítems manuales sin completar).
+ */
+async function verificarAlimentoVinculable(supabase: Supabase, idAlimento: number): Promise<ResultadoError | null> {
+  const { data, error } = await supabase
+    .from('alimentos')
+    .select(`id_alimento, ${CAMPOS_100G.join(', ')}`)
+    .eq('id_alimento', idAlimento)
+    .single();
+  if (error && (error as { code?: string }).code !== 'PGRST116') {
+    console.error('No se pudo leer el alimento a vincular:', error);
+    return { error: 'No se pudo comprobar el alimento elegido. Probá de nuevo.' };
+  }
+  if (error || !data) return { error: 'El alimento elegido no existe' };
+  const fila = data as unknown as Record<string, unknown>;
+  if (!CAMPOS_100G.every((c) => esValorNumerico(fila[c]))) {
+    return { error: 'El alimento elegido no tiene sus 4 valores nutricionales cargados: elegí otro' };
+  }
+  return null;
+}
+
 export async function validarPendienteAction(input: ValidarInput): Promise<ValidarResultado> {
   const parsed = validarSchema.safeParse(input);
   if (!parsed.success) return { error: 'Datos inválidos: nombre y los 4 valores por 100 g (≥ 0) son obligatorios' };
@@ -289,6 +355,10 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if ('error' in auth) return auth;
 
   const f = parsed.data;
+  if (esVinculoDirecto(f)) {
+    const invalido = await verificarAlimentoVinculable(auth.supabase, f.idAlimentoExistente!);
+    if (invalido) return invalido;
+  }
   const { data, error } = await auth.supabase.rpc('pendiente_validar', {
     p_id: f.id,
     p_nombre: f.nombre,
@@ -304,6 +374,7 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion'); // los ítems del diario (también los cargados manualmente) cambian de valores
   const r = data as { id_alimento: number | null; items_afectados: number };
   return { ok: true, idAlimento: r.id_alimento, itemsAfectados: r.items_afectados };
 }
@@ -321,6 +392,7 @@ export async function descartarPendienteAction(input: DescartarInput): Promise<D
   if (error) return { error: errorDeRpc(error).error };
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion'); // los ítems descartados dejan de mostrar valores
   return { ok: true, itemsAfectados: (data as { items_afectados: number }).items_afectados };
 }
 
@@ -372,6 +444,7 @@ export async function validarComoPropioAction(input: ValidarComoPropioInput): Pr
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
+  revalidatePath('/alimentacion');
   const r = data as { id_alimento_propio: number; items_afectados: number };
   return { ok: true, idAlimentoPropio: r.id_alimento_propio, itemsAfectados: r.items_afectados };
 }
@@ -438,6 +511,14 @@ type OcurrenciaRaw = {
   } | null;
 };
 
+type ManualRaw = {
+  id_item: number;
+  nombre_manual: string | null;
+  cantidad: number | string;
+  created_at: string;
+  ingestas: { fecha: string; id_usuario: string } | null;
+};
+
 /**
  * Detalle de una fila de la cola para el modal de `/validacion`: la fila +
  * las últimas MAX_OCURRENCIAS ocurrencias con deportista, nombre/gramos IA vs.
@@ -458,11 +539,18 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
           'detecciones_ia_items(ingredient, estimated_weight_grams, bbox_x, bbox_y, bbox_width, bbox_height)',
       )
       .eq('id_pendiente', idPendiente);
-  const [pendienteRes, ocurrenciasRes, primeraRes] = await Promise.all([
+  const [pendienteRes, ocurrenciasRes, primeraRes, manualesRes] = await Promise.all([
     supabase.from('v_alimentos_pendientes').select('*').eq('id_pendiente', idPendiente).single(),
     seleccion().order('created_at', { ascending: false }).limit(MAX_OCURRENCIAS),
     // La foto de referencia es la PRIMERA ocurrencia (no cambia cuando aparecen más); puede no estar entre las últimas.
     seleccion().order('id_guardado_item', { ascending: true }).limit(1),
+    // NUT-192: cargas manuales (sin foto) de esta entrada.
+    supabase
+      .from('items')
+      .select('id_item, nombre_manual, cantidad, created_at, ingestas(fecha, id_usuario)')
+      .eq('id_pendiente', idPendiente)
+      .order('created_at', { ascending: false })
+      .limit(MAX_OCURRENCIAS),
   ]);
   if (pendienteRes.error || !pendienteRes.data) return { error: 'El alimento pendiente no existe' };
   if (ocurrenciasRes.error || primeraRes.error) {
@@ -474,14 +562,26 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
   const recientes = (ocurrenciasRes.data ?? []) as unknown as OcurrenciaRaw[];
   // La referencia va primero (una sola vez, aunque también esté entre las más recientes).
   const raws = primera ? [primera, ...recientes.filter((r) => r.id_guardado_item !== primera.id_guardado_item)] : recientes;
-  const userIds = [...new Set(raws.map((r) => r.detecciones_guardados?.id_usuario).filter((u): u is string => !!u))];
+  const manuales = ((manualesRes?.data ?? []) as unknown as ManualRaw[]);
+  const userIds = [
+    ...new Set([
+      ...raws.map((r) => r.detecciones_guardados?.id_usuario),
+      ...manuales.map((m) => m.ingestas?.id_usuario),
+    ].filter((u): u is string => !!u)),
+  ];
   const paths = [...new Set(raws.map((r) => r.detecciones_guardados?.detecciones_ia?.imagen_path).filter((p): p is string => !!p))];
 
-  const [perfilesRes, urls] = await Promise.all([
+  const nombreNormalizado = (pendienteRes.data as PendienteFila).nombre_normalizado;
+  const resuelto = (pendienteRes.data as PendienteFila).estado !== 'pendiente';
+  const [perfilesRes, urls, existentesRes] = await Promise.all([
     userIds.length > 0
       ? supabase.from('profiles').select('user_id, nombre, apellido').in('user_id', userIds)
       : Promise.resolve({ data: [] as unknown[] }),
     urlsFirmadas(supabase, paths),
+    // Aviso no bloqueante: ¿ya existe en SARA2/ANMAT? (solo mientras está pendiente; usa la clave normalizada de la cola).
+    resuelto
+      ? Promise.resolve({ data: [] as unknown[] })
+      : supabase.from('alimentos').select('id_alimento, nombre, fuente').eq('nombre_normalizado', nombreNormalizado).in('fuente', ['SARA2', 'ANMAT']).limit(3),
   ]);
   const nombres = new Map(
     ((perfilesRes.data ?? []) as Array<{ user_id: string; nombre: string; apellido: string }>).map((p) => [
@@ -530,5 +630,24 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
       };
     }
   }
-  return { ok: true, pendiente, ocurrencias, totalOcurrencias: Number(pendiente.ocurrencias), propio };
+  const solicitudesManuales: SolicitudManual[] = manuales.map((m) => ({
+    idItem: m.id_item,
+    fecha: m.ingestas?.fecha ?? m.created_at,
+    deportista: nombres.get(m.ingestas?.id_usuario ?? '') ?? null,
+    nombre: m.nombre_manual ?? '',
+    gramos: Number(m.cantidad),
+  }));
+  const existentesCatalogo: ExistenteCatalogo[] = (
+    (existentesRes?.data ?? []) as Array<{ id_alimento: number; nombre: string; fuente: string }>
+  ).map((a) => ({ origen: 'catalogo', id: a.id_alimento, nombre: a.nombre, fuente: a.fuente }));
+  return {
+    ok: true,
+    pendiente,
+    ocurrencias,
+    totalOcurrencias: Number(pendiente.ocurrencias),
+    propio,
+    solicitudesManuales,
+    totalSolicitudesManuales: Number(pendiente.ocurrencias_manuales ?? solicitudesManuales.length),
+    existentesCatalogo,
+  };
 }

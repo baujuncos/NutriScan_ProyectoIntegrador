@@ -22,6 +22,7 @@ type ItemRow = {
   proteinas_g: number | string;
   grasas_g: number | string;
   carbs_g: number | string;
+  origen_macros: string | null;
   alimentos: AlimentoDetalle | AlimentoDetalle[] | null;
   id_alimento_barcode: number | null;
   alimentos_barcode: AlimentoBarcodeDetalle | AlimentoBarcodeDetalle[] | null;
@@ -90,7 +91,7 @@ export default async function AlimentacionPage({
     .select(`
       id_ingesta, tipo, fecha,
       kcal_total, proteinas_total_g, grasas_total_g, carbs_total_g,
-      items(id_item, id_alimento, nombre_manual, tipo_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g,
+      items(id_item, id_alimento, nombre_manual, tipo_item, cantidad, kcal, proteinas_g, grasas_g, carbs_g, origen_macros,
         id_alimento_barcode,
         alimentos(nombre, categoria, marca, denominacion, fuente),
         alimentos_barcode(nombre, marca, categoria, porcion, kcal_100g, proteinas_100g, grasas_100g, carbs_100g,

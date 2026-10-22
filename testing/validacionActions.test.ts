@@ -98,6 +98,7 @@ describe('acciones con rol permitido', () => {
 
   it('validar con idAlimentoExistente lo pasa a la RPC', async () => {
     comoRol('investigador');
+    sb.mockTable('alimentos', { data: { id_alimento: 15, kcal_100g: 100, proteinas_100g: 5, grasas_100g: 3, carbs_100g: 10 }, error: null }); // NUT-225: la acción relee el alimento
     sb.mockRpc('pendiente_validar', { data: { id_alimento: 15, items_afectados: 1 }, error: null });
     expect(await validarPendienteAction({ ...FORM, idAlimentoExistente: 15 })).toEqual({ ok: true, idAlimento: 15, itemsAfectados: 1 });
     expect((sb.rpcLlamadas()[0].args as Record<string, unknown>).p_id_alimento_existente).toBe(15);

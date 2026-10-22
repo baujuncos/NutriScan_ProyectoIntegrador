@@ -20,6 +20,7 @@ import { addItemAction, addManualItemAction, deleteItemAction, updateItemAction,
 import { type IngestaTipo } from '@/lib/nutrition';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import { contarSinMacros, macrosNoDisponibles } from '@/lib/macrosNoDisponibles';
 import AIRecognitionModal from './AIRecognitionModal';
 import ChatFoodModal from './ChatFoodModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
@@ -36,6 +37,8 @@ type ItemRow = {
   proteinas_g: number | string;
   grasas_g: number | string;
   carbs_g: number | string;
+  /** NUT-192: 'pendiente' / 'descartado' = kcal y macros no disponibles (el 0 almacenado no es un dato). */
+  origen_macros?: string | null;
   alimentos: AlimentoDetalle | AlimentoDetalle[] | null;
   id_alimento_barcode?: number | null;
   alimentos_barcode?: AlimentoBarcodeDetalle | AlimentoBarcodeDetalle[] | null;
@@ -220,7 +223,8 @@ export default function AlimentacionClient({
             </div>
           </div>
           <p className="text-xs text-gray-400">
-            Este alimento no está en el catálogo SARA2, así que no se contabilizan sus calorías ni macros.
+            Este alimento no está en el catálogo, así que se enviará a revisión de un investigador. Hasta que lo
+            complete, sus calorías y macros figurarán como no disponibles.
           </p>
           <div className="flex gap-2">
             <button
@@ -382,7 +386,11 @@ export default function AlimentacionClient({
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed">{selectedAlimento.denominacion}</p>
               )}
               <span className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded font-semibold ${
-                selectedAlimento.fuente === 'ANMAT' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'
+                selectedAlimento.fuente === 'ANMAT'
+                  ? 'bg-green-50 text-green-700'
+                  : selectedAlimento.fuente === 'VALIDADO'
+                    ? 'bg-amber-50 text-amber-800'
+                    : 'bg-blue-50 text-blue-700'
               }`}>
                 {selectedAlimento.fuente}
               </span>
@@ -503,7 +511,10 @@ export default function AlimentacionClient({
                       <p className="text-xs text-gray-400 mt-0.5">
                         {toNum(item.cantidad).toFixed(0)} g
                       </p>
-                      {!hideNutrition && (
+                      {!hideNutrition && macrosNoDisponibles(item) && (
+                        <p className="text-xs text-gray-400 mt-1.5">Calorías y macros no disponibles</p>
+                      )}
+                      {!hideNutrition && !macrosNoDisponibles(item) && (
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className="text-xs font-semibold text-gray-700">{toNum(item.kcal).toFixed(0)} kcal</span>
                           <span className="text-xs text-gray-400">P {toNum(item.proteinas_g).toFixed(1)}g</span>
@@ -570,6 +581,11 @@ export default function AlimentacionClient({
                   <span className="text-xs text-gray-500">C {toNum(ingesta?.carbs_total_g).toFixed(1)}g</span>
                   <span className="text-xs text-gray-500">G {toNum(ingesta?.grasas_total_g).toFixed(1)}g</span>
                 </div>
+                {contarSinMacros(ingesta?.items) > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    No incluye {contarSinMacros(ingesta?.items)} ítem{contarSinMacros(ingesta?.items) !== 1 ? 's' : ''} con macros no disponibles.
+                  </p>
+                )}
               </div>
             )}
           </div>

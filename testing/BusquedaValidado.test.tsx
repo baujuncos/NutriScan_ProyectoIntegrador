@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AlimentacionClient from '@/app/alimentacion/AlimentacionClient';
 import type { AlimentoOption } from '@/app/alimentacion/actions';
@@ -49,8 +49,9 @@ describe('Buscador: alimentos VALIDADO (NUT-194)', () => {
     expect(badge.className).not.toContain('bg-[#ECFDF3]');
   });
 
-  it('el campo de búsqueda ya no dice que busca solo en SARA2 y ANMAT', () => {
+  it('el campo de búsqueda ya no dice que busca solo en SARA2 y ANMAT', async () => {
     render(<AlimentacionClient ingesta={null} tipoIngesta="almuerzo" fecha="2026-10-20" hideNutrition={false} />);
+    await act(async () => {}); // deja terminar la carga de recientes (evita el aviso de act)
     expect(screen.getByPlaceholderText(/SARA2, ANMAT y validados/)).toBeInTheDocument();
   });
 

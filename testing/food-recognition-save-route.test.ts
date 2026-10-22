@@ -363,6 +363,8 @@ describe('POST /save — resolución de alimentos', () => {
   });
 
   it('el matching caído → 502 PERSISTENCE_ERROR y no se escribe nada', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     userDb.mockTable('detecciones_ia', { data: { id_deteccion: 1, id_usuario: 'user-1' }, error: null });
     userDb.mockTable('detecciones_ia_items', { data: [{ item_uuid: ITEM_UUID }], error: null });
     userDb.mockTable('detecciones_guardados', { data: [], error: null });
@@ -370,6 +372,8 @@ describe('POST /save — resolución de alimentos', () => {
     const res = await POST(makeRequest(makeSaveRequest()));
     expect(res.status).toBe(502);
     expect(adminDb.rpcLlamadas()).toHaveLength(0);
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 });
 
@@ -525,12 +529,16 @@ describe('POST /save — commit transaccional', () => {
   });
 
   it('si la RPC falla → 502 PERSISTENCE_ERROR', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     escenario();
     adminDb.reset();
     adminDb.mockRpc('registrar_guardado_deteccion', { data: null, error: { message: 'boom' } });
     const res = await POST(makeRequest(makeSaveRequest()));
     expect(res.status).toBe(502);
     expect((await res.json()).error).toBe('PERSISTENCE_ERROR');
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 
   it('FOOD_REF_INVALIDO → 400 INVALID apuntando al ítem con ese foodRef', async () => {

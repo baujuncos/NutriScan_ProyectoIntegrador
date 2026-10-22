@@ -26,6 +26,11 @@ export interface HelpContent {
   glosario?: Array<{ termino: string; definicion: string }>;
 }
 
+/** "Ejemplo para la IA" (en la base, `candidato_ejemplo`): mismo nombre y mismo texto en la guía, en la tarjeta y en el modal. */
+export const EJEMPLO_IA_TITULO = 'Ejemplo para la IA';
+export const EJEMPLO_IA_AYUDA =
+  'Marcá un caso cuando sea un error claro y típico de la IA, fácil de explicar (por ejemplo, una empanada de pollo que tomó por una de carne). Marcarlo no cambia nada por sí solo: deja el caso señalado para que más adelante el equipo elija algunos y los sume como ejemplos en las instrucciones que recibe la IA.';
+
 /** 0,6 → "60 %". */
 const porcentaje = (x: number) => `${Math.round(x * 100)} %`;
 
@@ -145,7 +150,7 @@ export const HELP: Record<HelpId, HelpContent> = {
           'Mirá la foto: el círculo marca qué alimento se está evaluando.',
           'Si lo que dejó el deportista es correcto, tocá Confirmar.',
           'Si no, tocá Corregir: para el alimento y para el peso elegí entre mantener lo del deportista o ingresar el valor que creés correcto.',
-          'Si el caso es un buen ejemplo de error de la IA, marcalo como Ejemplo para la IA.',
+          `Si el caso es un buen ejemplo de error de la IA, marcalo como ${EJEMPLO_IA_TITULO} (el control con la estrella; el ícono "?" explica qué significa).`,
           'Con el filtro Estado podés ver lo ya revisado y cómo quedó cada corrección.',
         ],
       },
@@ -158,9 +163,8 @@ export const HELP: Record<HelpId, HelpContent> = {
     ],
     glosario: [
       {
-        termino: 'Ejemplo para la IA',
-        definicion:
-          'Marcá un caso así cuando sea un error claro y típico, fácil de explicar (por ejemplo, una empanada de pollo que la IA tomó por una de carne). Marcarlo no cambia nada por sí solo: deja el caso señalado para que más adelante el equipo elija algunos y los sume como ejemplos en las instrucciones que recibe la IA.',
+        termino: EJEMPLO_IA_TITULO,
+        definicion: EJEMPLO_IA_AYUDA,
       },
     ],
   },

@@ -264,7 +264,7 @@ describe('RevisionIaClient — acciones en la lista', () => {
 
   it('la estrella marca como candidato sin confirmar ni corregir', async () => {
     renderCliente();
-    const estrella = screen.getByRole('button', { name: 'Candidato a ejemplo: Milanesa' });
+    const estrella = screen.getByRole('button', { name: 'Ejemplo para la IA: Milanesa' });
     expect(estrella).toHaveAttribute('aria-pressed', 'false');
     await userEvent.click(estrella);
     await waitFor(() => expect(marcarCandidatoAction).toHaveBeenCalledWith(1, true));

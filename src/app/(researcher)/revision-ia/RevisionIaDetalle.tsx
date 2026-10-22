@@ -25,6 +25,7 @@ import {
   type EstadoForm,
 } from '@/lib/revisionIaForm';
 import AlimentoAutocomplete from './AlimentoAutocomplete';
+import { EjemploIaCasilla } from './EjemploParaIa';
 import FotoConMarca from './FotoConMarca';
 import MotivosRevision from './MotivosRevision';
 import {
@@ -297,16 +298,11 @@ export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, onClose,
               </p>
             )}
 
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
-              <input
-                type="checkbox"
-                checked={ejemplo}
-                disabled={trabajando}
-                onChange={() => ejecutar(() => marcarCandidatoAction(fila.id_deteccion_item, !ejemplo), () => setEjemplo(!ejemplo))}
-                className="h-4 w-4 accent-blue-600"
-              />
-              Ejemplo para la IA
-            </label>
+            <EjemploIaCasilla
+              marcado={ejemplo}
+              disabled={trabajando}
+              onToggle={() => ejecutar(() => marcarCandidatoAction(fila.id_deteccion_item, !ejemplo), () => setEjemplo(!ejemplo))}
+            />
 
             {error && (
               <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">

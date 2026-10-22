@@ -3,7 +3,7 @@
 /**
  * NUT-149 — Cola de revisión de predicciones IA (panel de investigadores).
  * Chips de estado y FilterBar estándar (sin botón: se aplican al cambiar y viven en la URL),
- * filas con Confirmar / Corregir / candidato a ejemplo directo en la lista y
+ * filas con Confirmar / Corregir / "Ejemplo para la IA" directo en la lista y
  * paginación del lado del servidor. Las fotos llegan firmadas en lote desde el servidor (una sola
  * llamada por página); si una URL vence se pide una nueva una sola vez por foto, y después, el fallback.
  */
@@ -22,6 +22,7 @@ import { fmt } from '@/lib/numeros';
 import { cajaDeFila } from '@/lib/marcaFoto';
 import { MOTIVOS_REVISION, UMBRAL_CONFIANZA_BAJA } from '@/lib/revisionIa';
 import { PAGE_SIZE, buildRevisionQuery, parseRevisionParams, type ConteosRevision, type RevisionParams } from '@/lib/revisionIaQuery';
+import { EjemploIaToggle } from './EjemploParaIa';
 import EstadoColaChips from './EstadoColaChips';
 import FotoMiniatura from './FotoMiniatura';
 import MotivosRevision, { MOTIVO_LABEL } from './MotivosRevision';
@@ -304,6 +305,14 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
                     </span>
                   </div>
                   <Comparacion r={r} />
+                  <div className="mt-3">
+                    <EjemploIaToggle
+                      marcado={r.candidato_ejemplo}
+                      disabled={ocupado}
+                      contexto={r.alimento_ia}
+                      onToggle={() => ejecutar(r.id_deteccion_item, () => marcarCandidatoAction(r.id_deteccion_item, !r.candidato_ejemplo))}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex shrink-0 flex-row items-center gap-2 sm:w-32 sm:flex-col sm:items-stretch">
@@ -335,19 +344,6 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
                       {ESTADO_LABEL[r.estado_revision]}
                     </StatusBadge>
                   )}
-                  <button
-                    type="button"
-                    disabled={ocupado}
-                    aria-pressed={r.candidato_ejemplo}
-                    aria-label={`Candidato a ejemplo: ${r.alimento_ia}`}
-                    title="Marcar como candidato a ejemplo"
-                    onClick={() => ejecutar(r.id_deteccion_item, () => marcarCandidatoAction(r.id_deteccion_item, !r.candidato_ejemplo))}
-                    className={`mx-auto flex h-8 w-8 items-center justify-center rounded-lg border text-lg leading-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 ${
-                      r.candidato_ejemplo ? 'border-amber-300 bg-amber-50 text-amber-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                    }`}
-                  >
-                    {r.candidato_ejemplo ? '★' : '☆'}
-                  </button>
                 </div>
               </li>
             );

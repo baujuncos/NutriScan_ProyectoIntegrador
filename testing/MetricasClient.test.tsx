@@ -2,8 +2,11 @@
  * NUT-151 — Pantalla /revision-ia/metricas: las cinco piezas, tabs, filtros y
  * casos con poco volumen. recharts no mide nada en jsdom: se reemplaza por contenedores.
  */
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+
+const replace = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace, refresh: vi.fn(), push: vi.fn() }) }));
 
 vi.mock('recharts', () => {
   const Vacio = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
@@ -24,7 +27,7 @@ import {
   resumenEvolucion,
   type ItemMetrica,
 } from '@/lib/metricasIa';
-import { defaultsMetricas } from '@/lib/metricasIaQuery';
+import { defaultsMetricas, type MetricasParams } from '@/lib/metricasIaQuery';
 
 const it0 = (over: Partial<ItemMetrica>): ItemMetrica => ({
   alimento: 'Empanada',
@@ -134,11 +137,15 @@ describe('MetricasClient', () => {
     expect(within(tarjeta('Alimentos más corregidos')).queryByText('Puré de papa')).not.toBeInTheDocument();
   });
 
-  it('tiene los filtros: desde, hasta, vajilla y versión de prompt', () => {
+  it('tiene encabezado con ayuda y todos los filtros en una sola barra, sin botón "Filtrar"', () => {
     renderMetricas();
-    for (const l of ['Desde', 'Hasta', 'Vajilla', 'Versión de prompt']) expect(screen.getByLabelText(l)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Métricas de calidad' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ayuda sobre esta pantalla' })).toBeInTheDocument();
+    const barra = screen.getByRole('search', { name: 'Filtros' });
+    for (const l of ['Desde', 'Hasta', 'Vajilla', 'Versión de prompt']) expect(barra).toContainElement(screen.getByLabelText(l));
     expect(screen.getByLabelText('Versión de prompt')).toHaveValue('todas');
     expect(within(screen.getByLabelText('Versión de prompt')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todas', 'nut166-v2', 'nut166-v1']);
+    expect(screen.queryByRole('button', { name: /^(filtrar|ver)$/i })).not.toBeInTheDocument();
   });
 
   it('sin datos muestra mensajes vacíos en cada tarjeta', () => {
@@ -158,5 +165,52 @@ describe('MetricasClient', () => {
   it('avisa si los datos quedaron truncados', () => {
     renderMetricas(ITEMS, { truncado: true });
     expect(screen.getByRole('alert')).toHaveTextContent(/parciales/);
+  });
+});
+
+describe('MetricasClient — los filtros se aplican al cambiar y se combinan', () => {
+  const params = (over: Partial<MetricasParams> = {}): MetricasParams => ({ ...defaultsMetricas(), desde: '2026-10-01', hasta: '2026-10-15', ...over });
+  beforeEach(() => replace.mockClear());
+
+  it('la vajilla reescribe la URL conservando lo demás', () => {
+    renderMetricas(ITEMS, { params: params() });
+    fireEvent.change(screen.getByLabelText('Vajilla'), { target: { value: 'plato_hondo' } });
+    expect(replace).toHaveBeenLastCalledWith('/revision-ia/metricas?desde=2026-10-01&hasta=2026-10-15&vajilla=plato_hondo', { scroll: false });
+  });
+
+  it('la versión de prompt se combina con la vajilla ya elegida', () => {
+    renderMetricas(ITEMS, { params: params({ vajilla: 'plato_hondo' }) });
+    fireEvent.change(screen.getByLabelText('Versión de prompt'), { target: { value: 'nut166-v2' } });
+    expect(replace).toHaveBeenLastCalledWith('/revision-ia/metricas?desde=2026-10-01&hasta=2026-10-15&vajilla=plato_hondo&prompt=nut166-v2', { scroll: false });
+  });
+
+  it('una fecha válida se aplica al cambiar', () => {
+    renderMetricas(ITEMS, { params: params() });
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-10-05' } });
+    expect(replace).toHaveBeenCalledWith('/revision-ia/metricas?desde=2026-10-05&hasta=2026-10-15', { scroll: false });
+  });
+
+  it('Desde posterior a Hasta no consulta y avisa; una fecha a medio escribir tampoco', () => {
+    renderMetricas(ITEMS, { params: params() });
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-10-20' } });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText('Desde no puede ser posterior a Hasta.')).toBeInTheDocument();
+
+    const hasta = screen.getByLabelText('Hasta');
+    Object.defineProperty(hasta, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.change(hasta, { target: { value: '' } });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('el alimento de la evolución se aplica al cambiar (sin botón "Ver")', () => {
+    renderMetricas(ITEMS, { params: params() });
+    fireEvent.change(screen.getByLabelText(/Alimento \(con \d+\+ detecciones\)/), { target: { value: 'arroz' } });
+    expect(replace).toHaveBeenCalledWith('/revision-ia/metricas?desde=2026-10-01&hasta=2026-10-15&alimento=arroz', { scroll: false });
+  });
+
+  it('"Limpiar" vuelve a los filtros de por defecto', () => {
+    renderMetricas(ITEMS, { params: params({ vajilla: 'plato_hondo' }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
+    expect(replace).toHaveBeenCalledWith('/revision-ia/metricas', { scroll: false });
   });
 });

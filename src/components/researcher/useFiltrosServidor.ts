@@ -4,7 +4,7 @@
  * Conecta un `FilterBar` con pantallas que filtran en el servidor (Validación,
  * Revisión de IA): cada cambio reescribe la querystring con `router.replace`, así
  * la URL con los filtros puestos se puede compartir o recargar. Siempre vuelve a la
- * página 1. Va dentro de una transición: la lista vieja queda en pantalla (sin
+ * página 1 (en las pantallas que paginan). Va dentro de una transición: la lista vieja queda en pantalla (sin
  * parpadeo) hasta que llega la nueva, `pending` dice si hay una en curso, y si se
  * cambian filtros rápido gana la última navegación.
  */
@@ -22,7 +22,7 @@ interface Opciones<P> {
   build: (params: P, overrides: Partial<P>) => string;
 }
 
-export function useFiltrosServidor<P extends { page: number }>({ path, params, defaults, build }: Opciones<P>) {
+export function useFiltrosServidor<P extends object>({ path, params, defaults, build }: Opciones<P>) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 

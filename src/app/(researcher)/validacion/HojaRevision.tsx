@@ -5,9 +5,10 @@
  * "Sin guardar", cuerpo con scroll y pie fijo con las acciones. En el celular es una hoja
  * inferior (con tirador); desde `md`, un modal centrado de 960 px.
  */
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBodyScrollLock } from '@/lib/overlayMovil';
+import { useFocusTrap } from '@/lib/useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -25,6 +26,9 @@ export default function HojaRevision({ open, onClose, titulo, subtitulo, sinGuar
   const idTitulo = useId();
   // `overflow: hidden` en el body no alcanza en iOS: se fija el body mientras la hoja está abierta.
   useBodyScrollLock(open);
+  // Foco atrapado mientras está abierta; al cerrar vuelve al botón que la abrió (igual que el Modal base).
+  const hojaRef = useRef<HTMLElement>(null);
+  useFocusTrap(hojaRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -45,11 +49,13 @@ export default function HojaRevision({ open, onClose, titulo, subtitulo, sinGuar
       onClick={onClose}
     >
       <section
+        ref={hojaRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={idTitulo}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-auto md:max-h-[calc(100dvh-3rem)] md:min-h-[620px] md:max-w-[960px] md:rounded-[20px]"
+        className="flex h-[calc(100dvh-2rem)] w-full flex-col focus:outline-none overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-auto md:max-h-[calc(100dvh-3rem)] md:min-h-[620px] md:max-w-[960px] md:rounded-[20px]"
       >
         <header className="flex flex-wrap items-start gap-3 border-b border-slate-200 px-4 pb-3 pt-2 md:flex-nowrap md:px-6 md:pb-4 md:pt-5">
           <span aria-hidden="true" className="mx-auto mb-1 block h-[5px] w-10 basis-full rounded-full bg-slate-300 md:hidden" />

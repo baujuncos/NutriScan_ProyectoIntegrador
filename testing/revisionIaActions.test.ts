@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createSupabaseFromMock } from './supabaseMock';
-import { TTL_URL_FIRMADA_S } from '@/lib/fotosDeteccion';
+import { TTL_URL_LISTA_S } from '@/lib/fotosDeteccion';
 
 const { getUserMock, revalidatePathMock } = vi.hoisted(() => ({ getUserMock: vi.fn(), revalidatePathMock: vi.fn() }));
 const sb = createSupabaseFromMock();
@@ -18,19 +18,12 @@ vi.mock('@/lib/supabase/server', () => ({
 import {
   confirmarRevisionAction,
   corregirRevisionAction,
-  getRevisionDetalleAction,
   marcarCandidatoAction,
+  reabrirRevisionAction,
+  renovarFotoAction,
 } from '@/app/(researcher)/revision-ia/actions';
 
-const FILA = {
-  id_deteccion_item: 9,
-  alimento_ia: 'Milanesa',
-  gramos_ia: 150,
-  confidence: 0.4,
-  motivos_revision: ['confianza_baja'],
-  estado_revision: 'pendiente',
-  imagen_path: 'user-1/foto.jpg',
-};
+const FOTO = '3f2b8c1e-5a7d-4e9f-8a6b-1c2d3e4f5a6b/9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a.jpg';
 
 function comoRol(role: string | null) {
   getUserMock.mockResolvedValue({ data: { user: { id: 'inv-1' } } });
@@ -45,10 +38,11 @@ beforeEach(() => {
 
 describe('re-verificación de rol', () => {
   const acciones = [
-    () => getRevisionDetalleAction(9),
+    () => renovarFotoAction(FOTO),
     () => confirmarRevisionAction(9),
     () => corregirRevisionAction({ id: 9, alimento: 'Pollo', gramos: 100 }),
     () => marcarCandidatoAction(9, true),
+    () => reabrirRevisionAction(9),
   ];
 
   it('sin sesión → error y sin RPC ni storage', async () => {
@@ -70,38 +64,30 @@ describe('re-verificación de rol', () => {
   });
 });
 
-describe('getRevisionDetalleAction — foto', () => {
-  it('genera UNA signed URL con TTL corto, sólo para ese ítem', async () => {
+describe('renovarFotoAction — URL vencida', () => {
+  it('firma UNA URL nueva de 10 minutos, sólo para esa foto', async () => {
     comoRol('investigador');
-    sb.mockTable('v_revision_ia', { data: FILA, error: null });
-    sb.mockStorage('createSignedUrls', { data: [{ path: 'user-1/foto.jpg', signedUrl: 'https://x/firmada' }], error: null });
+    sb.mockStorage('createSignedUrls', { data: [{ path: FOTO, signedUrl: 'https://x/nueva' }], error: null });
 
-    const r = await getRevisionDetalleAction(9);
+    expect(await renovarFotoAction(FOTO)).toEqual({ ok: true, url: 'https://x/nueva' });
 
-    expect(r).toMatchObject({ ok: true, fotoUrl: 'https://x/firmada' });
     const firmas = sb.storageLlamadas().filter((l) => l.metodo === 'createSignedUrls');
     expect(firmas).toHaveLength(1);
-    expect(firmas[0]).toMatchObject({ bucket: 'detecciones-fotos', args: [['user-1/foto.jpg'], TTL_URL_FIRMADA_S] });
-    expect(TTL_URL_FIRMADA_S).toBeLessThanOrEqual(600);
+    expect(firmas[0]).toMatchObject({ bucket: 'detecciones-fotos', args: [[FOTO], TTL_URL_LISTA_S] });
+    expect(TTL_URL_LISTA_S).toBe(600);
   });
 
-  it('sin imagen_path no pide ninguna URL', async () => {
+  it('si no se puede firmar devuelve un error (sin exponer nada)', async () => {
     comoRol('investigador');
-    sb.mockTable('v_revision_ia', { data: { ...FILA, imagen_path: null }, error: null });
-    const r = await getRevisionDetalleAction(9);
-    expect(r).toMatchObject({ ok: true, fotoUrl: null });
+    sb.mockStorage('createSignedUrls', { data: [{ path: FOTO, signedUrl: null }], error: null });
+    expect(await renovarFotoAction(FOTO)).toEqual({ error: 'No se pudo cargar la foto' });
+  });
+
+  it('rechaza rutas que no son una foto de detección ({id_usuario}/{uuid}.jpg) sin tocar Storage', async () => {
+    for (const mala of ['user-1/foto.jpg', '../otro/x.jpg', `${FOTO}.png`, '']) {
+      expect(await renovarFotoAction(mala)).toEqual({ error: 'Datos inválidos' });
+    }
     expect(sb.storageLlamadas()).toHaveLength(0);
-  });
-
-  it('ítem inexistente → error', async () => {
-    comoRol('investigador');
-    sb.mockTable('v_revision_ia', { data: null, error: { message: 'no rows' } });
-    expect(await getRevisionDetalleAction(9)).toEqual({ error: 'El ítem ya no está en la cola de revisión' });
-  });
-
-  it('id inválido → error sin tocar nada', async () => {
-    expect(await getRevisionDetalleAction(-1)).toEqual({ error: 'Datos inválidos' });
-    expect(sb.tablasLlamadas()).toHaveLength(0);
   });
 });
 
@@ -135,6 +121,20 @@ describe('acciones — independientes y sin pisar datos originales', () => {
     comoRol('investigador');
     expect(await marcarCandidatoAction(9, true)).toEqual({ ok: true });
     expect(sb.rpcLlamadas()).toEqual([{ nombre: 'revision_ia_marcar_candidato', args: { p_id: 9, p_valor: true } }]);
+  });
+
+  it('reabrir llama sólo a revision_ia_reabrir y refresca la cola', async () => {
+    comoRol('investigador');
+    expect(await reabrirRevisionAction(9)).toEqual({ ok: true });
+    expect(sb.rpcLlamadas()).toEqual([{ nombre: 'revision_ia_reabrir', args: { p_id: 9 } }]);
+    expect(revalidatePathMock).toHaveBeenCalledWith('/revision-ia');
+  });
+
+  it('reabrir un ítem que ya estaba pendiente da un mensaje claro', async () => {
+    comoRol('investigador');
+    sb.mockRpc('revision_ia_reabrir', { data: null, error: { message: 'ESTADO_INVALIDO' } });
+    expect(await reabrirRevisionAction(9)).toEqual({ error: 'Este ítem ya está pendiente' });
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it('ninguna acción escribe directamente en tablas (todo por RPC)', async () => {

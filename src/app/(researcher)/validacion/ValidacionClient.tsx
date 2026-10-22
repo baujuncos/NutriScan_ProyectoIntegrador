@@ -9,10 +9,14 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+import { CARD_CLASS } from '@/components/researcher/Card';
+import EmptyState from '@/components/researcher/EmptyState';
+import FilterBar, { type FilterField } from '@/components/researcher/FilterBar';
+import PageHeader from '@/components/researcher/PageHeader';
+import StatusBadge, { type BadgeTone } from '@/components/researcher/StatusBadge';
+import { useFiltrosServidor } from '@/components/researcher/useFiltrosServidor';
 import { formatFechaCorta } from '@/lib/date';
-import { PAGE_SIZE, buildQuery, type ValidacionParams } from '@/lib/validacionQuery';
+import { PAGE_SIZE, buildQuery, parseParams, type ValidacionParams } from '@/lib/validacionQuery';
 import PendienteDetalle from './PendienteDetalle';
 import type { PendienteFila } from './actions';
 
@@ -28,10 +32,10 @@ const ESTADO_LABEL: Record<PendienteFila['estado'], string> = {
   descartado: 'Descartado',
 };
 
-const ESTADO_BADGE: Record<PendienteFila['estado'], string> = {
-  pendiente: 'bg-amber-50 text-amber-700',
-  validado: 'bg-emerald-50 text-emerald-700',
-  descartado: 'bg-slate-100 text-slate-600',
+const ESTADO_TONE: Record<PendienteFila['estado'], BadgeTone> = {
+  pendiente: 'amber',
+  validado: 'emerald',
+  descartado: 'slate',
 };
 
 /** "1 manual", "2 manuales". */
@@ -45,49 +49,48 @@ export default function ValidacionClient({ rows, total, params }: Props) {
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const href = (page: number) => `/validacion${buildQuery(params, { page })}`;
 
+  const defaults = parseParams({});
+  const { pending, onChange, onClear } = useFiltrosServidor({ path: '/validacion', params, defaults, build: buildQuery });
+  const campos: FilterField[] = [
+    {
+      type: 'select',
+      id: 'estado',
+      label: 'Estado',
+      value: params.estado,
+      width: 'md',
+      options: [
+        { value: 'pendiente', label: 'Pendientes' },
+        { value: 'validado', label: 'Validados' },
+        { value: 'descartado', label: 'Descartados' },
+        { value: 'todos', label: 'Todos' },
+      ],
+    },
+    { type: 'search', id: 'q', label: 'Buscar por nombre', value: params.q, placeholder: 'Ej: flan' },
+    {
+      type: 'select',
+      id: 'orden',
+      label: 'Ordenar por',
+      value: params.orden,
+      width: 'lg',
+      options: [
+        { value: 'fecha', label: 'Fecha (más reciente)' },
+        { value: 'ocurrencias', label: 'Cantidad de ocurrencias' },
+      ],
+    },
+  ];
+  const canClear = params.estado !== defaults.estado || params.q !== '' || params.orden !== defaults.orden;
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Validación de alimentos</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Alimentos que los deportistas registraron y no estaban en el catálogo. {total}{' '}
-          {total === 1 ? 'resultado' : 'resultados'}.
-        </p>
-      </header>
+      <PageHeader
+        title="Validación de alimentos"
+        subtitle={`Alimentos que los deportistas registraron y no estaban en el catálogo. ${total} ${total === 1 ? 'resultado' : 'resultados'}.`}
+        helpId="validacion"
+      />
 
-      <form
-        role="search"
-        method="get"
-        action="/validacion"
-        className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-[10rem_1fr_12rem_auto] sm:items-end"
-      >
-        <Select
-          id="estado"
-          name="estado"
-          label="Estado"
-          defaultValue={params.estado}
-          options={[
-            { value: 'pendiente', label: 'Pendientes' },
-            { value: 'validado', label: 'Validados' },
-            { value: 'descartado', label: 'Descartados' },
-            { value: 'todos', label: 'Todos' },
-          ]}
-        />
-        <Input id="q" name="q" label="Buscar por nombre" defaultValue={params.q} placeholder="Ej: flan" />
-        <Select
-          id="orden"
-          name="orden"
-          label="Ordenar por"
-          defaultValue={params.orden}
-          options={[
-            { value: 'fecha', label: 'Fecha (más reciente)' },
-            { value: 'ocurrencias', label: 'Cantidad de ocurrencias' },
-          ]}
-        />
-        <Button type="submit">Filtrar</Button>
-      </form>
+      <FilterBar fields={campos} onChange={onChange} onClear={onClear} canClear={canClear} busy={pending} />
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className={`${CARD_CLASS} overflow-hidden transition-opacity ${pending ? 'opacity-60' : ''}`} aria-busy={pending}>
         <div
           aria-hidden="true"
           className={`hidden border-b border-slate-100 bg-slate-50/60 px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-600 ${GRID}`}
@@ -100,10 +103,16 @@ export default function ValidacionClient({ rows, total, params }: Props) {
         </div>
 
         {rows.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-slate-600">
-            No hay alimentos {params.estado === 'todos' ? 'en la cola' : `${ESTADO_LABEL[params.estado].toLowerCase()}s`}
-            {params.q ? ` que coincidan con “${params.q}”` : ''}.
-          </p>
+          <EmptyState
+            title={`No hay alimentos ${params.estado === 'todos' ? 'en la cola' : `${ESTADO_LABEL[params.estado].toLowerCase()}s`}${params.q ? ` que coincidan con “${params.q}”` : ''}.`}
+            action={
+              canClear ? (
+                <button type="button" onClick={onClear} className="text-sm font-medium text-blue-700 hover:underline">
+                  Limpiar filtros
+                </button>
+              ) : undefined
+            }
+          />
         ) : (
           <ul className="divide-y divide-slate-100">
             {rows.map((r) => {
@@ -122,9 +131,7 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                     )}
                   </div>
                   <span>
-                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${ESTADO_BADGE[r.estado]}`}>
-                      {ESTADO_LABEL[r.estado]}
-                    </span>
+                    <StatusBadge tone={ESTADO_TONE[r.estado]}>{ESTADO_LABEL[r.estado]}</StatusBadge>
                   </span>
                   <span className="text-sm text-slate-700">
                     <span className="sm:hidden text-slate-600">Ocurrencias: </span>

@@ -13,7 +13,8 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
-import { urlsFirmadas } from '@/lib/fotosDeteccion';
+import { MAX_CANTIDAD } from '@/lib/nutrition';
+import { TTL_URL_LISTA_S, urlsFirmadas } from '@/lib/fotosDeteccion';
 import type { MotivoRevision } from '@/lib/revisionIa';
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -49,15 +50,26 @@ export interface RevisionFila {
   alimento_usuario: string | null;
   gramos_usuario: number | null;
   origen_usuario: string | null;
+  /** boundingBox del ítem (fracciones 0–1 de la foto); null en detecciones viejas o sin caja. */
+  bbox_x?: number | null;
+  bbox_y?: number | null;
+  bbox_width?: number | null;
+  bbox_height?: number | null;
+  /** Nombre de quien revisó (null si nadie revisó). */
+  revisor_nombre?: string | null;
 }
 
-export type RevisionDetalleResultado = { ok: true; fila: RevisionFila; fotoUrl: string | null } | ResultadoError;
+export type RenovarFotoResultado = { ok: true; url: string } | ResultadoError;
+
+// Ruta de Storage de una foto de detección: {id_usuario}/{uuid}.jpg
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const rutaFoto = z.string().regex(new RegExp(`^${UUID}/${UUID}\\.jpg$`, 'i'));
 
 const id = z.number().int().positive();
 const corregirSchema = z.object({
   id,
   alimento: z.string().trim().max(200).nullish().transform((v) => v || null),
-  gramos: z.number().positive().max(100_000).nullish().transform((v) => v ?? null),
+  gramos: z.number().positive().max(MAX_CANTIDAD).nullish().transform((v) => v ?? null),
 });
 const candidatoSchema = z.object({ id, valor: z.boolean() });
 
@@ -93,19 +105,18 @@ function errorDeRpc(error: ErrorRpc): ResultadoError {
   }
 }
 
-/** Detalle de un ítem: la fila + UNA signed URL de la foto (TTL corto, ver `TTL_URL_FIRMADA_S`). */
-export async function getRevisionDetalleAction(idItem: number): Promise<RevisionDetalleResultado> {
-  if (!id.safeParse(idItem).success) return { error: 'Datos inválidos' };
+/**
+ * Una signed URL nueva para una foto cuya URL venció (la lista las firma en lote, con 10 minutos de vida).
+ * Sólo investigadores, y sólo rutas con el formato de las fotos de detección. La URL no se loguea.
+ */
+export async function renovarFotoAction(path: string): Promise<RenovarFotoResultado> {
+  if (!rutaFoto.safeParse(path).success) return { error: 'Datos inválidos' };
   const auth = await clienteInvestigador();
   if ('error' in auth) return auth;
-  const { supabase } = auth;
 
-  const { data, error } = await supabase.from('v_revision_ia').select('*').eq('id_deteccion_item', idItem).single();
-  if (error || !data) return { error: 'El ítem ya no está en la cola de revisión' };
-
-  const fila = data as unknown as RevisionFila;
-  const urls = fila.imagen_path ? await urlsFirmadas(supabase, [fila.imagen_path]) : new Map<string, string>();
-  return { ok: true, fila, fotoUrl: fila.imagen_path ? urls.get(fila.imagen_path) ?? null : null };
+  const urls = await urlsFirmadas(auth.supabase, [path], TTL_URL_LISTA_S);
+  const url = urls.get(path);
+  return url ? { ok: true, url } : { error: 'No se pudo cargar la foto' };
 }
 
 export async function confirmarRevisionAction(idItem: number): Promise<AccionResultado> {
@@ -134,6 +145,19 @@ export async function corregirRevisionAction(input: CorregirInput): Promise<Acci
     p_gramos: parsed.data.gramos,
   });
   if (error) return errorDeRpc(error);
+
+  revalidatePath('/revision-ia');
+  return { ok: true };
+}
+
+/** Reabre un ítem ya revisado (vuelve a Pendientes y se borran los valores del investigador) para corregirlo de nuevo. */
+export async function reabrirRevisionAction(idItem: number): Promise<AccionResultado> {
+  if (!id.safeParse(idItem).success) return { error: 'Datos inválidos' };
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+
+  const { error } = await auth.supabase.rpc('revision_ia_reabrir', { p_id: idItem });
+  if (error) return error.message === 'ESTADO_INVALIDO' ? { error: 'Este ítem ya está pendiente' } : errorDeRpc(error);
 
   revalidatePath('/revision-ia');
   return { ok: true };

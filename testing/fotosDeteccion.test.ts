@@ -112,3 +112,29 @@ describe('borrarFotosDeUsuario', () => {
     spy.mockRestore();
   });
 });
+
+describe('urlsFirmadas — lote sin repetidos y vencimiento', () => {
+  it('varios ítems de la misma detección comparten foto: se firma una sola vez cada path, en UNA llamada', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockStorage('createSignedUrls', {
+      data: [
+        { path: 'u/1.jpg', signedUrl: 'https://s/1' },
+        { path: 'u/2.jpg', signedUrl: 'https://s/2' },
+      ],
+      error: null,
+    });
+    const urls = await urlsFirmadas(mock, ['u/1.jpg', 'u/1.jpg', 'u/2.jpg', 'u/1.jpg'], 600);
+    expect(mock.storageLlamadas()).toHaveLength(1);
+    expect(mock.storageLlamadas()[0].args).toEqual([['u/1.jpg', 'u/2.jpg'], 600]);
+    expect(urls.size).toBe(2);
+  });
+
+  it('el TTL se puede indicar (10 minutos para la lista) y por defecto sigue siendo el corto', async () => {
+    const mock = createSupabaseFromMock();
+    mock.mockStorage('createSignedUrls', { data: [], error: null });
+    mock.mockStorage('createSignedUrls', { data: [], error: null });
+    await urlsFirmadas(mock, ['u/1.jpg']);
+    await urlsFirmadas(mock, ['u/1.jpg'], 600);
+    expect(mock.storageLlamadas().map((l) => l.args[1])).toEqual([300, 600]);
+  });
+});

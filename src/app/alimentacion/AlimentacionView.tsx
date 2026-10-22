@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { INGESTA_TIPOS, formatIngestaLabel, type IngestaTipo } from '@/lib/nutrition';
+import { contarSinMacros } from '@/lib/macrosNoDisponibles';
 import AlimentacionClient from './AlimentacionClient';
 import DatePicker from './DatePicker';
 
@@ -15,6 +16,7 @@ type ItemRow = {
   proteinas_g: number | string;
   grasas_g: number | string;
   carbs_g: number | string;
+  origen_macros?: string | null;
   alimentos: AlimentoDetalle | AlimentoDetalle[] | null;
   id_alimento_barcode?: number | null;
   alimentos_barcode?: AlimentoBarcodeDetalle | AlimentoBarcodeDetalle[] | null;
@@ -139,6 +141,8 @@ export default function AlimentacionView({
   const selectedIngesta = ingestaByTipo.get(selectedTipo) ?? null;
   const selectedKcal = toNum(selectedIngesta?.kcal_total);
   const selectedItems = selectedIngesta?.items?.length ?? 0;
+  const selectedSinMacros = contarSinMacros(selectedIngesta?.items);
+  const diaSinMacros = ingestas.reduce((a, i) => a + contarSinMacros(i.items), 0);
 
   const gradient = MEAL_GRADIENT[selectedTipo];
   const accentColor = MEAL_COLOR[selectedTipo];
@@ -176,8 +180,16 @@ export default function AlimentacionView({
             </div>
           )}
         </div>
+        {!hideNutrition && selectedSinMacros > 0 && (
+          <p className="text-xs text-white/70 mt-2">
+            No incluye {selectedSinMacros} ítem{selectedSinMacros !== 1 ? 's' : ''} con kcal no disponibles
+          </p>
+        )}
         {!hideNutrition && totalKcal > 0 && (
-          <p className="text-xs text-white/60 mt-2">Total del día: {Math.round(totalKcal)} kcal</p>
+          <p className="text-xs text-white/60 mt-2">
+            Total del día: {Math.round(totalKcal)} kcal
+            {diaSinMacros > 0 && ` (sin contar ${diaSinMacros} ítem${diaSinMacros !== 1 ? 's' : ''} con kcal no disponibles)`}
+          </p>
         )}
       </div>
 

@@ -58,13 +58,11 @@ export default function VincularAlimento({ activo, onActivar, seleccionado, onSe
   const [buscado, setBuscado] = useState(false);
   const idBuscador = useId();
 
+  const consultaValida = busqueda.trim().length >= 2;
+
   // Búsqueda con debounce, igual que el resto de los buscadores de la pantalla.
   useEffect(() => {
-    if (busqueda.trim().length < 2) {
-      setResultados([]);
-      setBuscado(false);
-      return;
-    }
+    if (!consultaValida) return;
     let cancelado = false;
     const timer = setTimeout(async () => {
       const r = await searchAlimentosAction(busqueda, '');
@@ -76,7 +74,7 @@ export default function VincularAlimento({ activo, onActivar, seleccionado, onSe
       cancelado = true;
       clearTimeout(timer);
     };
-  }, [busqueda]);
+  }, [busqueda, consultaValida]);
 
   const elegir = (a: AlimentoOption) => {
     if (!valoresCompletos(a)) return;
@@ -146,10 +144,13 @@ export default function VincularAlimento({ activo, onActivar, seleccionado, onSe
                 autoComplete="off"
                 placeholder="Buscar en SARA2, ANMAT o validados…"
                 value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
+                onChange={(e) => {
+                  setBusqueda(e.target.value);
+                  setBuscado(false);
+                }}
                 className="h-11 w-full rounded-xl border-[1.5px] border-slate-200 bg-white px-3.5 text-[15px] text-slate-900 placeholder-slate-500 focus:border-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200"
               />
-              {resultados.length > 0 && (
+              {consultaValida && resultados.length > 0 && (
                 <ul className="max-h-60 space-y-0.5 overflow-auto rounded-2xl border border-slate-200 bg-white p-1.5">
                   {resultados.map((a) => {
                     const completo = valoresCompletos(a);
@@ -179,7 +180,7 @@ export default function VincularAlimento({ activo, onActivar, seleccionado, onSe
                   })}
                 </ul>
               )}
-              {buscado && resultados.length === 0 && (
+              {consultaValida && buscado && resultados.length === 0 && (
                 <p className="text-[13px] text-slate-600">No encontré alimentos con ese nombre.</p>
               )}
             </>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AIRecognitionModal from '@/app/alimentacion/AIRecognitionModal';
 
@@ -145,6 +145,7 @@ describe('AIRecognitionModal — Pantalla 1 unificada (NUT-169)', () => {
     onClose();
 
     renderModal();
+    await act(async () => {}); // deja terminar la cámara (getUserMedia) antes de cerrar el test
     // Se re-renderiza un nuevo modal con el mismo localStorage: el diámetro precargado es 20.
     const inputs = screen.getAllByLabelText('Diámetro');
     expect((inputs[inputs.length - 1] as HTMLInputElement).value).toBe('20');

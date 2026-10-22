@@ -11,7 +11,7 @@ vi.mock('@/lib/date', () => ({
 }));
 vi.mock('@/app/alimentacion/actions', () => ({
   searchAlimentosAction: vi.fn().mockResolvedValue([]),
-  getAlimentosRecientesAction: vi.fn().mockResolvedValue([]),
+  getAlimentosRecientesAction: vi.fn(() => new Promise(() => {})), // los recientes no importan acá; si resolviera, actualizaría el estado fuera de act
   addItemAction: vi.fn(),
   addManualItemAction: vi.fn(),
   deleteItemAction: vi.fn(),

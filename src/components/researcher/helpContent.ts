@@ -149,9 +149,9 @@ export const HELP: Record<HelpId, HelpContent> = {
         pasos: [
           'Mirá la foto: el círculo marca qué alimento se está evaluando.',
           'Si lo que dejó el deportista es correcto, tocá Confirmar.',
-          'Si no, tocá Corregir: para el alimento y para el peso elegí entre mantener lo del deportista o ingresar el valor que creés correcto.',
+          'Si no, tocá Corregir: para el alimento y para el peso elegí entre mantener lo del deportista o ingresar el valor que creés correcto. Si el deportista quitó el ítem, elegís si estaba en el plato (restaurar) o no (mantener quitado).',
           `Si el caso es un buen ejemplo de error de la IA, marcalo como ${EJEMPLO_IA_TITULO} (el control con la estrella; el ícono "?" explica qué significa).`,
-          'Con el filtro Estado podés ver lo ya revisado y cómo quedó cada corrección.',
+          'Con el filtro Estado podés ver lo ya revisado y cómo quedó cada corrección (lo que dijo la IA, lo que dejó el deportista y lo que corrigió el equipo). Si hace falta corregir de nuevo, tocá Reabrir.',
         ],
       },
       {

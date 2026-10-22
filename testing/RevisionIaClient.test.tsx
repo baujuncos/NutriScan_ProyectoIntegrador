@@ -114,6 +114,24 @@ describe('RevisionIaClient — encabezado y filtros', () => {
     expect(screen.getByLabelText('Vajilla')).toHaveValue('todas');
   });
 
+  it('el filtro Estado ofrece Pendientes / Confirmados / Corregidos / Todos y se aplica al cambiar', () => {
+    renderCliente({ params: parseRevisionParams({ page: '2' }) });
+    const estado = screen.getByLabelText('Estado');
+    expect(within(estado).getAllByRole('option').map((o) => o.textContent)).toEqual(['Pendientes', 'Confirmados', 'Corregidos', 'Todos']);
+    fireEvent.change(estado, { target: { value: 'confirmado' } });
+    expect(replace).toHaveBeenLastCalledWith('/revision-ia?estado=confirmado', { scroll: false }); // vuelve a la página 1
+    fireEvent.change(estado, { target: { value: 'todos' } });
+    expect(replace).toHaveBeenLastCalledWith('/revision-ia?estado=todos', { scroll: false });
+  });
+
+  it('los contadores son clicables y activan el filtro Estado (el activo vuelve a "todos")', () => {
+    renderCliente({ params: parseRevisionParams({ estado: 'corregido' }) });
+    const nav = screen.getByRole('navigation', { name: 'Estado de la cola de revisión' });
+    expect(within(nav).getByRole('link', { name: /9\s*Corregidos/ })).toHaveAttribute('href', '/revision-ia?estado=todos');
+    expect(within(nav).getByRole('link', { name: /12\s*Pendientes/ })).toHaveAttribute('href', '/revision-ia');
+    expect(within(nav).getByRole('link', { name: /34\s*Confirmados/ })).toHaveAttribute('href', '/revision-ia?estado=confirmado');
+  });
+
   it('un select se aplica al cambiar: reescribe la URL y vuelve a la página 1', () => {
     renderCliente({ params: parseRevisionParams({ page: '4', q: 'flan' }) });
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'item_quitado' } });

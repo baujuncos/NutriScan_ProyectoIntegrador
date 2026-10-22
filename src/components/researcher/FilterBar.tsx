@@ -4,8 +4,9 @@
  * Barra de filtros estándar del panel de investigador. Sin botón "Filtrar": los
  * selects y las fechas se aplican apenas cambian y la búsqueda de texto con
  * debounce (`debounceMs`; 0 = al instante, para listas que filtran en memoria).
- * Una sola fila desde 1024 px (búsqueda de ancho flexible, selects y fechas
+ * Una sola fila desde 1280 px (búsqueda de ancho flexible, selects y fechas
  * compactos con ancho fijo); por debajo pasan a otra línea, sin scroll horizontal.
+ * (A 1024 px el contenido mide ~700 px por el sidebar de 256 px: no hay lugar para todos en una línea.)
  *
  * Es presentacional: el que la usa decide dónde vive el estado (URL, memoria).
  * `onChange` puede devolver una promesa: la barra muestra "actualizando" hasta que
@@ -49,7 +50,7 @@ interface Props {
 
 /** Ancho fijo desde 1024 px; por debajo, 2 por fila (≥ 640 px) o 1 por fila. */
 const ANCHO: Record<Ancho, string> = { sm: 'lg:w-32', md: 'lg:w-40', lg: 'lg:w-48' };
-const RESPONSIVE = 'w-full sm:w-[calc(50%-0.375rem)] lg:shrink-0';
+const RESPONSIVE = 'w-full sm:w-[calc(50%-0.375rem)] xl:shrink-0';
 
 export const CONTROL_CLASS =
   'h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-50';
@@ -133,12 +134,12 @@ export default function FilterBar({ fields, onChange, onClear, canClear = false,
 
   return (
     <div role="search" aria-label={ariaLabel} aria-busy={ocupado} className={`${CARD_CLASS} p-4`}>
-      <div className="flex flex-wrap items-end gap-3 lg:flex-nowrap">
+      <div className="flex flex-wrap items-end gap-3 xl:flex-nowrap">
         {fields.map((f) => {
           const inputId = `filtro-${f.id}`;
           if (f.type === 'search') {
             return (
-              <div key={f.id} className="min-w-0 flex-1 basis-full sm:basis-60 lg:min-w-[9rem]">
+              <div key={f.id} className="min-w-0 flex-1 basis-full sm:basis-60 xl:min-w-[9rem]">
                 <label htmlFor={inputId} className={LABEL_CLASS}>
                   {f.label}
                 </label>

@@ -7,7 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('next/link', () => ({ default: ({ href, children, ...rest }: any) => <a href={href} {...rest}>{children}</a> }));
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 import HelpDrawer from '@/components/researcher/HelpDrawer';
 import PageHeader from '@/components/researcher/PageHeader';

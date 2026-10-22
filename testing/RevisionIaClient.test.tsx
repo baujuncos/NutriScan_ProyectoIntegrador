@@ -2,11 +2,12 @@
  * NUT-149 — Pantalla /revision-ia: listado, motivos, filtros y detalle.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const refresh = vi.fn();
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
+const replace = vi.fn();
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn(), replace }) }));
 vi.mock('@/app/(researcher)/revision-ia/actions', () => ({
   getRevisionDetalleAction: vi.fn(),
   confirmarRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
@@ -75,7 +76,7 @@ beforeEach(() => {
 describe('RevisionIaClient — encabezado y filtros', () => {
   it('muestra los conteos por estado como links que filtran', () => {
     renderCliente();
-    const nav = screen.getByRole('navigation', { name: 'Filtrar por estado' });
+    const nav = screen.getByRole('navigation', { name: 'Estado de la cola de revisión' });
     expect(within(nav).getByRole('link', { name: /12\s*Pendientes/ })).toHaveAttribute('aria-current', 'true');
     expect(within(nav).getByRole('link', { name: /34\s*Confirmados/ })).toHaveAttribute('href', '/revision-ia?estado=confirmado');
     expect(within(nav).getByRole('link', { name: /9\s*Corregidos/ })).toHaveAttribute('href', '/revision-ia?estado=corregido');
@@ -86,13 +87,53 @@ describe('RevisionIaClient — encabezado y filtros', () => {
     expect(screen.getByRole('link', { name: /12\s*Pendientes/ })).toHaveAttribute('href', '/revision-ia?estado=todos');
   });
 
-  it('tiene las pestañas y los filtros: motivo, búsqueda, vajilla, orden y fechas', () => {
+  it('tiene encabezado con ayuda, pestañas Cola / Métricas y ningún botón "Filtrar"', () => {
     renderCliente();
+    expect(screen.getByRole('heading', { level: 1, name: 'Revisión de IA' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ayuda sobre esta pantalla' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Cola de revisión' })).toHaveAttribute('aria-selected', 'true');
-    for (const label of ['Motivo', 'Buscar por alimento', 'Vajilla', 'Ordenar por', 'Desde', 'Hasta']) {
-      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Métricas' })).toHaveAttribute('href', '/revision-ia/metricas');
+    expect(screen.queryByRole('button', { name: /^filtrar$/i })).not.toBeInTheDocument();
+  });
+
+  it('todos los filtros están en una sola barra: estado, motivo, búsqueda, vajilla y orden', () => {
+    renderCliente();
+    const barra = screen.getByRole('search', { name: 'Filtros' });
+    for (const label of ['Estado', 'Motivo', 'Buscar por alimento', 'Vajilla', 'Ordenar por']) {
+      expect(barra).toContainElement(screen.getByLabelText(label));
     }
+    expect(screen.getByLabelText('Estado')).toHaveValue('pendiente');
     expect(screen.getByLabelText('Vajilla')).toHaveValue('todas');
+  });
+
+  it('un select se aplica al cambiar: reescribe la URL y vuelve a la página 1', () => {
+    renderCliente({ params: parseRevisionParams({ page: '4', q: 'flan' }) });
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'item_quitado' } });
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith('/revision-ia?motivo=item_quitado&q=flan', { scroll: false });
+  });
+
+  it('la búsqueda espera ~300 ms antes de tocar la URL', () => {
+    vi.useFakeTimers();
+    try {
+      renderCliente();
+      fireEvent.change(screen.getByLabelText('Buscar por alimento'), { target: { value: 'emp' } });
+      act(() => void vi.advanceTimersByTime(299));
+      expect(replace).not.toHaveBeenCalled();
+      act(() => void vi.advanceTimersByTime(1));
+      expect(replace).toHaveBeenCalledWith('/revision-ia?q=emp', { scroll: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('"Limpiar" aparece con filtros activos y vuelve a los de por defecto', async () => {
+    const { unmount } = renderCliente();
+    expect(screen.queryByRole('button', { name: 'Limpiar' })).not.toBeInTheDocument();
+    unmount();
+    renderCliente({ params: parseRevisionParams({ motivo: 'confianza_baja', estado: 'todos' }) });
+    await userEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
+    expect(replace).toHaveBeenCalledWith('/revision-ia', { scroll: false });
   });
 });
 
@@ -121,7 +162,7 @@ describe('RevisionIaClient — listado', () => {
     renderCliente();
     const quitado = screen.getByRole('listitem', { name: 'Perejil' });
     expect(quitado).toHaveAttribute('data-quitado', 'true');
-    expect(within(quitado).getByText('Ítem quitado').closest('li')?.className).toMatch(/red/);
+    expect(within(quitado).getByText('Ítem quitado').className).toMatch(/red/);
     expect(within(quitado).getByText(/el usuario lo quitó/)).toBeInTheDocument();
     expect(within(quitado).queryByText(/g final/)).not.toBeInTheDocument();
     expect(screen.getByRole('listitem', { name: 'Milanesa' })).not.toHaveAttribute('data-quitado');

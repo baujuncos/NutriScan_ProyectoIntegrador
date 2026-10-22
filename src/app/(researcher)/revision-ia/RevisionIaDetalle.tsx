@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * NUT-149 — Detalle de un ítem de la cola de revisión. La foto llega como signed
- * URL de corta duración, pedida recién al abrir (nunca en la lista). Compara las
+ * NUT-149 — Detalle de un ítem de la cola de revisión. Usa la fila y la foto (signed
+ * URL de corta duración) que ya trajo la lista: abrir el modal no pide nada nuevo. Compara las
  * tres fuentes sin pisarlas: Gemini, usuario y nutricionista. Confirmar, Corregir
  * y "Candidato a ejemplo" son acciones independientes.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import { formatFechaCorta } from '@/lib/date';
@@ -15,14 +15,17 @@ import MotivosRevision from './MotivosRevision';
 import {
   confirmarRevisionAction,
   corregirRevisionAction,
-  getRevisionDetalleAction,
   marcarCandidatoAction,
   type RevisionFila,
 } from './actions';
 
 interface Props {
-  /** null = cerrado. */
-  idItem: number | null;
+  /** El ítem a revisar (la fila de la lista); null = cerrado. El padre lo monta con `key` = id para reiniciar el formulario. */
+  fila: RevisionFila | null;
+  /** La misma signed URL de la miniatura; mientras no venza no se pide otra. */
+  fotoUrl: string | null;
+  /** La imagen falló (URL vencida): el padre pide una nueva una sola vez; null = no hay otra. */
+  onFotoFallo: (urlFallida: string) => Promise<string | null>;
   /** Abre directo en el formulario de corrección (botón Corregir de la lista). */
   corregirAlAbrir?: boolean;
   onClose: () => void;
@@ -52,41 +55,13 @@ function Columna({ titulo, alimento, gramos, vacio }: { titulo: string; alimento
   );
 }
 
-export default function RevisionIaDetalle({ idItem, corregirAlAbrir = false, onClose, onCambio }: Props) {
-  const [fila, setFila] = useState<RevisionFila | null>(null);
-  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
-  const [errorCarga, setErrorCarga] = useState<string | null>(null);
-  const [corrigiendo, setCorrigiendo] = useState(false);
+export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, corregirAlAbrir = false, onClose, onCambio }: Props) {
+  const [fotoRota, setFotoRota] = useState(false);
+  const [corrigiendo, setCorrigiendo] = useState(corregirAlAbrir);
   const [alimento, setAlimento] = useState('');
   const [gramos, setGramos] = useState('');
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // La signed URL se pide al abrir el ítem (y se vuelve a pedir si se reabre).
-  useEffect(() => {
-    if (idItem == null) return;
-    let cancelado = false;
-    setFila(null);
-    setFotoUrl(null);
-    setErrorCarga(null);
-    setCorrigiendo(corregirAlAbrir);
-    setAlimento('');
-    setGramos('');
-    setError(null);
-    getRevisionDetalleAction(idItem).then((r) => {
-      if (cancelado) return;
-      if ('error' in r) setErrorCarga(r.error);
-      else {
-        setFila(r.fila);
-        setFotoUrl(r.fotoUrl);
-      }
-    });
-    return () => {
-      cancelado = true;
-    };
-    // corregirAlAbrir sólo se lee al abrir: cambiarlo con el modal abierto no tiene que recargar.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idItem]);
 
   async function ejecutar(accion: () => Promise<{ ok: true } | { error: string }>, alExito: () => void) {
     setTrabajando(true);
@@ -106,18 +81,24 @@ export default function RevisionIaDetalle({ idItem, corregirAlAbrir = false, onC
   const correccionValida = (alimento.trim() !== '' || gramosNum != null) && (gramosNum == null || (Number.isFinite(gramosNum) && gramosNum > 0));
 
   return (
-    <Modal open={idItem != null} onClose={onClose} title="Revisar predicción" wide>
-      {errorCarga && <p role="alert" className="text-sm text-red-700">{errorCarga}</p>}
-      {!errorCarga && !fila && <p className="text-sm text-slate-600">Cargando…</p>}
+    <Modal open={fila != null} onClose={onClose} title="Revisar predicción" wide>
       {fila && (
         <div className="space-y-5">
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
-              {fotoUrl ? (
+              {fotoUrl && !fotoRota ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={fotoUrl} alt={`Foto del plato, ${formatFechaCorta(fila.created_at)}`} className="w-full rounded-xl bg-slate-900 object-contain" />
+                <img
+                  key={fotoUrl}
+                  src={fotoUrl}
+                  alt={`Foto de la comida: ${fila.alimento_ia}`}
+                  onError={async () => {
+                    if (!(await onFotoFallo(fotoUrl))) setFotoRota(true);
+                  }}
+                  className="w-full rounded-xl bg-slate-900 object-contain"
+                />
               ) : (
-                <p className="rounded-xl bg-slate-100 px-3 py-10 text-center text-sm text-slate-600">Sin foto disponible</p>
+                <p className="rounded-xl bg-slate-100 px-3 py-10 text-center text-sm text-slate-600">No se pudo cargar la foto</p>
               )}
               <p className="mt-2 text-xs text-slate-600">
                 {VAJILLA_LABEL[fila.vajilla_tipo] ?? fila.vajilla_tipo} de {fmt(fila.vajilla_diametro_cm)} cm · ángulo{' '}
@@ -176,7 +157,7 @@ export default function RevisionIaDetalle({ idItem, corregirAlAbrir = false, onC
               onClick={() =>
                 ejecutar(
                   () => marcarCandidatoAction(fila.id_deteccion_item, !fila.candidato_ejemplo),
-                  () => setFila({ ...fila, candidato_ejemplo: !fila.candidato_ejemplo }),
+                  () => undefined, // la lista se refresca (onCambio) y trae el valor nuevo
                 )
               }
             >

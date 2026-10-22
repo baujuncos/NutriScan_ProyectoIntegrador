@@ -4,10 +4,10 @@
  * NUT-149 — Cola de revisión de predicciones IA (panel de investigadores).
  * Chips de estado y FilterBar estándar (sin botón: se aplican al cambiar y viven en la URL),
  * filas con Confirmar / Corregir / candidato a ejemplo directo en la lista y
- * paginación del lado del servidor. La lista no carga fotos (muestra un
- * placeholder): la signed URL se pide al abrir el detalle de cada ítem.
+ * paginación del lado del servidor. Las fotos llegan firmadas en lote desde el servidor (una sola
+ * llamada por página); si una URL vence se pide una nueva una sola vez por foto, y después, el fallback.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Button from '@/components/ui/Button';
@@ -19,18 +19,22 @@ import StatusBadge from '@/components/researcher/StatusBadge';
 import SubTabs from '@/components/researcher/SubTabs';
 import { useFiltrosServidor } from '@/components/researcher/useFiltrosServidor';
 import { fmt } from '@/lib/numeros';
+import { cajaDeFila } from '@/lib/marcaFoto';
 import { MOTIVOS_REVISION, UMBRAL_CONFIANZA_BAJA } from '@/lib/revisionIa';
 import { PAGE_SIZE, buildRevisionQuery, parseRevisionParams, type ConteosRevision, type RevisionParams } from '@/lib/revisionIaQuery';
 import EstadoColaChips from './EstadoColaChips';
+import FotoMiniatura from './FotoMiniatura';
 import MotivosRevision, { MOTIVO_LABEL } from './MotivosRevision';
 import RevisionIaDetalle from './RevisionIaDetalle';
-import { confirmarRevisionAction, marcarCandidatoAction, type RevisionFila } from './actions';
+import { confirmarRevisionAction, marcarCandidatoAction, renovarFotoAction, type RevisionFila } from './actions';
 
 interface Props {
   rows: RevisionFila[];
   total: number;
   params: RevisionParams;
   conteos: ConteosRevision;
+  /** Signed URLs por `imagen_path`, firmadas en lote en el servidor. */
+  fotos: Record<string, string>;
 }
 
 const VAJILLA_LABEL: Record<string, string> = {
@@ -118,11 +122,47 @@ function Comparacion({ r }: { r: RevisionFila }) {
   );
 }
 
-export default function RevisionIaClient({ rows, total, params, conteos }: Props) {
+export default function RevisionIaClient({ rows, total, params, conteos, fotos }: Props) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<{ id: number; corregir: boolean } | null>(null);
   const [trabajando, setTrabajando] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // URLs de las fotos: las del servidor + las que se renovaron. Cuando llega otra página (props nuevas) se reinician.
+  const [urls, setUrls] = useState(fotos);
+  const [fotosPrevias, setFotosPrevias] = useState(fotos);
+  if (fotosPrevias !== fotos) {
+    setFotosPrevias(fotos);
+    setUrls(fotos);
+  }
+  const urlsRef = useRef(urls);
+  const intentos = useRef(new Map<string, Promise<string | null>>());
+  useEffect(() => {
+    urlsRef.current = urls;
+  }, [urls]);
+  useEffect(() => {
+    intentos.current = new Map();
+  }, [fotos]);
+
+  /** Una URL nueva para una foto cuya URL falló, UNA sola vez por foto (sin loops); null = no hay otra. */
+  async function renovarFoto(path: string, urlFallida: string): Promise<string | null> {
+    const actual = urlsRef.current[path];
+    if (actual && actual !== urlFallida) return actual; // otra tarjeta de la misma foto ya la renovó
+    let intento = intentos.current.get(path);
+    if (!intento) {
+      intento = renovarFotoAction(path).then((r) => {
+        if (!('url' in r)) return null;
+        urlsRef.current = { ...urlsRef.current, [path]: r.url };
+        setUrls((u) => ({ ...u, [path]: r.url }));
+        return r.url;
+      });
+      intentos.current.set(path, intento);
+    }
+    const nueva = await intento;
+    return nueva === urlFallida ? null : nueva; // la renovada también falló: se acabó
+  }
+
+  const filaAbierta = rows.find((r) => r.id_deteccion_item === abierto?.id) ?? null;
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const href = (page: number) => `/revision-ia${buildRevisionQuery(params, { page })}`;
 
@@ -241,18 +281,18 @@ export default function RevisionIaClient({ rows, total, params, conteos }: Props
                 data-quitado={r.item_quitado ? 'true' : undefined}
                 className={`${CARD_CLASS} flex flex-col gap-4 p-5 sm:flex-row`}
               >
-                {/* Placeholder: la foto real (signed URL) se pide al abrir el detalle. */}
                 <button
                   type="button"
                   aria-label={`Ver detalle y foto de ${r.alimento_ia}`}
                   onClick={() => setAbierto({ id: r.id_deteccion_item, corregir: false })}
-                  className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="shrink-0 self-start rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                    <rect x="3" y="3" width="18" height="18" rx="3" />
-                    <circle cx="9" cy="9" r="1.75" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 15-4.5-4.5L6 21" />
-                  </svg>
+                  <FotoMiniatura
+                    src={r.imagen_path ? urls[r.imagen_path] ?? null : null}
+                    alt={`Foto de la comida: ${r.alimento_ia}`}
+                    caja={cajaDeFila(r)}
+                    onFallo={(fallida) => (r.imagen_path ? renovarFoto(r.imagen_path, fallida) : Promise.resolve(null))}
+                  />
                 </button>
 
                 <div className="min-w-0 flex-1">
@@ -338,7 +378,10 @@ export default function RevisionIaClient({ rows, total, params, conteos }: Props
       )}
 
       <RevisionIaDetalle
-        idItem={abierto?.id ?? null}
+        key={abierto?.id ?? 'cerrado'}
+        fila={filaAbierta}
+        fotoUrl={filaAbierta?.imagen_path ? urls[filaAbierta.imagen_path] ?? null : null}
+        onFotoFallo={(fallida) => (filaAbierta?.imagen_path ? renovarFoto(filaAbierta.imagen_path, fallida) : Promise.resolve(null))}
         corregirAlAbrir={abierto?.corregir ?? false}
         onClose={() => setAbierto(null)}
         onCambio={() => router.refresh()}

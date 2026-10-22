@@ -9,7 +9,7 @@ const refresh = vi.fn();
 const replace = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn(), replace }) }));
 vi.mock('@/app/(researcher)/revision-ia/actions', () => ({
-  getRevisionDetalleAction: vi.fn(),
+  renovarFotoAction: vi.fn(),
   confirmarRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
   corregirRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
   marcarCandidatoAction: vi.fn().mockResolvedValue({ ok: true }),
@@ -19,7 +19,7 @@ import RevisionIaClient from '@/app/(researcher)/revision-ia/RevisionIaClient';
 import {
   confirmarRevisionAction,
   corregirRevisionAction,
-  getRevisionDetalleAction,
+  renovarFotoAction,
   marcarCandidatoAction,
   type RevisionFila,
 } from '@/app/(researcher)/revision-ia/actions';
@@ -43,6 +43,10 @@ const FILA: RevisionFila = {
   created_at: '2026-10-06T15:00:00Z',
   id_usuario: 'user-1',
   imagen_path: 'user-1/a.jpg',
+  bbox_x: 0.2,
+  bbox_y: 0.4,
+  bbox_width: 0.4,
+  bbox_height: 0.2,
   vajilla_tipo: 'plato_playo',
   vajilla_diametro_cm: 26,
   angulo_captura_grados: 45,
@@ -64,13 +68,15 @@ const QUITADO: RevisionFila = {
 
 const CONTEOS = { pendiente: 12, confirmado: 34, corregido: 9 };
 
+const FOTOS = { 'user-1/a.jpg': 'https://x/firmada-1' };
+
 function renderCliente(over: Partial<React.ComponentProps<typeof RevisionIaClient>> = {}) {
-  return render(<RevisionIaClient rows={[FILA, QUITADO]} total={2} params={parseRevisionParams({})} conteos={CONTEOS} {...over} />);
+  return render(<RevisionIaClient rows={[FILA, QUITADO]} total={2} params={parseRevisionParams({})} conteos={CONTEOS} fotos={FOTOS} {...over} />);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getRevisionDetalleAction).mockResolvedValue({ ok: true, fila: FILA, fotoUrl: 'https://x/firmada' });
+  vi.mocked(renovarFotoAction).mockResolvedValue({ ok: true, url: 'https://x/nueva' });
 });
 
 describe('RevisionIaClient — encabezado y filtros', () => {
@@ -168,12 +174,6 @@ describe('RevisionIaClient — listado', () => {
     expect(screen.getByRole('listitem', { name: 'Milanesa' })).not.toHaveAttribute('data-quitado');
   });
 
-  it('la miniatura es un placeholder: la lista no pide detalle ni foto', () => {
-    renderCliente();
-    expect(screen.queryAllByRole('img')).toHaveLength(0);
-    expect(getRevisionDetalleAction).not.toHaveBeenCalled();
-  });
-
   it('sin filas muestra un mensaje vacío', () => {
     renderCliente({ rows: [], total: 0 });
     expect(screen.getByText(/No hay ítems/)).toBeInTheDocument();
@@ -186,13 +186,79 @@ describe('RevisionIaClient — listado', () => {
   });
 });
 
+describe('RevisionIaClient — fotos reales en la lista', () => {
+  const miniatura = (nombre: string) => within(screen.getByRole('listitem', { name: nombre })).getByRole('img', { name: `Foto de la comida: ${nombre}` });
+
+  it('cada tarjeta muestra la foto firmada, con alt descriptivo, carga diferida y sin pedir nada al abrir la lista', () => {
+    renderCliente();
+    const img = miniatura('Milanesa');
+    expect(img).toHaveAttribute('src', 'https://x/firmada-1');
+    expect(img).toHaveAttribute('loading', 'lazy');
+    expect(renovarFotoAction).not.toHaveBeenCalled();
+  });
+
+  it('el recorte se centra en el ítem (object-position según su boundingBox); sin caja, centrado', () => {
+    renderCliente({ rows: [FILA, { ...QUITADO, bbox_x: null, bbox_y: null, bbox_width: null, bbox_height: null }] });
+    expect(miniatura('Milanesa').style.objectPosition).toBe('40% 50%');
+    expect(miniatura('Perejil').style.objectPosition).toBe('50% 50%');
+  });
+
+  it('muestra un skeleton mientras carga y lo saca cuando la imagen cargó', () => {
+    renderCliente({ rows: [FILA] });
+    const tarjeta = screen.getByRole('listitem', { name: 'Milanesa' });
+    expect(tarjeta.querySelector('.animate-pulse')).not.toBeNull();
+    fireEvent.load(miniatura('Milanesa'));
+    expect(tarjeta.querySelector('.animate-pulse')).toBeNull();
+  });
+
+  it('si la URL venció pide UNA nueva, reintenta con ella y no cae en el fallback', async () => {
+    renderCliente({ rows: [FILA] });
+    fireEvent.error(miniatura('Milanesa'));
+    await waitFor(() => expect(miniatura('Milanesa')).toHaveAttribute('src', 'https://x/nueva'));
+    expect(renovarFotoAction).toHaveBeenCalledTimes(1);
+    expect(renovarFotoAction).toHaveBeenCalledWith('user-1/a.jpg');
+    expect(screen.queryByText('No se pudo cargar la foto')).not.toBeInTheDocument();
+  });
+
+  it('si la URL nueva también falla muestra "No se pudo cargar la foto" y NO vuelve a pedir (sin loops)', async () => {
+    renderCliente({ rows: [FILA] });
+    fireEvent.error(miniatura('Milanesa'));
+    await waitFor(() => expect(miniatura('Milanesa')).toHaveAttribute('src', 'https://x/nueva'));
+    fireEvent.error(miniatura('Milanesa'));
+    expect(await screen.findByText('No se pudo cargar la foto')).toBeInTheDocument();
+    expect(renovarFotoAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('si no se puede renovar, muestra el fallback', async () => {
+    vi.mocked(renovarFotoAction).mockResolvedValue({ error: 'No se pudo cargar la foto' });
+    renderCliente({ rows: [FILA] });
+    fireEvent.error(miniatura('Milanesa'));
+    expect(await screen.findByText('No se pudo cargar la foto')).toBeInTheDocument();
+  });
+
+  it('varias tarjetas de la misma foto que fallan juntas renuevan una sola vez y todas se recuperan', async () => {
+    const otra = { ...FILA, id_deteccion_item: 3, alimento_ia: 'Arroz' };
+    renderCliente({ rows: [FILA, otra] });
+    fireEvent.error(miniatura('Milanesa'));
+    fireEvent.error(miniatura('Arroz'));
+    await waitFor(() => expect(miniatura('Arroz')).toHaveAttribute('src', 'https://x/nueva'));
+    expect(miniatura('Milanesa')).toHaveAttribute('src', 'https://x/nueva');
+    expect(renovarFotoAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('un ítem sin foto (o sin URL firmada) muestra el ícono con el aviso, sin pedir nada', () => {
+    renderCliente({ rows: [{ ...FILA, imagen_path: null }], fotos: {} });
+    expect(screen.getByText('No se pudo cargar la foto')).toBeInTheDocument();
+    expect(renovarFotoAction).not.toHaveBeenCalled();
+  });
+});
+
 describe('RevisionIaClient — acciones en la lista', () => {
   it('Confirmar confirma ese ítem sin abrir el detalle y refresca', async () => {
     renderCliente();
     await userEvent.click(screen.getByRole('button', { name: 'Confirmar Milanesa' }));
     await waitFor(() => expect(confirmarRevisionAction).toHaveBeenCalledWith(1));
     expect(refresh).toHaveBeenCalled();
-    expect(getRevisionDetalleAction).not.toHaveBeenCalled();
     expect(corregirRevisionAction).not.toHaveBeenCalled();
   });
 
@@ -221,15 +287,21 @@ describe('RevisionIaDetalle', () => {
   async function abrir(boton = 'Ver detalle y foto de Milanesa') {
     renderCliente();
     await userEvent.click(screen.getByRole('button', { name: boton }));
-    await screen.findByRole('img', { name: /Foto del plato/ });
+    await screen.findByRole('dialog');
   }
 
-  it('al abrir pide el detalle de ESE ítem y muestra la foto firmada y el contexto de captura', async () => {
+  it('al abrir reutiliza la misma foto de la lista (sin pedir otra URL) y muestra el contexto de captura', async () => {
     await abrir();
-    expect(getRevisionDetalleAction).toHaveBeenCalledTimes(1);
-    expect(getRevisionDetalleAction).toHaveBeenCalledWith(1);
-    expect(screen.getByRole('img', { name: /Foto del plato/ })).toHaveAttribute('src', 'https://x/firmada');
+    expect(dialogo().getByRole('img', { name: 'Foto de la comida: Milanesa' })).toHaveAttribute('src', 'https://x/firmada-1');
+    expect(renovarFotoAction).not.toHaveBeenCalled();
     expect(screen.getByText(/Plato playo de 26 cm/)).toBeInTheDocument();
+  });
+
+  it('si la foto del modal falla, renueva una vez y la lista y el modal quedan con la URL nueva', async () => {
+    await abrir();
+    fireEvent.error(dialogo().getByRole('img', { name: 'Foto de la comida: Milanesa' }));
+    await waitFor(() => expect(dialogo().getByRole('img', { name: 'Foto de la comida: Milanesa' })).toHaveAttribute('src', 'https://x/nueva'));
+    expect(renovarFotoAction).toHaveBeenCalledTimes(1);
   });
 
   it('Confirmar en el detalle llama a su acción y refresca', async () => {
@@ -256,6 +328,6 @@ describe('RevisionIaDetalle', () => {
     await waitFor(() => expect(marcarCandidatoAction).toHaveBeenCalledWith(1, true));
     expect(confirmarRevisionAction).not.toHaveBeenCalled();
     expect(corregirRevisionAction).not.toHaveBeenCalled();
-    expect(await dialogo().findByRole('button', { name: /Candidato a ejemplo/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(refresh).toHaveBeenCalled(); // la lista se refresca y trae el valor nuevo
   });
 });

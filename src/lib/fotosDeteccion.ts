@@ -15,6 +15,9 @@ export const BUCKET_FOTOS = 'detecciones-fotos';
 /** Duración de las signed URLs, en segundos. */
 export const TTL_URL_FIRMADA_S = 300;
 
+/** Duración de las signed URLs de la lista de la cola de revisión (la foto sirve a la miniatura y al modal), en segundos. */
+export const TTL_URL_LISTA_S = 600;
+
 /** Lo mínimo de un cliente de Supabase que usamos (facilita mockear). */
 export interface StorageClient {
   storage: { from: (bucket: string) => any };
@@ -52,12 +55,16 @@ export async function borrarFoto(client: StorageClient, path: string): Promise<v
   }
 }
 
-/** Signed URLs de varias fotos en UNA llamada. Los paths que fallen quedan fuera del mapa. */
-export async function urlsFirmadas(client: StorageClient, paths: string[]): Promise<Map<string, string>> {
+/**
+ * Signed URLs de varias fotos en UNA llamada (sin repetir paths: varios ítems comparten la foto de su detección).
+ * Los paths que fallen quedan fuera del mapa. Las URLs firmadas nunca se loguean.
+ */
+export async function urlsFirmadas(client: StorageClient, paths: string[], ttlSegundos = TTL_URL_FIRMADA_S): Promise<Map<string, string>> {
   const urls = new Map<string, string>();
-  if (paths.length === 0) return urls;
+  const unicos = [...new Set(paths)];
+  if (unicos.length === 0) return urls;
   try {
-    const { data, error } = await client.storage.from(BUCKET_FOTOS).createSignedUrls(paths, TTL_URL_FIRMADA_S);
+    const { data, error } = await client.storage.from(BUCKET_FOTOS).createSignedUrls(unicos, ttlSegundos);
     if (error) {
       console.error('No se pudieron firmar las URLs de las fotos:', error);
       return urls;

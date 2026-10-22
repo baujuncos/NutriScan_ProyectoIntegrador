@@ -13,6 +13,7 @@ vi.mock('@/app/(researcher)/revision-ia/actions', () => ({
   confirmarRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
   corregirRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
   marcarCandidatoAction: vi.fn().mockResolvedValue({ ok: true }),
+  reabrirRevisionAction: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 import RevisionIaClient from '@/app/(researcher)/revision-ia/RevisionIaClient';
@@ -21,6 +22,7 @@ import {
   corregirRevisionAction,
   renovarFotoAction,
   marcarCandidatoAction,
+  reabrirRevisionAction,
   type RevisionFila,
 } from '@/app/(researcher)/revision-ia/actions';
 import { parseRevisionParams } from '@/lib/revisionIaQuery';
@@ -178,12 +180,6 @@ describe('RevisionIaClient — listado', () => {
     renderCliente({ rows: [], total: 0 });
     expect(screen.getByText(/No hay ítems/)).toBeInTheDocument();
   });
-
-  it('un ítem ya revisado muestra su estado en vez de Confirmar / Corregir', () => {
-    renderCliente({ rows: [{ ...FILA, estado_revision: 'confirmado' }] });
-    expect(screen.queryByRole('button', { name: /^Confirmar/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Confirmado')).toBeInTheDocument();
-  });
 });
 
 describe('RevisionIaClient — fotos reales en la lista', () => {
@@ -250,6 +246,115 @@ describe('RevisionIaClient — fotos reales en la lista', () => {
     renderCliente({ rows: [{ ...FILA, imagen_path: null }], fotos: {} });
     expect(screen.getByText('No se pudo cargar la foto')).toBeInTheDocument();
     expect(renovarFotoAction).not.toHaveBeenCalled();
+  });
+});
+
+const CORREGIDA: RevisionFila = {
+  ...FILA,
+  estado_revision: 'corregido',
+  revisado_por: 'inv-1',
+  revisado_en: '2026-10-20T15:00:00Z',
+  revisor_nombre: 'Ana Pérez',
+  nutricionista_alimento: 'Milanesa',
+  nutricionista_gramos: 180,
+};
+const CONFIRMADA: RevisionFila = { ...FILA, estado_revision: 'confirmado', revisado_por: 'inv-1', revisado_en: '2026-10-20T15:00:00Z', revisor_nombre: 'Ana Pérez' };
+
+describe('RevisionIaClient — lo ya revisado', () => {
+  it('Corregido: trío IA → Deportista → Investigador (nombre y peso), con la columna del investigador resaltada', () => {
+    renderCliente({ rows: [CORREGIDA] });
+    const trio = within(screen.getByRole('listitem', { name: 'Milanesa' })).getByTestId('trio-revisado');
+    expect(within(trio).getByText('IA')).toBeInTheDocument();
+    expect(within(trio).getByText('Deportista')).toBeInTheDocument();
+    const inv = within(trio).getByText('Investigador').parentElement!;
+    expect(inv.className).toContain('bg-blue-50'); // resaltada
+    expect(inv).toHaveTextContent('180 g'); // peso nuevo
+    expect(within(trio).getByText('150 g')).toBeInTheDocument(); // IA
+    expect(within(trio).getByText('250 g')).toBeInTheDocument(); // deportista
+  });
+
+  it('muestra "(sin cambios)" en el campo que el investigador mantuvo (el nombre) y no en el que cambió (el peso)', () => {
+    renderCliente({ rows: [CORREGIDA] });
+    const inv = within(screen.getByTestId('trio-revisado')).getByText('Investigador').parentElement!;
+    const sinCambios = within(inv).getAllByText('(sin cambios)');
+    expect(sinCambios).toHaveLength(1);
+    expect(sinCambios[0].parentElement).toHaveTextContent('Milanesa');
+  });
+
+  it('muestra quién corrigió y cuándo', () => {
+    renderCliente({ rows: [CORREGIDA] });
+    expect(screen.getByText(/Corregido por Ana Pérez el 20\/10\/2026/)).toBeInTheDocument();
+  });
+
+  it('un ítem quitado y confirmado como tal muestra "Sigue quitado" en la columna del investigador', () => {
+    renderCliente({ rows: [{ ...QUITADO, estado_revision: 'corregido', revisor_nombre: 'Ana Pérez', revisado_en: '2026-10-20T15:00:00Z', nutricionista_alimento: 'Perejil', nutricionista_gramos: 12 }] });
+    const inv = within(screen.getByTestId('trio-revisado')).getByText('Investigador').parentElement!;
+    expect(inv).toHaveTextContent('Perejil');
+    expect(inv).toHaveTextContent('12 g');
+    expect(inv).not.toHaveTextContent('(sin cambios)');
+  });
+
+  it('Confirmado: "Confirmado por {persona} el {fecha}" y el valor final', () => {
+    renderCliente({ rows: [CONFIRMADA] });
+    const fila = screen.getByRole('listitem', { name: 'Milanesa' });
+    expect(within(fila).getByText(/Confirmado por Ana Pérez el 20\/10\/2026/)).toBeInTheDocument();
+    expect(within(fila).getByText('Milanesa · 250 g')).toBeInTheDocument(); // valor final = el del deportista
+    expect(within(fila).queryByTestId('trio-revisado')).not.toBeInTheDocument();
+  });
+
+  it('sin nombre de quien revisó no rompe: dice "el equipo de nutrición"', () => {
+    renderCliente({ rows: [{ ...CONFIRMADA, revisor_nombre: null }] });
+    expect(screen.getByText(/Confirmado por el equipo de nutrición/)).toBeInTheDocument();
+  });
+
+  it('los botones Confirmar / Corregir se reemplazan por Ver detalle y Reabrir; los pendientes no cambian', () => {
+    renderCliente({ rows: [CORREGIDA, { ...FILA, id_deteccion_item: 5, alimento_ia: 'Arroz' }] });
+    expect(screen.queryByRole('button', { name: 'Confirmar Milanesa' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Corregir Milanesa' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ver detalle de Milanesa' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reabrir Milanesa' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirmar Arroz' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Corregir Arroz' })).toBeInTheDocument();
+  });
+
+  it('Ver detalle abre el modal en modo lectura: investigador con sus valores, sin formulario y con Reabrir', async () => {
+    renderCliente({ rows: [CORREGIDA] });
+    await userEvent.click(screen.getByRole('button', { name: 'Ver detalle de Milanesa' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Revisar predicción' }));
+    expect(dlg.queryByText('Tu corrección')).not.toBeInTheDocument();
+    expect(dlg.queryByRole('button', { name: 'Guardar corrección' })).not.toBeInTheDocument();
+    const tabla = dlg.getByRole('table');
+    expect(within(tabla).getByText('180 g')).toBeInTheDocument();
+    expect(dlg.getByText(/Corregido por Ana Pérez el 20\/10\/2026/)).toBeInTheDocument();
+    expect(dlg.getByRole('button', { name: 'Reabrir' })).toBeInTheDocument();
+  });
+
+  it('Reabrir pide confirmación, llama a la acción y refresca la lista', async () => {
+    renderCliente({ rows: [CORREGIDA] });
+    await userEvent.click(screen.getByRole('button', { name: 'Reabrir Milanesa' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Reabrir revisión' }));
+    expect(dlg.getByText(/se borra la corrección del investigador/)).toBeInTheDocument();
+    expect(reabrirRevisionAction).not.toHaveBeenCalled();
+    await userEvent.click(dlg.getByRole('button', { name: 'Reabrir' }));
+    await waitFor(() => expect(reabrirRevisionAction).toHaveBeenCalledWith(1));
+    expect(refresh).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('Cancelar en la confirmación no reabre nada', async () => {
+    renderCliente({ rows: [CORREGIDA] });
+    await userEvent.click(screen.getByRole('button', { name: 'Reabrir Milanesa' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancelar' }));
+    expect(reabrirRevisionAction).not.toHaveBeenCalled();
+  });
+
+  it('si reabrir falla muestra el error y no refresca', async () => {
+    vi.mocked(reabrirRevisionAction).mockResolvedValueOnce({ error: 'Este ítem ya está pendiente' });
+    renderCliente({ rows: [CORREGIDA] });
+    await userEvent.click(screen.getByRole('button', { name: 'Reabrir Milanesa' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Reabrir' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('ya está pendiente');
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 

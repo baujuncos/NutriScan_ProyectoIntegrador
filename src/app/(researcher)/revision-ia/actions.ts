@@ -150,6 +150,19 @@ export async function corregirRevisionAction(input: CorregirInput): Promise<Acci
   return { ok: true };
 }
 
+/** Reabre un ítem ya revisado (vuelve a Pendientes y se borran los valores del investigador) para corregirlo de nuevo. */
+export async function reabrirRevisionAction(idItem: number): Promise<AccionResultado> {
+  if (!id.safeParse(idItem).success) return { error: 'Datos inválidos' };
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+
+  const { error } = await auth.supabase.rpc('revision_ia_reabrir', { p_id: idItem });
+  if (error) return error.message === 'ESTADO_INVALIDO' ? { error: 'Este ítem ya está pendiente' } : errorDeRpc(error);
+
+  revalidatePath('/revision-ia');
+  return { ok: true };
+}
+
 /** Independiente de Confirmar/Corregir: sólo marca o desmarca `candidato_ejemplo`. No dispara ninguna automatización. */
 export async function marcarCandidatoAction(idItem: number, valor: boolean): Promise<AccionResultado> {
   const parsed = candidatoSchema.safeParse({ id: idItem, valor });

@@ -28,6 +28,7 @@ import AlimentoAutocomplete from './AlimentoAutocomplete';
 import { EjemploIaCasilla } from './EjemploParaIa';
 import FotoConMarca from './FotoConMarca';
 import MotivosRevision from './MotivosRevision';
+import { lineaRevision } from './TrioRevisado';
 import {
   confirmarRevisionAction,
   corregirRevisionAction,
@@ -46,6 +47,8 @@ interface Props {
   onClose: () => void;
   /** Se llama tras cualquier acción exitosa (la página refresca el listado, respetando el filtro de Estado). */
   onCambio: () => void;
+  /** Reabrir un ítem ya revisado (el padre pide la confirmación). */
+  onReabrir?: () => void;
 }
 
 const VAJILLA_LABEL: Record<string, string> = {
@@ -102,7 +105,7 @@ function Opcion({ nombre, checked, onChange, children }: { nombre: string; check
   );
 }
 
-export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, onClose, onCambio }: Props) {
+export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, onClose, onCambio, onReabrir }: Props) {
   const grupo = useId();
   const [form, setForm] = useState<EstadoForm>(FORM_INICIAL);
   const [tocado, setTocado] = useState({ nombre: false, peso: false });
@@ -157,6 +160,11 @@ export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, onClose,
       <Button type="button" variant="ghost" disabled={trabajando} onClick={onClose}>
         Cancelar
       </Button>
+      {!pendiente && onReabrir && (
+        <Button type="button" variant="outline" disabled={trabajando} onClick={onReabrir}>
+          Reabrir
+        </Button>
+      )}
       {pendiente && (
         <>
           <Button type="button" variant="outline" disabled={trabajando} onClick={() => ejecutar(() => confirmarRevisionAction(fila.id_deteccion_item), onClose)}>
@@ -292,9 +300,7 @@ export default function RevisionIaDetalle({ fila, fotoUrl, onFotoFallo, onClose,
 
             {!pendiente && (
               <p className="text-sm text-slate-700">
-                {fila.estado_revision === 'confirmado' ? 'Confirmado' : 'Corregido'}
-                {fila.revisor_nombre ? ` por ${fila.revisor_nombre}` : ''}
-                {fila.revisado_en ? ` el ${formatFechaCorta(fila.revisado_en)}` : ''}.
+                {lineaRevision(fila)}.
               </p>
             )}
 

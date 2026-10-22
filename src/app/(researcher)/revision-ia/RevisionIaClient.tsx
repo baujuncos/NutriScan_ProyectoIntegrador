@@ -27,7 +27,10 @@ import EstadoColaChips from './EstadoColaChips';
 import FotoMiniatura from './FotoMiniatura';
 import MotivosRevision, { MOTIVO_LABEL } from './MotivosRevision';
 import RevisionIaDetalle from './RevisionIaDetalle';
-import { confirmarRevisionAction, marcarCandidatoAction, renovarFotoAction, type RevisionFila } from './actions';
+import TrioRevisado, { lineaRevision } from './TrioRevisado';
+import { confirmarRevisionAction, marcarCandidatoAction, reabrirRevisionAction, renovarFotoAction, type RevisionFila } from './actions';
+import Modal from '@/components/ui/Modal';
+import { resumenInvestigador } from '@/lib/revisionIaForm';
 
 interface Props {
   rows: RevisionFila[];
@@ -123,11 +126,23 @@ function Comparacion({ r }: { r: RevisionFila }) {
   );
 }
 
+/** Ítem Confirmado: quién, cuándo y el valor final que quedó. */
+function LineaConfirmado({ r }: { r: RevisionFila }) {
+  const inv = resumenInvestigador(r);
+  return (
+    <p className="mt-2 text-xs text-slate-600">
+      {lineaRevision(r)} · Valor final: <strong className="font-semibold text-slate-800">{inv.nombre == null ? 'ítem quitado' : `${inv.nombre} · ${fmt(inv.gramos ?? 0)} g`}</strong>
+    </p>
+  );
+}
+
 export default function RevisionIaClient({ rows, total, params, conteos, fotos }: Props) {
   const router = useRouter();
   const [abierto, setAbierto] = useState<{ id: number; corregir: boolean } | null>(null);
   const [trabajando, setTrabajando] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Ítem ya revisado que se está por reabrir (pide confirmación: se borran los valores del investigador). */
+  const [reabriendo, setReabriendo] = useState<RevisionFila | null>(null);
 
   // URLs de las fotos: las del servidor + las que se renovaron. Cuando llega otra página (props nuevas) se reinician.
   const [urls, setUrls] = useState(fotos);
@@ -304,7 +319,14 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
                       {r.angulo_captura_grados}°
                     </span>
                   </div>
-                  <Comparacion r={r} />
+                  {r.estado_revision === 'corregido' ? (
+                    <TrioRevisado fila={r} />
+                  ) : (
+                    <>
+                      <Comparacion r={r} />
+                      {r.estado_revision === 'confirmado' && <LineaConfirmado r={r} />}
+                    </>
+                  )}
                   <div className="mt-3">
                     <EjemploIaToggle
                       marcado={r.candidato_ejemplo}
@@ -340,9 +362,17 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
                       </Button>
                     </>
                   ) : (
-                    <StatusBadge tone={r.estado_revision === 'confirmado' ? 'emerald' : 'blue'} className="justify-center py-1.5 text-sm">
-                      {ESTADO_LABEL[r.estado_revision]}
-                    </StatusBadge>
+                    <>
+                      <StatusBadge tone={r.estado_revision === 'confirmado' ? 'emerald' : 'blue'} className="justify-center py-1.5 text-sm">
+                        {ESTADO_LABEL[r.estado_revision]}
+                      </StatusBadge>
+                      <Button type="button" variant="outline" size="sm" aria-label={`Ver detalle de ${r.alimento_ia}`} onClick={() => setAbierto({ id: r.id_deteccion_item, corregir: false })}>
+                        Ver detalle
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={ocupado} aria-label={`Reabrir ${r.alimento_ia}`} onClick={() => setReabriendo(r)}>
+                        Reabrir
+                      </Button>
+                    </>
                   )}
                 </div>
               </li>
@@ -380,7 +410,42 @@ export default function RevisionIaClient({ rows, total, params, conteos, fotos }
         onFotoFallo={(fallida) => (filaAbierta?.imagen_path ? renovarFoto(filaAbierta.imagen_path, fallida) : Promise.resolve(null))}
         onClose={() => setAbierto(null)}
         onCambio={() => router.refresh()}
+        onReabrir={() => {
+          setReabriendo(filaAbierta);
+          setAbierto(null);
+        }}
       />
+
+      <Modal
+        open={reabriendo != null}
+        onClose={() => setReabriendo(null)}
+        title="Reabrir revisión"
+        size="sm"
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => setReabriendo(null)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!reabriendo) return;
+                setError(null);
+                const r = await reabrirRevisionAction(reabriendo.id_deteccion_item);
+                setReabriendo(null);
+                if ('error' in r) setError(r.error);
+                else router.refresh();
+              }}
+            >
+              Reabrir
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-700">
+          «{reabriendo?.alimento_ia}» vuelve a Pendientes y se borra la corrección del investigador. Lo que detectó la IA y lo que dejó el deportista no cambia.
+        </p>
+      </Modal>
     </div>
   );
 }

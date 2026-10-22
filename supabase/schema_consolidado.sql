@@ -4226,3 +4226,34 @@ where di.necesita_revision;
 
 revoke all on public.v_revision_ia from anon, authenticated;
 grant select on public.v_revision_ia to authenticated;
+
+-- Reabrir un ítem ya revisado para corregirlo de nuevo: vuelve a Pendientes y se borran los valores
+-- del investigador (nutricionista_*, revisado_*). No toca nada de la IA ni del deportista, ni
+-- candidato_ejemplo. Errores (message): FORBIDDEN, NOT_FOUND, ESTADO_INVALIDO (ya estaba pendiente).
+create or replace function public.revision_ia_reabrir(p_id bigint)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_estado text;
+begin
+  if coalesce((select public.get_my_role()), '') not in ('investigador', 'administrador') then
+    raise exception 'FORBIDDEN';
+  end if;
+
+  select estado_revision into v_estado
+  from public.detecciones_ia_items where id_deteccion_item = p_id and necesita_revision for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if v_estado = 'pendiente' then raise exception 'ESTADO_INVALIDO'; end if;
+
+  update public.detecciones_ia_items
+  set estado_revision = 'pendiente', revisado_por = null, revisado_en = null,
+      nutricionista_alimento = null, nutricionista_gramos = null
+  where id_deteccion_item = p_id;
+end;
+$$;
+
+revoke all on function public.revision_ia_reabrir(bigint) from public, anon;
+grant execute on function public.revision_ia_reabrir(bigint) to authenticated;

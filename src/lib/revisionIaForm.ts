@@ -129,3 +129,42 @@ export function textoDiferencia(d: Diferencia): string {
   const p = Math.round(d.porcentaje);
   return p === 0 ? g : `${g} (${signo(p)}${Math.abs(p)} %)`;
 }
+
+/** Lo mínimo de la fila de la cola que se necesita para mostrar la revisión del investigador. */
+export interface FilaRevisada {
+  estado_revision: 'pendiente' | 'confirmado' | 'corregido';
+  item_quitado: boolean;
+  alimento_usuario: string | null;
+  gramos_usuario: number | null;
+  nutricionista_alimento: string | null;
+  nutricionista_gramos: number | null;
+}
+
+export interface ResumenInvestigador {
+  /** Nombre y peso que quedaron como verdad del investigador (null = ítem que sigue quitado, o sin revisar). */
+  nombre: string | null;
+  gramos: number | null;
+  /** Eligió "Mantener" en ese campo: el valor es el mismo que dejó el deportista. */
+  nombreSinCambios: boolean;
+  pesoSinCambios: boolean;
+}
+
+/**
+ * Cómo quedó la revisión. Corregido: los valores que guardó el investigador (los mantenidos también, con la
+ * marca "sin cambios" si coinciden con los del deportista). Confirmado: el valor del deportista pasó a ser el final.
+ */
+export function resumenInvestigador(fila: FilaRevisada): ResumenInvestigador {
+  const quitado = fila.item_quitado || fila.alimento_usuario == null;
+  if (fila.estado_revision === 'confirmado') {
+    return { nombre: quitado ? null : fila.alimento_usuario, gramos: quitado ? null : fila.gramos_usuario, nombreSinCambios: !quitado, pesoSinCambios: !quitado };
+  }
+  if (fila.estado_revision === 'corregido') {
+    return {
+      nombre: fila.nutricionista_alimento,
+      gramos: fila.nutricionista_gramos,
+      nombreSinCambios: !quitado && fila.nutricionista_alimento != null && fila.nutricionista_alimento === fila.alimento_usuario,
+      pesoSinCambios: !quitado && fila.nutricionista_gramos != null && Number(fila.nutricionista_gramos) === Number(fila.gramos_usuario),
+    };
+  }
+  return { nombre: null, gramos: null, nombreSinCambios: false, pesoSinCambios: false };
+}

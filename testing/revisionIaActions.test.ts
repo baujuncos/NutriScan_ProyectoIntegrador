@@ -19,6 +19,7 @@ import {
   confirmarRevisionAction,
   corregirRevisionAction,
   marcarCandidatoAction,
+  reabrirRevisionAction,
   renovarFotoAction,
 } from '@/app/(researcher)/revision-ia/actions';
 
@@ -41,6 +42,7 @@ describe('re-verificación de rol', () => {
     () => confirmarRevisionAction(9),
     () => corregirRevisionAction({ id: 9, alimento: 'Pollo', gramos: 100 }),
     () => marcarCandidatoAction(9, true),
+    () => reabrirRevisionAction(9),
   ];
 
   it('sin sesión → error y sin RPC ni storage', async () => {
@@ -119,6 +121,20 @@ describe('acciones — independientes y sin pisar datos originales', () => {
     comoRol('investigador');
     expect(await marcarCandidatoAction(9, true)).toEqual({ ok: true });
     expect(sb.rpcLlamadas()).toEqual([{ nombre: 'revision_ia_marcar_candidato', args: { p_id: 9, p_valor: true } }]);
+  });
+
+  it('reabrir llama sólo a revision_ia_reabrir y refresca la cola', async () => {
+    comoRol('investigador');
+    expect(await reabrirRevisionAction(9)).toEqual({ ok: true });
+    expect(sb.rpcLlamadas()).toEqual([{ nombre: 'revision_ia_reabrir', args: { p_id: 9 } }]);
+    expect(revalidatePathMock).toHaveBeenCalledWith('/revision-ia');
+  });
+
+  it('reabrir un ítem que ya estaba pendiente da un mensaje claro', async () => {
+    comoRol('investigador');
+    sb.mockRpc('revision_ia_reabrir', { data: null, error: { message: 'ESTADO_INVALIDO' } });
+    expect(await reabrirRevisionAction(9)).toEqual({ error: 'Este ítem ya está pendiente' });
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it('ninguna acción escribe directamente en tablas (todo por RPC)', async () => {

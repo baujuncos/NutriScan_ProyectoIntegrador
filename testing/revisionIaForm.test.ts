@@ -10,6 +10,7 @@ import {
   normalizarNombre,
   parsearGramos,
   resultadoCorreccion,
+  resumenInvestigador,
   textoDiferencia,
   validarCorreccion,
   type ContextoForm,
@@ -148,5 +149,44 @@ describe('diferencia en vivo', () => {
     expect(textoDiferencia(diferencia(90, 120))).toBe('−30 g (−25 %)');
     expect(textoDiferencia(diferencia(100, 100))).toBe('sin diferencia');
     expect(textoDiferencia(diferencia(10, 0))).toBe('+10 g');
+  });
+});
+
+describe('resumenInvestigador (cómo quedó lo ya revisado)', () => {
+  const base = { item_quitado: false, alimento_usuario: 'Empanada (pollo)', gramos_usuario: 110, nutricionista_alimento: null, nutricionista_gramos: null };
+
+  it('corregido: los valores del investigador; "sin cambios" en el campo que mantuvo', () => {
+    // mantuvo el nombre, cambió el peso
+    expect(resumenInvestigador({ ...base, estado_revision: 'corregido', nutricionista_alimento: 'Empanada (pollo)', nutricionista_gramos: 150 })).toEqual({
+      nombre: 'Empanada (pollo)', gramos: 150, nombreSinCambios: true, pesoSinCambios: false,
+    });
+    // cambió el nombre, mantuvo el peso
+    expect(resumenInvestigador({ ...base, estado_revision: 'corregido', nutricionista_alimento: 'Empanada de carne', nutricionista_gramos: 110 })).toEqual({
+      nombre: 'Empanada de carne', gramos: 110, nombreSinCambios: false, pesoSinCambios: true,
+    });
+    // mantuvo los dos
+    expect(resumenInvestigador({ ...base, estado_revision: 'corregido', nutricionista_alimento: 'Empanada (pollo)', nutricionista_gramos: 110 })).toMatchObject({ nombreSinCambios: true, pesoSinCambios: true });
+  });
+
+  it('el peso se compara como número (PostgREST puede devolver "110.00")', () => {
+    expect(resumenInvestigador({ ...base, estado_revision: 'corregido', nutricionista_alimento: 'X', nutricionista_gramos: '110.00' as unknown as number }).pesoSinCambios).toBe(true);
+  });
+
+  it('confirmado: el valor del deportista es el final', () => {
+    expect(resumenInvestigador({ ...base, estado_revision: 'confirmado' })).toEqual({ nombre: 'Empanada (pollo)', gramos: 110, nombreSinCambios: true, pesoSinCambios: true });
+  });
+
+  it('confirmado un ítem quitado: sigue quitado (sin valores)', () => {
+    expect(resumenInvestigador({ ...base, estado_revision: 'confirmado', item_quitado: true, alimento_usuario: null, gramos_usuario: null })).toMatchObject({ nombre: null, gramos: null });
+  });
+
+  it('corregido un ítem quitado y restaurado: sus valores nunca son "sin cambios" (no había del deportista)', () => {
+    expect(resumenInvestigador({ ...base, estado_revision: 'corregido', item_quitado: true, alimento_usuario: null, gramos_usuario: null, nutricionista_alimento: 'Perejil', nutricionista_gramos: 12 })).toEqual({
+      nombre: 'Perejil', gramos: 12, nombreSinCambios: false, pesoSinCambios: false,
+    });
+  });
+
+  it('pendiente: nada', () => {
+    expect(resumenInvestigador({ ...base, estado_revision: 'pendiente' })).toEqual({ nombre: null, gramos: null, nombreSinCambios: false, pesoSinCambios: false });
   });
 });

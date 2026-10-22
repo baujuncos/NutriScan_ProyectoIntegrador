@@ -330,7 +330,7 @@ export async function validarPendienteAction(input: ValidarInput): Promise<Valid
   if (error) return errorDeRpc(error);
 
   revalidatePath('/validacion');
-  revalidatePath('/alimentacion'); // los ítems del diario (también los cargados a mano) cambian de valores
+  revalidatePath('/alimentacion'); // los ítems del diario (también los cargados manualmente) cambian de valores
   const r = data as { id_alimento: number | null; items_afectados: number };
   return { ok: true, idAlimento: r.id_alimento, itemsAfectados: r.items_afectados };
 }

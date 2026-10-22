@@ -4,7 +4,7 @@
  * solo con ocurrencias con foto y aviso no bloqueante si el nombre ya existe en SARA2/ANMAT.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
@@ -77,28 +77,28 @@ describe('/validacion — listado con entradas manuales', () => {
   const render_ = (rows: Array<typeof PENDIENTE | typeof SOLO_MANUAL>) =>
     render(<ValidacionClient rows={rows as never} total={rows.length} params={parseParams({})} />);
 
-  it('una entrada creada a mano muestra la marca "A mano", sus solicitudes y los usuarios distintos', () => {
+  it('una entrada creada manualmente muestra la marca "Manual", sus solicitudes y los usuarios distintos', () => {
     render_([SOLO_MANUAL]);
     const fila = screen.getByRole('listitem', { name: /Tarta casera/ });
-    expect(within(fila).getByText('A mano')).toBeInTheDocument();
-    expect(within(fila).getByText('+3 a mano')).toBeInTheDocument();
+    expect(within(fila).getByText('Manual')).toBeInTheDocument();
+    expect(within(fila).getByText('3 manuales')).toBeInTheDocument();
     expect(within(fila).getByText('2 usuarios')).toBeInTheDocument();
   });
 
-  it('una entrada de IA sin cargas manuales se ve como antes (sin marca ni "+N a mano")', () => {
+  it('una entrada de IA sin cargas manuales se ve como antes (sin marca ni "+N manual")', () => {
     render_([PENDIENTE]);
     const fila = screen.getByRole('listitem', { name: /Flan casero/ });
-    expect(within(fila).queryByText('A mano')).not.toBeInTheDocument();
-    expect(within(fila).queryByText(/a mano/)).not.toBeInTheDocument();
+    expect(within(fila).queryByText('Manual')).not.toBeInTheDocument();
+    expect(within(fila).queryByText(/manual/i)).not.toBeInTheDocument();
     expect(within(fila).getByText('2')).toBeInTheDocument();
   });
 
   it('una entrada mixta (creada por IA, con cargas manuales posteriores) muestra ambas cifras', () => {
     render_([{ ...PENDIENTE, ocurrencias_manuales: 2, usuarios_distintos: 3 }]);
     const fila = screen.getByRole('listitem', { name: /Flan casero/ });
-    expect(within(fila).queryByText('A mano')).not.toBeInTheDocument(); // se creó por IA
+    expect(within(fila).queryByText('Manual')).not.toBeInTheDocument(); // se creó por IA
     expect(within(fila).getByText('2')).toBeInTheDocument();
-    expect(within(fila).getByText('+2 a mano')).toBeInTheDocument();
+    expect(within(fila).getByText('+2 manuales')).toBeInTheDocument();
     expect(within(fila).getByText('3 usuarios')).toBeInTheDocument();
   });
 
@@ -108,12 +108,49 @@ describe('/validacion — listado con entradas manuales', () => {
   });
 });
 
+describe('/validacion — columna Ocurrencias', () => {
+  const celda = (row: Record<string, unknown>) => {
+    render(<ValidacionClient rows={[row] as never} total={1} params={parseParams({})} />);
+    const fila = screen.getByRole('listitem');
+    return Array.from(fila.querySelectorAll('span.text-sm.text-slate-700'))[0] as HTMLElement;
+  };
+
+  it('solo IA: el número de ocurrencias, sin líneas de manuales (idéntico a antes)', () => {
+    const c = celda({ ...PENDIENTE, ocurrencias: 2, ocurrencias_manuales: 0, usuarios_distintos: 2 });
+    expect(c).toHaveTextContent('Ocurrencias: 2');
+    expect(within(c).queryByText(/manual/)).not.toBeInTheDocument();
+    expect(within(c).getByText('2 usuarios')).toBeInTheDocument();
+  });
+
+  it('mixta: conserva el número de ocurrencias con foto y la línea "+N manual(es)" debajo', () => {
+    const c = celda({ ...PENDIENTE, ocurrencias: 2, ocurrencias_manuales: 1, usuarios_distintos: 3 });
+    expect(c).toHaveTextContent('Ocurrencias: 2');
+    expect(within(c).getByText('+1 manual')).toBeInTheDocument();
+    cleanup();
+    const c2 = celda({ ...PENDIENTE, ocurrencias: 5, ocurrencias_manuales: 3, usuarios_distintos: 3 });
+    expect(c2).toHaveTextContent('Ocurrencias: 5');
+    expect(within(c2).getByText('+3 manuales')).toBeInTheDocument();
+  });
+
+  it('solo manual: únicamente "N manual(es)", sin el 0 ni la línea "+N"', () => {
+    const c = celda({ ...SOLO_MANUAL, ocurrencias_manuales: 1, usuarios_distintos: 1 });
+    expect(c).toHaveTextContent('Ocurrencias: 1 manual');
+    expect(within(c).getByText('1 manual')).toBeInTheDocument();
+    expect(c).not.toHaveTextContent(/\b0\b/);
+    expect(within(c).queryByText(/^\+/)).not.toBeInTheDocument();
+    cleanup();
+    const c2 = celda({ ...SOLO_MANUAL, ocurrencias_manuales: 2, usuarios_distintos: 2 });
+    expect(within(c2).getByText('2 manuales')).toBeInTheDocument();
+    expect(c2).not.toHaveTextContent(/\b0\b/);
+  });
+});
+
 describe('/validacion — detalle de una entrada solo manual', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('muestra las solicitudes sin foto y no la sección "Dónde apareció"', async () => {
     await abrir(detalle(SOLO_MANUAL));
-    const sec = screen.getByRole('region', { name: 'Cargado a mano' });
+    const sec = screen.getByRole('region', { name: 'Cargado manualmente' });
     expect(within(sec).getByText(/3 solicitudes/)).toBeInTheDocument();
     expect(within(sec).getByText(/Lo pidieron 2 usuarios/)).toBeInTheDocument();
     expect(within(sec).getByText('Ana Pérez')).toBeInTheDocument();
@@ -127,7 +164,7 @@ describe('/validacion — detalle de una entrada solo manual', () => {
     expect(screen.getByRole('radio', { name: /^A mano/ })).toBeChecked();
     expect(screen.queryByRole('radio', { name: /^Del catálogo/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /^IA/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/se cargó a mano, sin foto/)).toBeInTheDocument();
+    expect(screen.getByText(/se cargó manualmente, sin foto/)).toBeInTheDocument();
   });
 
   it('el investigador puede validar cargando los 4 valores; la confirmación cuenta las solicitudes manuales', async () => {
@@ -158,7 +195,7 @@ describe('/validacion — detalle de una entrada solo manual', () => {
   });
 });
 
-describe('/validacion — detalle de una entrada mixta (con foto y a mano)', () => {
+describe('/validacion — detalle de una entrada mixta (con foto y manual)', () => {
   beforeEach(() => vi.clearAllMocks());
   const MIXTA = { ...PENDIENTE, ocurrencias_manuales: 2, usuarios_distintos: 3 };
 
@@ -166,7 +203,7 @@ describe('/validacion — detalle de una entrada mixta (con foto y a mano)', () 
     await abrir(detalle(MIXTA));
     expect(screen.getByRole('region', { name: 'Dónde apareció' })).toBeInTheDocument();
     expect(screen.getByAltText(/Foto del plato de Ana Pérez/)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Cargado a mano' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Cargado manualmente' })).toBeInTheDocument();
   });
 
   it('conserva los tres métodos: «Del catálogo» sigue disponible porque hay una foto de referencia', async () => {
@@ -174,7 +211,7 @@ describe('/validacion — detalle de una entrada mixta (con foto y a mano)', () 
     expect(screen.getByRole('radio', { name: /^Del catálogo/ })).toBeEnabled();
     expect(screen.getByRole('radio', { name: /^IA/ })).toBeEnabled();
     expect(screen.getByRole('radio', { name: /^A mano/ })).toBeEnabled();
-    expect(screen.queryByText(/se cargó a mano, sin foto/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/se cargó manualmente, sin foto/)).not.toBeInTheDocument();
   });
 
   it('la confirmación suma los ítems con foto y los manuales (2 + 2)', async () => {
@@ -189,7 +226,7 @@ describe('/validacion — entrada de IA sin cargas manuales (no regresión)', ()
 
   it('se ve como siempre: sin sección manual y con los tres métodos', async () => {
     await abrir(detalle(PENDIENTE, { solicitudesManuales: [], totalSolicitudesManuales: 0 }));
-    expect(screen.queryByRole('region', { name: 'Cargado a mano' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Cargado manualmente' })).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Dónde apareció' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /^IA/ })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /^Del catálogo/ })).toBeInTheDocument();
@@ -199,7 +236,7 @@ describe('/validacion — entrada de IA sin cargas manuales (no regresión)', ()
     vi.mocked(getPendienteDetalleAction).mockResolvedValue({ ok: true, pendiente: PENDIENTE, ocurrencias: [OCURRENCIA], totalOcurrencias: 2, propio: null });
     render(<PendienteDetalle idPendiente={5} onClose={vi.fn()} onResuelto={vi.fn()} />);
     await screen.findByLabelText('Nombre');
-    expect(screen.queryByRole('region', { name: 'Cargado a mano' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Cargado manualmente' })).not.toBeInTheDocument();
   });
 });
 

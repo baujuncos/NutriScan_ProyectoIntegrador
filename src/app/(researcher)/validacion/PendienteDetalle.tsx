@@ -242,7 +242,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
   const total = datos?.totalOcurrencias ?? 0;
   const manuales = datos?.totalSolicitudesManuales ?? 0;
-  /** Ítems del diario que se actualizan al resolver: con foto + cargados a mano. */
+  /** Ítems del diario que se actualizan al resolver: con foto + cargados manualmente. */
   const totalItems = total + manuales;
   /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano». */
   const soloManual = datos != null && total === 0;
@@ -569,7 +569,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                 <legend className="sr-only">Fuente de los valores nutricionales</legend>
                 {soloManual && (
                   <p className="text-xs text-slate-600">
-                    Este alimento se cargó a mano, sin foto: no hay una estimación de la IA ni un peso de referencia para armar una
+                    Este alimento se cargó manualmente, sin foto: no hay una estimación de la IA ni un peso de referencia para armar una
                     mezcla del catálogo. Cargá los 4 valores.
                   </p>
                 )}

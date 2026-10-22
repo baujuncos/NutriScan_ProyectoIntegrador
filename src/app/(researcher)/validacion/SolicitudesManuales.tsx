@@ -13,7 +13,7 @@ interface Props {
   solicitudes: SolicitudManual[];
   /** Total real de cargas manuales (puede ser mayor a las que se listan). */
   total: number;
-  /** Usuarios distintos que pidieron el alimento (por foto o a mano). */
+  /** Usuarios distintos que pidieron el alimento (por foto o manualmente). */
   usuarios: number;
 }
 
@@ -21,9 +21,9 @@ export default function SolicitudesManuales({ solicitudes, total, usuarios }: Pr
   if (total <= 0) return null;
   const sinMostrar = Math.max(0, total - solicitudes.length);
   return (
-    <section aria-label="Cargado a mano">
+    <section aria-label="Cargado manualmente">
       <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600">
-        Cargado a mano · {total} {total === 1 ? 'solicitud' : 'solicitudes'}
+        Cargado manualmente · {total} {total === 1 ? 'solicitud' : 'solicitudes'}
       </p>
       <p className="mb-2.5 text-xs text-slate-600">
         Sin foto: la persona escribió el nombre y los gramos. Lo pidieron {usuarios} {usuarios === 1 ? 'usuario' : 'usuarios'}.

@@ -41,6 +41,7 @@ import {
 } from '@/lib/metricasIa';
 import { buildMetricasQuery, defaultsMetricas, type MetricasParams } from '@/lib/metricasIaQuery';
 import EstadoColaChips from '../EstadoColaChips';
+import DescargarResumenMd from './DescargarResumenMd';
 
 interface Props {
   params: MetricasParams;
@@ -135,7 +136,12 @@ export default function MetricasClient({
         title="Métricas de calidad"
         subtitle="Patrones de corrección sobre las detecciones de Gemini, para decidir dónde priorizar ejemplos de prompt o factores de calibración."
         helpId="revision-metricas"
-        actions={<EstadoColaChips conteos={cola} hrefDe={(estado) => `/revision-ia?estado=${estado}`} />}
+        actions={
+          <div className="flex flex-wrap items-start gap-3">
+            <DescargarResumenMd params={params} />
+            <EstadoColaChips conteos={cola} hrefDe={(estado) => `/revision-ia?estado=${estado}`} />
+          </div>
+        }
       />
 
       <SubTabs

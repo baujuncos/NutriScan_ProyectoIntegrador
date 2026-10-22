@@ -13,6 +13,8 @@ import Button from '@/components/ui/Button';
 import HojaRevision from './HojaRevision';
 import ContextoComidas from './ContextoComidas';
 import SolicitudesManuales from './SolicitudesManuales';
+import VincularAlimento, { valoresCompletos } from './VincularAlimento';
+import type { AlimentoOption } from '@/app/alimentacion/actions';
 import TarjetaResultado from './TarjetaResultado';
 import ComposicionCatalogo from './ComposicionCatalogo';
 import NuevoAlimentoPropio, { PROPIO_VACIO, propioListo, type PropioForm } from './NuevoAlimentoPropio';
@@ -192,6 +194,9 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const [verificacionPropio, setVerificacionPropio] = useState<VerificacionPropio | null>(null);
   const [retirando, setRetirando] = useState(false);
   const [motivoRetiro, setMotivoRetiro] = useState('');
+  /** NUT-225: solo en entradas solo manuales. Estado de UI: no se guarda en el borrador. */
+  const [vinculando, setVinculando] = useState(false);
+  const [vinculado, setVinculado] = useState<AlimentoOption | null>(null);
 
   // Carga del detalle cada vez que se abre otro alimento.
   useEffect(() => {
@@ -206,6 +211,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     setVerificacionPropio(null);
     setRetirando(false);
     setMotivoRetiro('');
+    setVinculando(false);
+    setVinculado(null);
     setMasDatos(false);
     void getPendienteDetalleAction(idPendiente).then((r) => {
       if (cancelado) return;
@@ -234,18 +241,29 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const cambiar = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
 
   const p = datos?.pendiente;
-  const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
-  const macros = calc?.macros ?? null;
-  const incoherente = macros != null && !macrosPlausibles(macros);
-  const creaPropio = form?.modo === 'manual' && form.propio.activo;
-  const soloLectura = p != null && p.estado !== 'pendiente';
-  const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
   const total = datos?.totalOcurrencias ?? 0;
   const manuales = datos?.totalSolicitudesManuales ?? 0;
   /** Ítems del diario que se actualizan al resolver: con foto + cargados manualmente. */
   const totalItems = total + manuales;
-  /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano». */
+  /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano» o vincular. */
   const soloManual = datos != null && total === 0;
+  const soloLectura = p != null && p.estado !== 'pendiente';
+  /** NUT-225: la entrada se valida vinculándola a un alimento existente (solo en entradas solo manuales). */
+  const vincula = soloManual && !soloLectura && vinculando;
+  const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
+  const macrosVinculado: Macros100 | null =
+    vincula && vinculado && valoresCompletos(vinculado)
+      ? {
+          kcal_100g: Number(vinculado.kcal_100g),
+          proteinas_100g: Number(vinculado.proteinas_100g),
+          grasas_100g: Number(vinculado.grasas_100g),
+          carbs_100g: Number(vinculado.carbs_100g),
+        }
+      : null;
+  const macros = vincula ? macrosVinculado : (calc?.macros ?? null);
+  const incoherente = !vincula && macros != null && !macrosPlausibles(macros);
+  const creaPropio = !vincula && form?.modo === 'manual' && form.propio.activo;
+  const sinGuardar = form != null && JSON.stringify({ ...form, propio: null }) !== base;
 
   /** Qué falta para poder validar (el primero se muestra en el pie). */
   const pendientes: string[] = [];
@@ -257,7 +275,9 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
       else if (calc.problemas.length > 0) pendientes.push(calc.problemas[0]);
       else if (calc.pesoFoto <= 0) pendientes.push('No hay una foto de referencia con peso para calcular');
     }
-    if (form.modo === 'manual' && !calc.manual) pendientes.push('Completá los 4 valores');
+    if (vincula) {
+      if (!vinculado) pendientes.push('Elegí el alimento con el que vincular');
+    } else if (form.modo === 'manual' && !calc.manual) pendientes.push('Completá los 4 valores');
     if (creaPropio && !propioListo(form.propio, verificacionPropio)) pendientes.push('Completá la evaluación del alimento propio');
   }
   const puedeResolver = !soloLectura && pendientes.length === 0 && macros != null && !trabajando;
@@ -331,7 +351,10 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
             confirmaDistinto: form!.propio.confirmaDistinto,
           },
         })
-      : await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(false) });
+      : vincula
+        ? // NUT-225: sin valores ni composición; la acción relee el alimento y la RPC copia sus 4 valores.
+          await validarPendienteAction({ ...argsForm(), idAlimentoExistente: vinculado!.id_alimento })
+        : await validarPendienteAction({ ...argsForm(), ...valores(), composicion: composicion(false) });
     setTrabajando(false);
     setConfirmando(null);
     if ('error' in r) {
@@ -369,9 +392,14 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
     onResuelto();
   };
 
-  const vinculo = form?.modo === 'catalogo' && calc?.resumen.esVinculoPuro ? calc.componentes[0].nombre : null;
-  const textoVacio =
-    form?.modo === 'catalogo'
+  const vinculo = vincula
+    ? (vinculado?.nombre ?? null)
+    : form?.modo === 'catalogo' && calc?.resumen.esVinculoPuro
+      ? calc.componentes[0].nombre
+      : null;
+  const textoVacio = vincula
+    ? 'Elegí un alimento para ver el resultado.'
+    : form?.modo === 'catalogo'
       ? 'Agregá alimentos y sus gramos para ver el resultado.'
       : form?.modo === 'ia'
         ? 'Gemini no estimó este alimento: elegí otra fuente.'
@@ -399,6 +427,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
               Se actualizarán <strong>{plural(totalItems)}</strong> del diario con estos valores
               {vinculo ? ` (vinculado a ${vinculo})` : ''}, recalculados según el gramaje de cada uno.
               {creaPropio ? ` Además se agregará «${form.nombre.trim()}» al catálogo propio.` : ''}
+              {vincula &&
+                ` Lo pidieron ${p.usuarios_distintos} ${p.usuarios_distintos === 1 ? 'usuario' : 'usuarios'}. Cada ítem conserva el nombre que escribió la persona y su gramaje, y las próximas cargas con este nombre se resolverán solas con este alimento. No se puede deshacer.`}
             </p>
           ) : (
             <p>
@@ -509,7 +539,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
             <div className="md:sticky md:bottom-4 md:pt-1">
               <TarjetaResultado
                 macros={macros}
-                fuente={FUENTE_RESULTADO[form.modo]}
+                fuente={vincula ? 'Vinculado' : FUENTE_RESULTADO[form.modo]}
                 ocurrencias={datos.ocurrencias}
                 incoherente={incoherente}
                 vacio={textoVacio}
@@ -574,7 +604,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                   </p>
                 )}
                 {METODOS.filter((m) => !soloManual || m.modo === 'manual').map((m) => {
-                  const sel = form.modo === m.modo;
+                  const sel = form.modo === m.modo && !vincula;
                   const sinIA = m.modo === 'ia' && !calc.ia;
                   return (
                     <div
@@ -590,7 +620,10 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                           value={m.modo}
                           checked={sel}
                           disabled={sinIA}
-                          onChange={() => cambiar({ modo: m.modo })}
+                          onChange={() => {
+                            if (soloManual) setVinculando(false);
+                            cambiar({ modo: m.modo });
+                          }}
                           className="peer sr-only"
                         />
                         <span
@@ -667,6 +700,9 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                     </div>
                   );
                 })}
+                {soloManual && !soloLectura && (
+                  <VincularAlimento activo={vinculando} onActivar={() => setVinculando(true)} seleccionado={vinculado} onSeleccionar={setVinculado} />
+                )}
               </fieldset>
             </Paso>
 

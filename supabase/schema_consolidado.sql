@@ -4495,8 +4495,25 @@ grant execute on function public.registrar_item_manual(uuid, date, text, text, t
 -- Referencia cruzada (sin tocar el cuerpo de la RPC de IA, que vive en 013).
 comment on function public.registrar_item_manual(uuid, date, text, text, text, numeric) is
   'NUT-192. Alta de alimento personalizado. Comparte la semántica sobre alimentos_pendientes_validacion con registrar_guardado_deteccion (013): una entrada por nombre normalizado, validado/descartado/pendiente se respetan igual. Si cambia una, revisar la otra.';
-comment on function public.registrar_guardado_deteccion(uuid, bigint, date, text, uuid[], jsonb, text, text) is
-  'NUT-119. Guarda una detección y el diario en una transacción. Comparte la semántica sobre alimentos_pendientes_validacion con registrar_item_manual (020, NUT-192): una entrada por nombre normalizado, validado/descartado/pendiente se respetan igual. Si cambia una, revisar la otra.';
+-- La firma de registrar_guardado_deteccion cambió (NUT-149 le agregó p_revisiones): en vez de fijar una
+-- firma que vuelve a romperse, se resuelve por nombre. Funciona con cualquier firma vigente (y con ninguna).
+do $$
+declare
+  v_fn regprocedure;
+begin
+  for v_fn in
+    select p.oid::regprocedure
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'registrar_guardado_deteccion'
+  loop
+    execute format(
+      'comment on function %s is %L', v_fn,
+      'NUT-119. Guarda una detección y el diario en una transacción. Comparte la semántica sobre alimentos_pendientes_validacion con registrar_item_manual (020, NUT-192): una entrada por nombre normalizado, validado/descartado/pendiente se respetan igual. Si cambia una, revisar la otra.'
+    );
+  end loop;
+end
+$$;
 
 -- ------------------------------------------------------------
 -- Vista para /validacion

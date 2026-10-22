@@ -109,7 +109,10 @@ describe('paridad registrar_guardado_deteccion (IA) vs registrar_item_manual (ma
 
   it('referencia cruzada en ambas funciones sin tocar el cuerpo de la RPC de IA', () => {
     expect(sql020).toMatch(/comment on function public\.registrar_item_manual[^;]*registrar_guardado_deteccion/);
-    expect(sql020).toMatch(/comment on function public\.registrar_guardado_deteccion[^;]*registrar_item_manual/);
+    // La firma de la RPC de IA cambia (NUT-149): el COMMENT se resuelve por nombre, sin fijar una firma.
+    expect(sql020).not.toMatch(/comment on function public\.registrar_guardado_deteccion\(/);
+    expect(sql020).toContain("p.proname = 'registrar_guardado_deteccion'");
+    expect(sql020).toMatch(/execute format\(\s*'comment on function %s is %L'[\s\S]*?registrar_item_manual \(020, NUT-192\)/);
     expect(sql013).not.toContain('registrar_item_manual');
   });
 });

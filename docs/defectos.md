@@ -19,6 +19,7 @@ Cada defecto tiene: pasos para reproducir, resultado esperado, resultado obtenid
 | DEF-007 | Login: valida mínimo 6 caracteres pero el mensaje dice "Mínimo 8" | Baja | Corregido (rojo→verde) | Valores límite del campo contraseña | TC-UI-01…03 · `testing/LoginPage.test.tsx` |
 | DEF-008 | `updateHidratacion` acepta cualquier delta (NaN, Infinity, 1e12) | Alta | Corregido (rojo→verde) | Particiones de equivalencia del delta | TC-ACT-20…30 · `testing/hidratacionAction.test.ts` |
 | DEF-009 | La tabla `profiles` es legible **sin sesión** en la base real (nombres, emails, roles) | **Crítica** | **Abierto — requiere acción en Supabase** | **E2E contra Supabase real** | TC-E2E-04 · `testing/e2e/supabase.e2e.test.ts` |
+| DEF-019 | El selector de fecha de nacimiento bloqueaba fechas que el validador aceptaba (límite de 100 años) | Baja | Corregido (rojo→verde) | Análisis de valores límite | TC-DATE-16…18 · `testing/valoresLimiteDominio.test.ts` |
 | DEF-010 | Open Food Facts: una ficha con kcal pero sin macros se aceptaba (alimento inutilizable) | Media | Corregido (regresión agregada ahora) | Histórico (`0980b7f`) | TC-OFF-06 · `testing/openFoodFacts.test.ts` |
 | DEF-011 | Buscador: el filtro "suplemento" descartaba todos los alimentos SARA2 | Alta | Corregido (histórico) | Histórico (`53aa8b9`) | `testing/searchQuery.test.ts` |
 | DEF-012 | Buscador: el corte alfabético dejaba afuera a los SARA2 | Alta | Corregido (histórico) | Histórico (`4c509f8`) | `testing/alimentacionActions.test.ts` |
@@ -58,7 +59,7 @@ Es el defecto más grave de los hallados con tests. El procedimiento fue: primer
    ```
    Evidencia completa: [`evidencia/def002-verde.txt`](evidencia/def002-verde.txt).
 
-El mismo procedimiento se repitió para DEF-003, 005, 007 y 008 (archivos `defNNN-rojo.txt` / `defNNN-verde.txt`; tabla de commits al final).
+El mismo procedimiento se repitió para DEF-003, 005, 007, 008 y 019 (archivos `defNNN-rojo.txt` / `defNNN-verde.txt`; tabla de commits al final).
 
 ---
 
@@ -151,6 +152,15 @@ El mismo procedimiento se repitió para DEF-003, 005, 007 y 008 (archivos `defNN
   Después, `npm run test:e2e` debe dar el test `RLS: sin sesión NO se pueden leer perfiles de usuarios` en verde. Conviene confirmar lo mismo en el proyecto de producción si es otro.
 - **Por qué lo vio el E2E y no los otros tests:** los tests unitarios usan dobles de Supabase; solo una prueba contra la integración real puede notar que la base no coincide con el repositorio. Es el argumento central de la sección de E2E del informe.
 
+## DEF-019 — Selector y validador de fecha de nacimiento con límites distintos
+
+- **Severidad:** Baja · **Estado:** Corregido
+- **Pasos:** 1) Abrir el perfil físico. 2) Querer cargar la fecha de una persona que tiene 100 años y unos meses (nació hace 100 años y 200 días, por ejemplo). 
+- **Esperado:** el selector deja elegir cualquier fecha que el validador acepta (edad máxima 100 años inclusive).
+- **Obtenido:** el atributo `min` del selector era "hoy menos 100 años", así que bloqueaba (o marcaba inválida en el navegador) a quien ya cumplió los 100 pero no los 101, que `validateFechaNacimiento` sí acepta. Las dos reglas eran el mismo requisito escrito dos veces con límites distintos.
+- **Corrección:** `birthDateRange().minISO` pasa a ser "hoy hace 101 años + 1 día", la fecha más antigua con edad ≤ 100. Se actualizó además la expectativa del test existente, que fijaba el límite viejo.
+- **Rojo / Verde:** `05e1c16` / `e888c18`. Evidencia: [`def019-rojo.txt`](evidencia/def019-rojo.txt) (1 test falla) / [`def019-verde.txt`](evidencia/def019-verde.txt) (52/52).
+
 ## DEF-010 … DEF-018 — Defectos históricos
 
 Corregidos por el equipo antes del TP; el commit está en el historial (`git show <hash>`).
@@ -178,6 +188,7 @@ Corregidos por el equipo antes del TP; el commit está en el historial (`git sho
 | DEF-005 | `b8ce9ce` | `5e663f4` | 2 de 16 fallan → 16/16 |
 | DEF-007 | `c04a23f` | `c98011e` | 2 de 30 fallan → 30/30 |
 | DEF-008 | `51d52b2` | `dbee6d3` | 8 de 15 fallan → 15/15 |
+| DEF-019 | `05e1c16` | `e888c18` | 1 de 65 falla → 52/52 (archivos del cambio) |
 
 ## Observaciones sin registrar como defecto (riesgos)
 

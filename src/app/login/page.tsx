@@ -15,7 +15,9 @@ import Link from 'next/link';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'Mínimo 8 caracteres'),
+  // En el login no se aplica la política de contraseñas (eso es del registro): solo se exige que
+  // no esté vacía y Supabase decide si las credenciales sirven. Antes: min(6) con mensaje "Mínimo 8" (DEF-007).
+  password: z.string().min(1, 'Ingresá tu contraseña'),
 });
 
 const registerSchema = z

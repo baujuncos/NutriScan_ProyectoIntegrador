@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/immutability": "warn",
       "react-hooks/refs": "warn",
+      // Convención estándar: los parámetros/variables que empiezan con "_" son intencionalmente no usados.
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
   // Override default ignores of eslint-config-next.

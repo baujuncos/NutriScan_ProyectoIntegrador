@@ -21,7 +21,6 @@ function BoundingBoxThumbnail({
   if (!photoUrl) return null;
 
   if (!boundingBox || boundingBox.width <= 0 || boundingBox.height <= 0) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
         src={photoUrl}

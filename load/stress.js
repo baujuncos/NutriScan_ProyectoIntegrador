@@ -43,7 +43,7 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
-export default function () {
+export default function escenarioStress() {
   trafico((ms) => latenciaPorEscalon.add(ms));
 }
 

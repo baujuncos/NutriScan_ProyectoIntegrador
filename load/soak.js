@@ -47,7 +47,7 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
-export default function () {
+export default function escenarioSostenido() {
   if (!arranque) arranque = Date.now();
   const transcurrido = (Date.now() - arranque) / 1000;
   trafico((ms) => {

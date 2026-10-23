@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { strongPasswordSchema } from '@/lib/password';
 import { INV_CODE_COOKIE } from '@/lib/inv-code-cookie';
+import { secretEquals } from '@/lib/secretEquals';
 import { findUserByEmail } from '@/lib/supabase/findUserByEmail';
 
 const bodySchema = z.object({
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies();
     const token = cookieStore.get(INV_CODE_COOKIE)?.value;
     const valid = process.env.INVITATION_CODE_INVESTIGADOR?.trim();
-    if (!valid || !token || token !== valid) {
+    if (!secretEquals(token, valid)) {
       return NextResponse.json(
         { error: 'INV_CODE_REQUIRED', message: 'Código de investigador inválido o expirado. Volvé a ingresarlo.' },
         { status: 403 },

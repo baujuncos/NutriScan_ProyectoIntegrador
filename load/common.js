@@ -71,7 +71,7 @@ function textoCorto(nombre, data) {
   ];
   for (const [k, t] of Object.entries(data.metrics)) {
     if (!t.thresholds) continue;
-    for (const [expr, ok] of Object.entries(t.thresholds)) lineas.push(`  umbral ${k} ${expr}: ${ok ? 'FALLÓ ❌' : 'OK ✅'}`);
+    for (const [expr, u] of Object.entries(t.thresholds)) lineas.push(`  umbral ${k} ${expr}: ${u.ok ? 'OK ✅' : 'FALLÓ ❌'}`);
   }
   return lineas.join('\n') + '\n';
 }

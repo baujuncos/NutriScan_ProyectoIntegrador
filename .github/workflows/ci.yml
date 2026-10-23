@@ -1,0 +1,111 @@
+# Pipeline de integración continua (CI): corre en cada push y en cada pull request.
+# Pasos: instalar → compilar → tipos → lint → pruebas con cobertura → análisis estático →
+# quality gate → reporte. Si el gate falla, el job falla y el PR no se puede mergear.
+# Explicación paso a paso para la defensa: docs/GUIA_DEFENSA.md (sección "Pipeline de CI").
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'tp-*', 'feat/**', 'fix/**', 'chore/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Valores ficticios: la compilación y los tests no se conectan a ningún servicio real.
+  SUPABASE_URL: https://placeholder.supabase.co
+  SUPABASE_ANON_KEY: placeholder-anon-key
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  calidad:
+    name: Compilación, pruebas, análisis estático y quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (historial completo, hace falta para medir el código nuevo)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node 24 + caché de npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias (npm ci)
+        run: npm ci
+
+      - name: Compilar (next build)
+        run: npx next build --webpack
+
+      - name: Chequeo de tipos (tsc)
+        run: npm run typecheck
+
+      - name: Pruebas unitarias + de integración con cobertura
+        run: npm run test:coverage
+
+      - name: Análisis estático (ESLint, jscpd, npm audit)
+        if: ${{ !cancelled() }}
+        run: npm run qa:reports
+
+      - name: Base para medir la cobertura del código nuevo
+        if: ${{ !cancelled() }}
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=origin/main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Quality gate (bugs críticos, duplicación, cobertura global y de código nuevo)
+        if: ${{ !cancelled() }}
+        run: npm run qa:gate -- --base "${{ steps.base.outputs.ref }}"
+
+      - name: Resumen en la pestaña del job
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "## Resultado del pipeline"
+            [ -f reports/quality-gate.md ] && cat reports/quality-gate.md
+            echo
+            echo "### Cobertura (todo src/)"
+            node -e "const c=require('./coverage/coverage-summary.json').total;const f=k=>c[k].pct+' % ('+c[k].covered+'/'+c[k].total+')';console.log('| Sentencias | Ramas (decisión) | Funciones | Líneas |\n| --- | --- | --- | --- |\n| '+[f('statements'),f('branches'),f('functions'),f('lines')].join(' | ')+' |')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar reportes (cobertura, ESLint, duplicación, gate)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-calidad-${{ github.sha }}
+          path: |
+            coverage/
+            reports/
+          retention-days: 30
+
+  sonarcloud:
+    name: Análisis complementario con SonarCloud (opcional)
+    runs-on: ubuntu-latest
+    needs: calidad
+    # Solo corre si el equipo cargó SONAR_TOKEN (ver docs/SETUP_SECRETS.md); si no, se saltea.
+    if: ${{ vars.SONAR_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: reportes-calidad-${{ github.sha }}
+      - uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

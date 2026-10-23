@@ -1,0 +1,122 @@
+# Verificación posterior a CADA despliegue: smoke test → E2E contra las integraciones reales →
+# stress + esfuerzo sostenido con k6. Se dispara cuando Vercel informa un despliegue exitoso
+# (evento deployment_status) o a mano desde la pestaña Actions (workflow_dispatch).
+# Explicación para la defensa: docs/GUIA_DEFENSA.md · Secrets necesarios: docs/SETUP_SECRETS.md
+name: Verificar despliegue
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL del despliegue a verificar (https://...)'
+        required: true
+      run_load:
+        description: 'Correr también stress y esfuerzo sostenido'
+        type: boolean
+        default: true
+      soak_duration:
+        description: 'Duración del esfuerzo sostenido (ej. 10m)'
+        default: '10m'
+
+permissions:
+  contents: read
+  deployments: read
+
+env:
+  BASE_URL: ${{ github.event.inputs.base_url || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  smoke:
+    name: Smoke test
+    # En deployment_status solo se verifica si el despliegue terminó bien.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # En deployment_status el evento trae el SHA desplegado.
+          ref: ${{ github.event.deployment.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Smoke test contra ${{ env.BASE_URL }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}
+        run: node scripts/smoke.mjs
+      - name: Resumen
+        if: ${{ !cancelled() }}
+        run: cat reports/smoke.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: smoke
+          path: reports/smoke.*
+
+  e2e:
+    name: E2E contra integraciones reales (Supabase, Gemini, Open Food Facts)
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Pruebas E2E
+        env:
+          E2E_BASE_URL: ${{ env.BASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: e2e
+          path: reports/e2e/
+
+  carga:
+    name: Stress y esfuerzo sostenido (k6)
+    needs: smoke
+    if: ${{ github.event_name == 'deployment_status' || github.event.inputs.run_load == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '2.3.0'
+      - name: Stress (rampa hasta saturar)
+        env:
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}
+        run: node scripts/load/run-k6.mjs stress
+      - name: Esfuerzo sostenido (carga moderada y constante)
+        env:
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}
+          SOAK_DURATION: ${{ github.event.inputs.soak_duration || '10m' }}
+        run: node scripts/load/run-k6.mjs soak
+      - name: Reporte de carga en el resumen del job
+        if: ${{ !cancelled() }}
+        run: cat reports/load/informe-carga.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: carga
+          path: reports/load/

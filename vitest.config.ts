@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -45,6 +45,8 @@ export default defineConfig({
         test: {
           name: 'node',
           include: ['testing/**/*.test.ts'],
+          // E2E (red real) se corre aparte: `npm run test:e2e` (vitest.e2e.config.ts).
+          exclude: [...configDefaults.exclude, 'testing/e2e/**'],
           testTimeout: TEST_TIMEOUT_MS,
           globals: true,
           environment: 'node',

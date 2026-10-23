@@ -19,7 +19,8 @@
     "load:soak": "node scripts/load/run-k6.mjs soak",
     "qa:reports": "node scripts/qa/reports.mjs",
     "qa:gate": "node scripts/qa/quality-gate.mjs",
-    "qa": "npm run lint && npm run typecheck && npm run test:coverage && npm run qa:reports && npm run qa:gate"
+    "qa": "npm run lint && npm run typecheck && npm run test:coverage && npm run qa:reports && npm run qa:gate",
+    "informe:pdf": "node scripts/informe/generar-pdf.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
@@ -58,6 +59,7 @@
     "eslint-config-next": "^16.4.3",
     "jscpd": "^5.4.2",
     "jsdom": "^30.0.1",
+    "marked": "^15.0.12",
     "png-to-ico": "^3.0.2",
     "tailwindcss": "^4",
     "typescript": "^5",

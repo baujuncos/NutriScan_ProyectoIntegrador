@@ -87,12 +87,12 @@ NutriScan_MVP_APS/
 │   │   ├── researcher/               # Lógica de cumplimiento semanal
 │   │   └── supabase/                 # Clientes Supabase (client/server/admin)
 │   └── types/                        # Tipos TypeScript del dominio
-├── testing/                          # Suite de tests unitarios (Vitest)
-│   ├── calculations.test.ts          # Harris-Benedict, macros, kcal restantes
-│   ├── compliance.test.ts            # Cumplimiento semanal del investigador
-│   ├── dates.test.ts                 # Parseo y validación de fechas
-│   ├── password.test.ts              # Reglas de seguridad y esquema Zod
-│   └── roles.test.ts                 # Asignación de roles y metadatos OAuth
+├── testing/                          # Pruebas (Vitest): unitarias, componentes, API
+│   ├── integration/                  # Integración (solo Gemini y Supabase simulados)
+│   └── e2e/                          # E2E contra servicios reales (npm run test:e2e)
+├── load/                             # Escenarios de k6 (stress y esfuerzo sostenido)
+├── scripts/qa/                       # Quality gate y reportes de análisis estático
+├── .github/workflows/                # CI y verificación posterior al despliegue
 ├── supabase/
 │   └── schema_consolidado.sql        # Schema completo: tablas, RLS, triggers
 ├── SARA2/
@@ -126,6 +126,7 @@ SUPABASE_SERVICE_ROLE_KEY=<tu-service-role-key>
 INVITATION_CODE_INVESTIGADOR=<codigo-de-invitacion>
 GEMINI_API_KEY=<tu-api-key-de-gemini>
 GEMINI_MODEL=gemini-3.5-flash
+CRON_SECRET=<secreto-largo-aleatorio>   # obligatorio en Vercel: protege /api/send-reminders
 ```
 
 Los valores de `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` se obtienen desde **Supabase → Project Settings → API**.
@@ -186,13 +187,37 @@ npm run dev
 
 La aplicación estará disponible en `http://localhost:3000`.
 
-### 7. Ejecutar los tests unitarios
+### 7. Ejecutar las pruebas y el proceso de calidad
 
-```bash
-npm test
-```
+Todo se ejecuta con un comando (Node 24):
 
-Corre la suite de 95 tests unitarios sobre la lógica de negocio (cálculos nutricionales, validaciones, roles, cumplimiento semanal). No requiere conexión a la base de datos.
+| Qué | Comando | Necesita red / credenciales |
+| --- | --- | --- |
+| Todas las pruebas (unitarias, componentes, API, integración) | `npm test` | No |
+| Con cobertura de sentencia y de decisión (`coverage/index.html`) | `npm run test:coverage` | No |
+| Solo unitarias/componentes · solo integración | `npm run test:unit` · `npm run test:integration` | No |
+| Análisis estático + quality gate completo | `npm run qa` (lint, tipos, cobertura, jscpd, npm audit, gate) | No |
+| Solo el quality gate (con los reportes ya generados) | `npm run qa:gate` | No |
+| **Smoke test** del despliegue | `BASE_URL=https://tu-app.vercel.app npm run smoke` | No (solo la URL) |
+| **E2E contra Supabase, Gemini y Open Food Facts reales** | `npm run test:e2e` | Sí (`.env.local`, ver [SETUP_SECRETS](docs/SETUP_SECRETS.md)) |
+| **Stress** (k6) | `BASE_URL=... npm run load:stress` | Necesita [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (o `K6_BIN`) |
+| **Esfuerzo sostenido** (k6) | `BASE_URL=... SOAK_DURATION=10m npm run load:soak` | idem |
+
+El pipeline (`.github/workflows/`) hace lo mismo automáticamente: **CI** en cada push/PR (compila, prueba, analiza y aplica el quality gate) y **Verificar despliegue** después de cada despliegue (smoke → E2E real → carga).
+
+**Documentación de calidad** (trabajo integrador de Calidad de Software, nivel 3):
+
+| Documento | Contenido |
+| --- | --- |
+| [docs/plan-de-pruebas.md](docs/plan-de-pruebas.md) | Criterios de entrada/salida, ISO 25010, riesgos, niveles, QA vs QC, plantillas, contingencia, 7 principios, trazabilidad |
+| [docs/casos-de-prueba.md](docs/casos-de-prueba.md) | Clases de equivalencia, valores límite, tablas de decisión, cobertura de sentencia y decisión |
+| [docs/defectos.md](docs/defectos.md) · [defectos.csv](docs/defectos.csv) | Registro de defectos (importable a Jira) y contraste rojo/verde |
+| [docs/integracion-externa.md](docs/integracion-externa.md) | Contrato y pruebas de Supabase, Gemini y Open Food Facts |
+| [docs/pruebas-de-carga.md](docs/pruebas-de-carga.md) · [docs/herramienta-k6.md](docs/herramienta-k6.md) | Stress, esfuerzo sostenido y la herramienta incorporada |
+| [docs/metricas.md](docs/metricas.md) | Análisis estático, métricas y mejoras antes/después |
+| [docs/SETUP_SECRETS.md](docs/SETUP_SECRETS.md) | Secrets y configuración externa necesarios |
+| [docs/guion-demo.md](docs/guion-demo.md) | Guion de la demostración |
+| [docs/GUIA_DEFENSA.md](docs/GUIA_DEFENSA.md) | Explicación simple de cada test, paso del pipeline y decisión |
 
 ---
 

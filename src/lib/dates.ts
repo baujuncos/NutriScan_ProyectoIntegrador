@@ -39,7 +39,9 @@ export interface BirthDateRange {
 export function birthDateRange(): BirthDateRange {
   const todayISO = todayAR();
   const [y, m, d] = todayISO.split('-').map(Number);
-  const min = new Date(y - MAX_AGE, m - 1, d);
+  // La fecha más antigua con edad <= MAX_AGE es la del día siguiente a "hoy hace MAX_AGE + 1 años":
+  // quien cumple 101 hoy ya no es válido, quien los cumple mañana sí (DEF-019: antes era hoy - 100 años).
+  const min = new Date(y - MAX_AGE - 1, m - 1, d + 1);
   const mm = String(min.getMonth() + 1).padStart(2, '0');
   const dd = String(min.getDate()).padStart(2, '0');
   return { todayISO, minISO: `${min.getFullYear()}-${mm}-${dd}` };

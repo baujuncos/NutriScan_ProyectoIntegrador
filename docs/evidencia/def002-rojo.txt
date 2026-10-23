@@ -1,0 +1,232 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |node| testing/sendRemindersRoute.test.ts (11 tests | 10 failed) 95ms
+     × sin header Authorization responde 401 y no consulta la base ni envía mails 52ms
+     × con un token incorrecto responde 401 4ms
+     × valor límite: el secreto correcto pero con un carácter de más también es 401 3ms
+     × sin CRON_SECRET configurada falla cerrado: 401 aunque mande "Bearer " vacío 2ms
+     × GET (el método que usa Vercel Cron) pasa por la misma validación 3ms
+     × manda un mail a quien no cargó las 4 comidas principales y omite a quien no tiene email 11ms
+     × la respuesta no filtra emails ni objetos de error de los usuarios 6ms
+     × un mail que falla se cuenta como fallido y no corta a los demás 3ms
+     × error al leer perfiles → 500 sin detalles internos de la base 3ms
+     × GET con credenciales válidas ejecuta la misma lógica que POST 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — autorización (DEF-002) > sin header Authorization responde 401 y no consulta la base ni envía mails
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ testing/sendRemindersRoute.test.ts:71:24
+     69|     const res = await POST(req());
+     70|     // Assert
+     71|     expect(res.status).toBe(401);
+       |                        ^
+     72|     expect(db.tablasLlamadas()).toEqual([]);
+     73|     expect(sendMailMock).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — autorización (DEF-002) > con un token incorrecto responde 401
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ testing/sendRemindersRoute.test.ts:78:24
+     76|   it('con un token incorrecto responde 401', async () => {
+     77|     const res = await POST(req('Bearer otro-valor'));
+     78|     expect(res.status).toBe(401);
+       |                        ^
+     79|     expect(sendMailMock).not.toHaveBeenCalled();
+     80|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — autorización (DEF-002) > valor límite: el secreto correcto pero con un carácter de más también es 401
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ testing/sendRemindersRoute.test.ts:84:24
+     82|   it('valor límite: el secreto correcto pero con un carácter de más ta…
+     83|     const res = await POST(req(`Bearer ${SECRET}x`));
+     84|     expect(res.status).toBe(401);
+       |                        ^
+     85|   });
+     86|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — autorización (DEF-002) > sin CRON_SECRET configurada falla cerrado: 401 aunque mande "Bearer " vacío
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ testing/sendRemindersRoute.test.ts:90:24
+     88|     vi.stubEnv('CRON_SECRET', '');
+     89|     const res = await POST(req('Bearer '));
+     90|     expect(res.status).toBe(401);
+       |                        ^
+     91|     expect(db.tablasLlamadas()).toEqual([]);
+     92|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — autorización (DEF-002) > GET (el método que usa Vercel Cron) pasa por la misma validación
+AssertionError: expected 200 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 200
+
+ ❯ testing/sendRemindersRoute.test.ts:96:24
+     94|   it('GET (el método que usa Vercel Cron) pasa por la misma validación…
+     95|     const res = await GET(req(undefined, 'GET'));
+     96|     expect(res.status).toBe(401);
+       |                        ^
+     97|   });
+     98| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — con credenciales válidas > manda un mail a quien no cargó las 4 comidas principales y omite a quien no tiene email
+AssertionError: expected { sent: 1, results: [ { …(2) } ] } to deeply equal { sent: 1, failed: +0 }
+
+- Expected
++ Received
+
+  {
+-   "failed": 0,
++   "results": [
++     {
++       "email": "ana@example.com",
++       "status": "sent",
++     },
++   ],
+    "sent": 1,
+  }
+
+ ❯ testing/sendRemindersRoute.test.ts:120:18
+    118|     expect(sendMailMock.mock.calls[0][0]).toMatchObject({ to: 'ana@exa…
+    119|     expect(sendMailMock.mock.calls[0][0].html).toContain('Merienda, Ce…
+    120|     expect(body).toEqual({ sent: 1, failed: 0 });
+       |                  ^
+    121|   });
+    122|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — con credenciales válidas > la respuesta no filtra emails ni objetos de error de los usuarios
+AssertionError: expected '{"sent":2,"results":[{"email":"ana@ex…' not to contain '@'
+
+Expected: "@"
+Received: "{"sent":2,"results":[{"email":"ana@example.com","status":"error","error":{}},{"email":"beto@example.com","status":"sent"}]}"
+
+ ❯ testing/sendRemindersRoute.test.ts:129:23
+    127|     const res = await POST(req(`Bearer ${SECRET}`));
+    128|     const texto = JSON.stringify(await res.json());
+    129|     expect(texto).not.toContain('@');
+       |                       ^
+    130|     expect(texto).not.toContain('SMTP');
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — con credenciales válidas > un mail que falla se cuenta como fallido y no corta a los demás
+AssertionError: expected { Object (sent, results) } to deeply equal { sent: 1, failed: 1 }
+
+- Expected
++ Received
+
+  {
+-   "failed": 1,
+-   "sent": 1,
++   "results": [
++     {
++       "email": "ana@example.com",
++       "error": {},
++       "status": "error",
++     },
++     {
++       "email": "beto@example.com",
++       "status": "sent",
++     },
++   ],
++   "sent": 2,
+  }
+
+ ❯ testing/sendRemindersRoute.test.ts:138:18
+    136|     sendMailMock.mockRejectedValueOnce(new Error('boom')).mockResolved…
+    137|     const body = await (await POST(req(`Bearer ${SECRET}`))).json();
+    138|     expect(body).toEqual({ sent: 1, failed: 1 });
+       |                  ^
+    139|   });
+    140|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — con credenciales válidas > error al leer perfiles → 500 sin detalles internos de la base
+AssertionError: expected '{"error":"Error consultando usuarios"…' not to contain 'relation'
+
+Expected: "relation"
+Received: "{"error":"Error consultando usuarios","details":{"message":"relation \"profiles\" does not exist"}}"
+
+ ❯ testing/sendRemindersRoute.test.ts:145:50
+    143|     const res = await POST(req(`Bearer ${SECRET}`));
+    144|     expect(res.status).toBe(500);
+    145|     expect(JSON.stringify(await res.json())).not.toContain('relation');
+       |                                                  ^
+    146|   });
+    147|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  |node| testing/sendRemindersRoute.test.ts > /api/send-reminders — con credenciales válidas > GET con credenciales válidas ejecuta la misma lógica que POST
+AssertionError: expected { sent: +0, results: [] } to deeply equal { sent: +0, failed: +0 }
+
+- Expected
++ Received
+
+  {
+-   "failed": 0,
++   "results": [],
+    "sent": 0,
+  }
+
+ ❯ testing/sendRemindersRoute.test.ts:161:30
+    159|     const res = await GET(req(`Bearer ${SECRET}`, 'GET'));
+    160|     expect(res.status).toBe(200);
+    161|     expect(await res.json()).toEqual({ sent: 0, failed: 0 });
+       |                              ^
+    162|   });
+    163| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 1 passed (11)
+   Start at  18:15:45
+   Duration  782ms (transform 129ms, setup 0ms, import 282ms, tests 95ms, environment 0ms)
+

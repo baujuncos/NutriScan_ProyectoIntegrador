@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import type { User } from '@supabase/supabase-js';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { findUserByEmail } from '@/lib/supabase/findUserByEmail';
 
 const bodySchema = z.object({
   email: z.string().email().transform((s) => s.trim().toLowerCase()),
@@ -8,32 +10,7 @@ const bodySchema = z.object({
 
 type ProviderHint = 'google_only' | 'unknown';
 
-async function findUserByEmail(email: string) {
-  const admin = createAdminClient();
-  let page = 1;
-  const perPage = 200;
-
-  for (let i = 0; i < 50; i += 1) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      throw error;
-    }
-
-    const hit = data.users.find((u) => (u.email ?? '').toLowerCase() === email);
-    if (hit) {
-      return hit;
-    }
-
-    if (data.users.length < perPage) {
-      return null;
-    }
-    page += 1;
-  }
-
-  return null;
-}
-
-function getProviderHint(user: Awaited<ReturnType<typeof findUserByEmail>>): ProviderHint {
+function getProviderHint(user: User | null): ProviderHint {
   if (!user) {
     return 'unknown';
   }
@@ -86,7 +63,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const user = await findUserByEmail(parsed.data.email);
+    const user = await findUserByEmail(createAdminClient(), parsed.data.email);
     const hint = getProviderHint(user);
 
     // In development, include debug info to help diagnose provider detection

@@ -153,6 +153,25 @@ describe('/api/send-reminders — con credenciales válidas', () => {
     expect(sendMailMock).not.toHaveBeenCalled();
   });
 
+  it('el nombre del usuario se escapa en el HTML del mail (lo escribe el propio usuario)', async () => {
+    db.mockTable('profiles', {
+      data: [{ user_id: 'u9', nombre: '<img src=x onerror=alert(1)>', email: 'x@example.com', role: 'particular' }],
+      error: null,
+    });
+    db.mockTable('ingestas', { data: [], error: null });
+    await POST(req(`Bearer ${SECRET}`));
+    const html = sendMailMock.mock.calls[0][0].html as string;
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('si la consulta de perfiles devuelve null sin error, no hay destinatarios (no revienta)', async () => {
+    db.mockTable('profiles', { data: null, error: null });
+    db.mockTable('ingestas', { data: [], error: null });
+    const res = await POST(req(`Bearer ${SECRET}`));
+    expect(await res.json()).toEqual({ sent: 0, failed: 0 });
+  });
+
   it('GET con credenciales válidas ejecuta la misma lógica que POST', async () => {
     db.mockTable('profiles', { data: [], error: null });
     db.mockTable('ingestas', { data: [], error: null });

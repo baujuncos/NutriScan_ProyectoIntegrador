@@ -1,0 +1,53 @@
+
+> nutriscan-app@0.1.0 test:e2e
+> vitest run --config vitest.e2e.config.ts
+
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |e2e| testing/e2e/supabase.e2e.test.ts (8 tests | 1 failed | 3 skipped) 2667ms
+     ✓ Auth responde: /auth/v1/health  566ms
+     ✓ el catálogo de alimentos está cargado y se puede leer (SARA2 ≈ 930 + ANMAT)  986ms
+     × RLS: sin sesión NO se pueden leer perfiles de usuarios 578ms (retry x1)
+     ✓ RLS: sin sesión NO se pueden leer las ingestas 256ms
+     ✓ RLS: sin sesión NO se puede escribir en ingestas 272ms
+     ↓ el login con email y contraseña devuelve un token
+     ↓ RLS: con sesión solo se ve el PROPIO perfil
+     ↓ el usuario de prueba es un usuario común (no investigador ni administrador)
+ ✓ |e2e| testing/e2e/openFoodFacts.e2e.test.ts (2 tests) 3077ms
+     ✓ un producto conocido (Nutella 3017620422003) se encuentra con macros por 100 g  2608ms
+     ✓ un EAN inexistente se informa como no encontrado (sin lanzar)  463ms
+ ✓ |e2e| testing/e2e/gemini.e2e.test.ts (1 test) 3746ms
+     ✓ responde JSON estructurado que cumple el esquema, con modelo y latencia aceptables  3738ms
+ ↓ |e2e| testing/e2e/flujoChat.e2e.test.ts (4 tests | 4 skipped)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |e2e| testing/e2e/supabase.e2e.test.ts > Supabase real — disponibilidad y seguridad (anon key) > RLS: sin sesión NO se pueden leer perfiles de usuarios
+ FAIL  |e2e| testing/e2e/supabase.e2e.test.ts > Supabase real — disponibilidad y seguridad (anon key) > RLS: sin sesión NO se pueden leer perfiles de usuarios
+AssertionError: perfiles legibles SIN sesión (RLS roto, DEF-009): expected 5 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 5
+
+ ❯ testing/e2e/supabase.e2e.test.ts:26:109
+     24|     expect([200, 401, 403]).toContain(r.status);
+     25|     // Se cuenta, no se compara el contenido: si hubiera filas, no deb…
+     26|     if (r.status === 200) expect(filasVisibles(r.data), 'perfiles legi…
+       |                                                                                                             ^
+     27|   });
+     28|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 2 passed | 1 skipped (4)
+      Tests  1 failed | 7 passed | 7 skipped (15)
+   Start at  20:05:10
+   Duration  13.07s (transform 307ms, setup 0ms, import 1.09s, tests 9.49s, environment 1ms)
+
+JSON report written to C:/Users/sofis/NutriScan_ProyectoIntegrador/reports/e2e/results.json
+JUNIT report written to C:/Users/sofis/NutriScan_ProyectoIntegrador/reports/e2e/junit.xml

@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Artefactos generados (no son código del proyecto): service worker de
+    // serwist, reportes de cobertura/análisis y resultados de carga.
+    "public/sw.js",
+    "public/swe-worker*.js",
+    "coverage/**",
+    "reports/**",
   ]),
 ]);
 

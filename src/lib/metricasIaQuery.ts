@@ -8,6 +8,7 @@
 import { daysAgoAR, todayAR } from '@/lib/date';
 import type { ItemMetrica, NoDetectadoFila } from '@/lib/metricasIa';
 import { VAJILLAS, type VajillaFiltro } from '@/lib/revisionIaQuery';
+import { desdeTabla, filtrarFechaYVajilla, type FromClient, type QueryLike } from './supabaseQuery';
 
 /** Filas por pedido a PostgREST y tope de seguridad del total (se avisa si se alcanza). */
 export const BLOQUE = 1000;
@@ -65,18 +66,9 @@ export function buildMetricasQuery(params: MetricasParams, overrides: Partial<Me
   return s ? `?${s}` : '';
 }
 
-/** Lo mínimo del cliente de Supabase que usamos (facilita mockear). */
-export interface FromClient {
-  from: (tabla: string) => any;
-}
-
 /** Fecha y vajilla, iguales para las dos vistas (por eso los filtros aplican en conjunto a ambas). */
-function filtrar(query: any, params: MetricasParams) {
-  if (params.desde) query = query.gte('created_at', `${params.desde}T00:00:00-03:00`);
-  // Inclusivo: hasta el final del día (Argentina, UTC-3 sin horario de verano).
-  if (params.hasta) query = query.lte('created_at', `${params.hasta}T23:59:59.999-03:00`);
-  if (params.vajilla !== 'todas') query = query.eq('vajilla_tipo', params.vajilla);
-  return query;
+function filtrar(query: QueryLike, params: MetricasParams): QueryLike {
+  return filtrarFechaYVajilla(query, params);
 }
 
 /** Trae todas las filas de una vista en bloques; `truncado` = se alcanzó el tope de seguridad. */
@@ -89,7 +81,7 @@ async function traerTodo<T>(
 ): Promise<{ filas: T[]; truncado: boolean }> {
   const filas: T[] = [];
   for (let desde = 0; desde < MAX_FILAS; desde += BLOQUE) {
-    const { data, error } = await filtrar(client.from(vista).select(columnas), params)
+    const { data, error } = await filtrar(desdeTabla(client, vista).select(columnas), params)
       .order('created_at', { ascending: true })
       .range(desde, desde + BLOQUE - 1);
     // Columna inexistente (42703): la vista todavía no tiene las columnas nuevas (falta aplicar el SQL). Se reintenta con las básicas.

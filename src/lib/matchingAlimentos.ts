@@ -35,6 +35,7 @@ interface MatchRow {
 
 /** Lo mínimo del cliente de Supabase que necesitamos (facilita mockear). */
 export interface RpcClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ídem: tipo estructural mínimo, el resultado se castea al leerlo
   rpc: (fn: string, args?: object) => PromiseLike<{ data: any; error: any }>;
 }
 

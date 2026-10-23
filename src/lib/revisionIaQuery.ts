@@ -5,6 +5,7 @@
  * La lista NO genera signed URLs de las fotos: se piden de a una al abrir un ítem.
  */
 import { MOTIVOS_REVISION, type MotivoRevision } from '@/lib/revisionIa';
+import { desdeTabla, filtrarFechaYVajilla, type FromClient, type QueryLike } from './supabaseQuery';
 
 export const PAGE_SIZE = 20;
 
@@ -75,19 +76,11 @@ export function buildRevisionQuery(params: RevisionParams, overrides: Partial<Re
   return s ? `?${s}` : '';
 }
 
-/** Lo mínimo del cliente de Supabase que usamos (facilita mockear). */
-export interface FromClient {
-  from: (tabla: string) => any;
-}
-
 /** Aplica estado, motivo, rango de fechas y búsqueda (comunes a la página y al conteo). */
-function filtrar(query: any, params: RevisionParams) {
+function filtrar(query: QueryLike, params: RevisionParams): QueryLike {
   if (params.estado !== 'todos') query = query.eq('estado_revision', params.estado);
   if (params.motivo !== 'todos') query = query.contains('motivos_revision', [params.motivo]);
-  if (params.vajilla !== 'todas') query = query.eq('vajilla_tipo', params.vajilla);
-  if (params.desde) query = query.gte('created_at', `${params.desde}T00:00:00-03:00`);
-  // Inclusivo: hasta el final del día (Argentina, UTC-3 sin horario de verano).
-  if (params.hasta) query = query.lte('created_at', `${params.hasta}T23:59:59.999-03:00`);
+  query = filtrarFechaYVajilla(query, params);
   if (params.q) {
     // Los caracteres con significado en la sintaxis de `.or()` de PostgREST se sacan.
     const q = params.q.replace(/[*,()\\%_]/g, ' ').trim();
@@ -101,7 +94,7 @@ export async function consultarRevisiones(
   client: FromClient,
   params: RevisionParams,
 ): Promise<{ rows: unknown[]; total: number }> {
-  let query = filtrar(client.from('v_revision_ia').select('*', { count: 'exact' }), params);
+  let query = filtrar(desdeTabla(client, 'v_revision_ia').select('*', { count: 'exact' }), params);
 
   // Orden estable: el criterio elegido, lo más reciente y, de desempate final, el id.
   if (params.orden === 'confianza') query = query.order('confidence', { ascending: true });
@@ -113,7 +106,7 @@ export async function consultarRevisiones(
     // PostgREST responde 416 si el offset supera el total: 0 filas con el total real.
     if (error.code === 'PGRST103') {
       const { count: total, error: errorConteo } = await filtrar(
-        client.from('v_revision_ia').select('id_deteccion_item', { count: 'exact', head: true }),
+        desdeTabla(client, 'v_revision_ia').select('id_deteccion_item', { count: 'exact', head: true }),
         params,
       );
       if (errorConteo) throw new Error(`No se pudo leer la cola de revisión: ${errorConteo.message}`);
@@ -135,10 +128,10 @@ export async function contarPorEstado(client: FromClient): Promise<ConteosRevisi
   const estados = ['pendiente', 'confirmado', 'corregido'] as const;
   const resultados = await Promise.all(
     estados.map((estado) =>
-      client.from('v_revision_ia').select('id_deteccion_item', { count: 'exact', head: true }).eq('estado_revision', estado),
+      desdeTabla(client, 'v_revision_ia').select('id_deteccion_item', { count: 'exact', head: true }).eq('estado_revision', estado),
     ),
   );
-  const [pendiente, confirmado, corregido] = resultados.map((r: { count: number | null; error: { message: string } | null }) => {
+  const [pendiente, confirmado, corregido] = resultados.map((r) => {
     if (r.error) throw new Error(`No se pudo contar la cola de revisión: ${r.error.message}`);
     return r.count ?? 0;
   });

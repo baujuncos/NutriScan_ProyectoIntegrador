@@ -53,7 +53,7 @@ describe('supabaseMock: upsert', () => {
   it('se registra como insert y resuelve como thenable', async () => {
     const mock = createSupabaseFromMock();
     mock.mockTable('ingestas', { data: null, error: null });
-    await (mock.from('ingestas') as any).upsert([{ fecha: '2026-10-07' }], { onConflict: 'id_usuario,fecha,tipo' });
+    await (mock.from('ingestas') as unknown as { upsert: (...a: unknown[]) => PromiseLike<unknown> }).upsert([{ fecha: '2026-10-07' }], { onConflict: 'id_usuario,fecha,tipo' });
     expect(mock.insertsLlamados()).toEqual([{ tabla: 'ingestas', payload: [{ fecha: '2026-10-07' }] }]);
   });
 

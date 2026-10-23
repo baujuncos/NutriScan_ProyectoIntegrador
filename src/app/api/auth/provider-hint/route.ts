@@ -28,7 +28,7 @@ function getProviderHint(user: User | null): ProviderHint {
     : [];
 
   const identitiesArr = Array.isArray(user?.identities)
-    ? user.identities.map((i: any) => String(i.provider ?? '').toLowerCase()).filter(Boolean)
+    ? user.identities.map((i: { provider?: unknown }) => String(i.provider ?? '').toLowerCase()).filter(Boolean)
     : [];
 
   const providersArr = Array.from(new Set([...appProviders, ...appProviderSingle, ...userMetaProvider, ...identitiesArr]));
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
             : [];
 
           const identitiesArr = Array.isArray(user?.identities)
-            ? user.identities.map((i: any) => String(i.provider ?? '').toLowerCase()).filter(Boolean)
+            ? user.identities.map((i: { provider?: unknown }) => String(i.provider ?? '').toLowerCase()).filter(Boolean)
             : [];
 
           const providersArr = Array.from(new Set([...appProviders, ...appProviderSingle, ...userMetaProvider, ...identitiesArr]));

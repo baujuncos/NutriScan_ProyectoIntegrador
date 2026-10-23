@@ -278,7 +278,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
   });
 
   describe('ítems escaneados por código de barras (id_alimento_barcode)', () => {
-    it('muestra el nombre del producto de alimentos_barcode en vez de "Alimento sin nombre"', () => {
+    it('muestra el nombre del producto de alimentos_barcode en vez de "Alimento sin nombre"', async () => {
       render(
         <AlimentacionClient
           ingesta={{
@@ -310,6 +310,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
           hideNutrition={false}
         />,
       );
+    await act(async () => {}); // deja terminar la carga de recientes (evita el aviso de act)
 
       expect(screen.getByText('Alfajor Triple')).toBeInTheDocument();
       expect(screen.queryByText('Alimento sin nombre')).not.toBeInTheDocument();
@@ -340,7 +341,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
       ],
     };
 
-    it('sigue mostrando los gramos del ítem aunque hideNutrition sea true', () => {
+    it('sigue mostrando los gramos del ítem aunque hideNutrition sea true', async () => {
       render(
         <AlimentacionClient
           ingesta={INGESTA_UN_ITEM}
@@ -349,13 +350,14 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
           hideNutrition={true}
         />,
       );
+    await act(async () => {}); // deja terminar la carga de recientes (evita el aviso de act)
 
       expect(screen.getByText('45 g')).toBeInTheDocument();
       expect(screen.queryByText(/203 kcal|202\.5 kcal/)).not.toBeInTheDocument();
       expect(screen.queryByText(/^P /)).not.toBeInTheDocument();
     });
 
-    it('con hideNutrition en false, sigue mostrando gramos y kcal/macros (no se toca el rol particular)', () => {
+    it('con hideNutrition en false, sigue mostrando gramos y kcal/macros (no se toca el rol particular)', async () => {
       render(
         <AlimentacionClient
           ingesta={INGESTA_UN_ITEM}
@@ -364,6 +366,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
           hideNutrition={false}
         />,
       );
+    await act(async () => {}); // deja terminar la carga de recientes (evita el aviso de act)
 
       expect(screen.getByText('45 g')).toBeInTheDocument();
       expect(screen.getAllByText('203 kcal').length).toBeGreaterThan(0);
@@ -788,7 +791,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
     });
   });
 
-  it('el nombre del ítem cargado tiene title para ver el nombre completo si está truncado', () => {
+  it('el nombre del ítem cargado tiene title para ver el nombre completo si está truncado', async () => {
     render(
       <AlimentacionClient
         ingesta={{
@@ -805,6 +808,7 @@ describe('Buscador de alimentos — integración ANMAT + SARA2', () => {
         hideNutrition={false}
       />,
     );
+    await act(async () => {}); // deja terminar la carga de recientes (evita el aviso de act)
     expect(screen.getByText('Un nombre de alimento muy pero muy largo para una fila'))
       .toHaveAttribute('title', 'Un nombre de alimento muy pero muy largo para una fila');
   });

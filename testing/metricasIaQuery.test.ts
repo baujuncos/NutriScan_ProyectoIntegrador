@@ -90,6 +90,22 @@ describe('cargarMetricas — filtros combinados', () => {
     expect(rangos).toEqual([[0, BLOQUE - 1], [BLOQUE, 2 * BLOQUE - 1]]);
   });
 
+  it('si la vista todavía no tiene las columnas nuevas (SQL sin aplicar) reintenta con las básicas y el dashboard sigue andando', async () => {
+    sb.mockTable('v_metricas_ia_items', { data: null, error: { message: 'column v_metricas_ia_items.alimento_usuario does not exist', code: '42703' } });
+    sb.mockTable('v_metricas_ia_items', { data: [{ alimento: 'X', confidence: '0.9', gramos_ia: '100', gramos_usuario: null }], error: null });
+    sb.mockTable('v_metricas_ia_no_detectados', { data: [], error: null });
+    const r = await cargarMetricas(sb, params);
+    expect(r.items).toHaveLength(1);
+    expect(sb.tablasLlamadas().filter((t) => t === 'v_metricas_ia_items')).toHaveLength(2);
+  });
+
+  it('un error que no es de columna inexistente no se reintenta', async () => {
+    sb.mockTable('v_metricas_ia_items', { data: null, error: { message: 'permiso denegado', code: '42501' } });
+    sb.mockTable('v_metricas_ia_no_detectados', { data: [], error: null });
+    await expect(cargarMetricas(sb, params)).rejects.toThrow(/permiso denegado/);
+    expect(sb.tablasLlamadas().filter((t) => t === 'v_metricas_ia_items')).toHaveLength(1);
+  });
+
   it('normaliza los numeric que llegan como texto', async () => {
     sb.mockTable('v_metricas_ia_items', { data: [{ alimento: 'X', confidence: '0.850', gramos_ia: '120.00', gramos_usuario: '90.50' }], error: null });
     sb.mockTable('v_metricas_ia_no_detectados', { data: [], error: null });

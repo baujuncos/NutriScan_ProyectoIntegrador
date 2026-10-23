@@ -5,6 +5,7 @@
  * `v_revision_ia` además aplica RLS al que consulta.
  */
 import { redirect } from 'next/navigation';
+import { TTL_URL_LISTA_S, urlsFirmadas } from '@/lib/fotosDeteccion';
 import { createClient } from '@/lib/supabase/server';
 import { PAGE_SIZE, buildRevisionQuery, consultarRevisiones, contarPorEstado, parseRevisionParams } from '@/lib/revisionIaQuery';
 import RevisionIaClient from './RevisionIaClient';
@@ -25,5 +26,13 @@ export default async function RevisionIaPage({
   const ultimaPagina = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (params.page > ultimaPagina) redirect(`/revision-ia${buildRevisionQuery(params, { page: ultimaPagina })}`);
 
-  return <RevisionIaClient rows={rows as RevisionFila[]} total={total} params={params} conteos={conteos} />;
+  // Las fotos se firman en UNA sola llamada para toda la página, sin repetir las de ítems de la misma detección.
+  const filas = rows as RevisionFila[];
+  const urls = await urlsFirmadas(
+    supabase,
+    filas.map((f) => f.imagen_path).filter((p): p is string => !!p),
+    TTL_URL_LISTA_S,
+  );
+
+  return <RevisionIaClient rows={filas} total={total} params={params} conteos={conteos} fotos={Object.fromEntries(urls)} />;
 }

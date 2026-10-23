@@ -1,11 +1,12 @@
 /**
  * NUT-119 — Pantalla /validacion: listado, filtros, paginación y apertura del detalle.
  */
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+const replaceMock = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: replaceMock }) }));
 vi.mock('@/app/(researcher)/validacion/actions', () => ({
   getPendienteDetalleAction: vi.fn().mockResolvedValue({ error: 'no usado' }),
   buscarAlimentosPropiosAction: vi.fn().mockResolvedValue([]),
@@ -52,57 +53,57 @@ describe('ValidacionClient — listado', () => {
   });
 });
 
-describe('ValidacionClient — filtros', () => {
-  it('es un form GET con estado, búsqueda y orden precargados desde la querystring', () => {
+describe('ValidacionClient — filtros (mismo FilterBar que Deportistas)', () => {
+  beforeEach(() => replaceMock.mockClear());
+  afterEach(() => vi.useRealTimers());
+
+  it('estado, búsqueda y orden vienen precargados desde la querystring, en una sola barra y sin botón "Filtrar"', () => {
     renderCliente({ params: parseParams({ estado: 'validado', q: 'flan', orden: 'ocurrencias' }) });
-    expect(screen.getByRole('search')).toHaveAttribute('method', 'get');
+    const barra = screen.getByRole('search', { name: 'Filtros' });
+    expect(barra).not.toHaveAttribute('method');
     expect(screen.getByLabelText('Estado')).toHaveValue('validado');
     expect(screen.getByLabelText('Buscar por nombre')).toHaveValue('flan');
     expect(screen.getByLabelText('Ordenar por')).toHaveValue('ocurrencias');
-    expect(screen.getByRole('button', { name: 'Filtrar' })).toBeInTheDocument();
+    for (const l of ['Estado', 'Buscar por nombre', 'Ordenar por']) expect(barra).toContainElement(screen.getByLabelText(l));
+    expect(screen.queryByRole('button', { name: 'Filtrar' })).not.toBeInTheDocument();
   });
 
   it('el estado por defecto es pendiente', () => {
     renderCliente();
     expect(screen.getByLabelText('Estado')).toHaveValue('pendiente');
   });
-});
 
-describe('ValidacionClient — paginación del lado del servidor', () => {
-  it('muestra "Página X de Y" con links que conservan los filtros', () => {
-    renderCliente({ total: 45, params: parseParams({ page: '2', q: 'flan' }) });
-    expect(screen.getByText('Página 2 de 3')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Anterior' })).toHaveAttribute('href', '/validacion?q=flan');
-    expect(screen.getByRole('link', { name: 'Siguiente' })).toHaveAttribute('href', '/validacion?q=flan&page=3');
+  it('un select se aplica al cambiar: reescribe la URL y vuelve a la página 1', () => {
+    renderCliente({ params: parseParams({ q: 'flan', page: '3' }) });
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'validado' } });
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith('/validacion?estado=validado&q=flan', { scroll: false });
   });
 
-  it('en la primera página no hay "Anterior"; en la última no hay "Siguiente"', () => {
-    const { unmount } = renderCliente({ total: 45, params: parseParams({}) });
-    expect(screen.queryByRole('link', { name: 'Anterior' })).not.toBeInTheDocument();
-    unmount();
-    renderCliente({ total: 45, params: parseParams({ page: '3' }) });
-    expect(screen.queryByRole('link', { name: 'Siguiente' })).not.toBeInTheDocument();
-  });
-
-  it('con una sola página no muestra la navegación', () => {
-    renderCliente({ total: 2 });
-    expect(screen.queryByText(/Página/)).not.toBeInTheDocument();
-  });
-});
-
-describe('ValidacionClient — detalle', () => {
-  it('"Revisar" abre el detalle de ese alimento', async () => {
-    vi.mocked(getPendienteDetalleAction).mockResolvedValueOnce({
-      ok: true,
-      pendiente: PENDIENTE,
-      ocurrencias: [OCURRENCIA],
-      totalOcurrencias: 2,
-    });
-    const user = userEvent.setup();
+  it('la búsqueda espera ~300 ms antes de tocar la URL', () => {
+    vi.useFakeTimers();
     renderCliente();
-    await user.click(screen.getByRole('button', { name: 'Revisar Flan casero' }));
-    expect(getPendienteDetalleAction).toHaveBeenCalledWith(5);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(await screen.findByLabelText('Nombre')).toHaveValue('Flan casero');
+    fireEvent.change(screen.getByLabelText('Buscar por nombre'), { target: { value: 'fl' } });
+    fireEvent.change(screen.getByLabelText('Buscar por nombre'), { target: { value: 'flan' } });
+    act(() => void vi.advanceTimersByTime(299));
+    expect(replaceMock).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(1));
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith('/validacion?q=flan', { scroll: false });
+  });
+
+  it('"Limpiar" sólo aparece con filtros distintos de los de por defecto y vuelve a ellos', async () => {
+    const { unmount } = renderCliente();
+    expect(screen.queryByRole('button', { name: 'Limpiar' })).not.toBeInTheDocument();
+    unmount();
+    renderCliente({ params: parseParams({ estado: 'todos', q: 'flan' }) });
+    await userEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
+    expect(replaceMock).toHaveBeenCalledWith('/validacion', { scroll: false });
+  });
+
+  it('tiene encabezado estándar con el botón de ayuda', () => {
+    renderCliente();
+    expect(screen.getByRole('heading', { level: 1, name: 'Validación de alimentos' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ayuda sobre esta pantalla' })).toBeInTheDocument();
   });
 });

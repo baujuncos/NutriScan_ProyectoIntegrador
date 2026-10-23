@@ -1,8 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useBodyScrollLock } from '@/lib/overlayMovil';
+import { useFocusTrap } from '@/lib/useFocusTrap';
+
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
+
+const SIZE_CLASS: Record<ModalSize, string> = {
+  sm: 'max-w-sm',
+  md: 'max-w-lg',
+  lg: 'max-w-3xl',
+  xl: 'max-w-5xl',
+};
 
 interface ModalProps {
   open: boolean;
@@ -13,13 +23,21 @@ interface ModalProps {
   onBack?: () => void;
   /** Ícono opcional antes del título (reemplaza a poner un emoji dentro del string de `title`). */
   icon?: React.ReactNode;
-  /** Panel ancho (detalles con foto + formulario). Por defecto `max-w-lg`. */
+  /** Panel ancho (detalles con foto + formulario). Equivale a `size="lg"`; por defecto `md`. */
   wide?: boolean;
+  /** Ancho del panel: sm / md (por defecto) / lg / xl. Gana sobre `wide`. */
+  size?: ModalSize;
+  /** Pie de acciones (botones), separado del contenido por una línea. */
+  footer?: React.ReactNode;
 }
 
-export default function Modal({ open, onClose, title, children, onBack, icon, wide }: ModalProps) {
+export default function Modal({ open, onClose, title, children, onBack, icon, wide, size, footer }: ModalProps) {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
   // `overflow: hidden` en el body no alcanza en iOS: se fija el body mientras el modal está abierto.
   useBodyScrollLock(open);
+  // Foco atrapado mientras está abierto; al cerrar vuelve al elemento que lo abrió.
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -40,11 +58,13 @@ export default function Modal({ open, onClose, title, children, onBack, icon, wi
       className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 px-4 py-8 overflow-y-auto"
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-labelledby={titleId}
       onClick={onClose}
     >
       <div
-        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-white p-6 shadow-xl my-auto`}
+        ref={panelRef}
+        tabIndex={-1}
+        className={`w-full ${SIZE_CLASS[size ?? (wide ? 'lg' : 'md')]} rounded-2xl bg-white p-6 shadow-xl my-auto focus:outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -66,7 +86,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon, wi
                 {icon}
               </span>
             )}
-            <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+            <h2 id={titleId} className="text-lg font-bold text-gray-900">{title}</h2>
           </div>
           <button
             type="button"
@@ -80,6 +100,7 @@ export default function Modal({ open, onClose, title, children, onBack, icon, wi
           </button>
         </div>
         {children}
+        {footer && <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-4">{footer}</div>}
       </div>
     </div>,
     document.body,

@@ -1,6 +1,7 @@
 import { getAthleteData } from '@/lib/researcher/athletes';
 import { averageCompliance } from '@/lib/researcher/compliance';
 import KpiCard from '@/components/researcher/KpiCard';
+import PageHeader from '@/components/researcher/PageHeader';
 import ChartCard from '@/components/researcher/ChartCard';
 import SportDonut from '@/components/researcher/SportDonut';
 import ComplianceBar, { type ComplianceSegment } from '@/components/researcher/ComplianceBar';
@@ -55,10 +56,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Dashboard Global</h1>
-        <p className="mt-1 text-sm text-slate-500">Métricas en tiempo real de la cohorte UCC</p>
-      </header>
+      <PageHeader title="Dashboard Global" subtitle="Métricas en tiempo real de la cohorte UCC" helpId="dashboard" />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

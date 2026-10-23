@@ -246,6 +246,8 @@ describe('POST /api/food-recognition — persistencia de la predicción (NUT-172
   });
 
   it('si falla el insert de detecciones_ia responde 502 PERSISTENCE_ERROR sin insertar items', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     supabaseFromMock.reset();
     supabaseFromMock.mockTable('detecciones_ia', { data: null, error: { message: 'boom' } });
     generateContentMock.mockResolvedValueOnce(jsonResponse(VALID_RESULT));
@@ -256,9 +258,13 @@ describe('POST /api/food-recognition — persistencia de la predicción (NUT-172
     expect(res.status).toBe(502);
     expect(body.error).toBe('PERSISTENCE_ERROR');
     expect(supabaseFromMock.tablasLlamadas()).not.toContain('detecciones_ia_items');
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 
   it('si falla el insert de detecciones_ia_items responde 502 PERSISTENCE_ERROR', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     supabaseFromMock.reset();
     supabaseFromMock.mockTable('detecciones_ia', { data: { id_deteccion: 1 }, error: null });
     supabaseFromMock.mockTable('detecciones_ia_items', { data: null, error: { message: 'boom' } });
@@ -269,6 +275,8 @@ describe('POST /api/food-recognition — persistencia de la predicción (NUT-172
 
     expect(res.status).toBe(502);
     expect(body.error).toBe('PERSISTENCE_ERROR');
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 });
 
@@ -576,6 +584,8 @@ describe('POST /api/food-recognition — autenticación', () => {
 
 describe('POST /api/food-recognition — configuración del servidor', () => {
   it('sin GEMINI_API_KEY responde 500 SERVER_CONFIG y no llama a Gemini', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubEnv('GEMINI_API_KEY', '');
 
     const res = await POST(makeRequest(makeForm()));
@@ -584,5 +594,7 @@ describe('POST /api/food-recognition — configuración del servidor', () => {
     expect(res.status).toBe(500);
     expect(body.error).toBe('SERVER_CONFIG');
     expect(generateContentMock).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 });

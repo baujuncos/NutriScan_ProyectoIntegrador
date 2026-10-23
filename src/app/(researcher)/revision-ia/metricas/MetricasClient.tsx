@@ -7,7 +7,6 @@
  * alimentos no detectados (aparte) y estado de la cola de NUT-149. Sólo lectura:
  * nada de acá modifica el modelo ni el prompt.
  */
-import Link from 'next/link';
 import {
   Bar,
   BarChart,
@@ -23,10 +22,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
 import ChartCard from '@/components/researcher/ChartCard';
+import FilterBar, { CONTROL_CLASS, type FilterField } from '@/components/researcher/FilterBar';
+import PageHeader from '@/components/researcher/PageHeader';
+import SubTabs from '@/components/researcher/SubTabs';
+import { useFiltrosServidor } from '@/components/researcher/useFiltrosServidor';
 import {
   MIN_DETECCIONES_EVOLUCION,
   UMBRAL_CONFIANZA_ALTA,
@@ -39,7 +39,9 @@ import {
   type ResumenEvolucion,
   type VersionPrompt,
 } from '@/lib/metricasIa';
-import type { MetricasParams } from '@/lib/metricasIaQuery';
+import { buildMetricasQuery, defaultsMetricas, type MetricasParams } from '@/lib/metricasIaQuery';
+import EstadoColaChips from '../EstadoColaChips';
+import DescargarResumenMd from './DescargarResumenMd';
 
 interface Props {
   params: MetricasParams;
@@ -66,12 +68,6 @@ const COLOR_CUADRANTE: Record<Cuadrante, string> = {
   dudoso_ok: '#f59e0b',
   confiado_ok: '#10b981',
 };
-
-const KPIS: Array<{ estado: keyof EstadoCola; etiqueta: string; clase: string }> = [
-  { estado: 'pendiente', etiqueta: 'Pendientes', clase: 'bg-amber-50 text-amber-800' },
-  { estado: 'confirmado', etiqueta: 'Confirmados', clase: 'bg-emerald-50 text-emerald-800' },
-  { estado: 'corregido', etiqueta: 'Corregidos', clase: 'bg-blue-50 text-blue-800' },
-];
 
 const Vacio = ({ children }: { children: React.ReactNode }) => (
   <p className="flex min-h-32 items-center justify-center text-center text-sm text-slate-600">{children}</p>
@@ -105,64 +101,58 @@ export default function MetricasClient({
   const datosEvolucion = evolucion.map((v) => ({ version: v.prompt_version, error: v.errorPesoPromedio == null ? 0 : Math.round(v.errorPesoPromedio * 100) }));
   const sinDatosDePeso = evolucion.every((v) => v.errorPesoPromedio == null);
 
+  const defaults = defaultsMetricas();
+  const { pending, onChange, onClear } = useFiltrosServidor({ path: '/revision-ia/metricas', params, defaults, build: buildMetricasQuery });
+  const campos: FilterField[] = [
+    { type: 'date', id: 'desde', label: 'Desde', value: params.desde, max: params.hasta || undefined, invalidMessage: 'Desde no puede ser posterior a Hasta.' },
+    { type: 'date', id: 'hasta', label: 'Hasta', value: params.hasta, min: params.desde || undefined, invalidMessage: 'Hasta no puede ser anterior a Desde.' },
+    {
+      type: 'select',
+      id: 'vajilla',
+      label: 'Vajilla',
+      value: params.vajilla,
+      width: 'md',
+      options: [
+        { value: 'todas', label: 'Todas' },
+        { value: 'plato_playo', label: 'Plato playo' },
+        { value: 'plato_postre', label: 'Plato postre' },
+        { value: 'plato_hondo', label: 'Plato hondo' },
+      ],
+    },
+    {
+      type: 'select',
+      id: 'prompt',
+      label: 'Versión de prompt',
+      value: params.prompt,
+      width: 'lg',
+      options: [{ value: 'todas', label: 'Todas' }, ...versiones.map((v) => ({ value: v, label: v }))],
+    },
+  ];
+  const canClear = params.desde !== defaults.desde || params.hasta !== defaults.hasta || params.vajilla !== defaults.vajilla || params.prompt !== defaults.prompt;
+
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Métricas de calidad</h1>
-          <p className="mt-1 max-w-xl text-sm text-slate-600">
-            Patrones de corrección sobre las detecciones de Gemini, para decidir dónde priorizar ejemplos de prompt o factores de calibración.
-          </p>
-        </div>
-        <nav aria-label="Estado de la cola de revisión" className="flex gap-2">
-          {KPIS.map((k) => (
-            <Link key={k.estado} href={`/revision-ia?estado=${k.estado}`} className={`min-w-[6.5rem] rounded-xl px-4 py-2.5 ${k.clase}`}>
-              <span className="block text-xl font-bold leading-tight">{cola[k.estado]}</span>
-              <span className="block text-xs font-medium">{k.etiqueta}</span>
-            </Link>
-          ))}
-        </nav>
-      </header>
+      <PageHeader
+        title="Métricas de calidad"
+        subtitle="Patrones de corrección sobre las detecciones de Gemini, para decidir dónde priorizar ejemplos de prompt o factores de calibración."
+        helpId="revision-metricas"
+        actions={
+          <div className="flex flex-wrap items-start gap-3">
+            <DescargarResumenMd params={params} />
+            <EstadoColaChips conteos={cola} hrefDe={(estado) => `/revision-ia?estado=${estado}`} />
+          </div>
+        }
+      />
 
-      <div role="tablist" aria-label="Secciones" className="inline-flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-medium">
-        <Link role="tab" aria-selected="false" href="/revision-ia" className="px-4 py-2 text-slate-600 hover:text-slate-900">
-          Cola de revisión
-        </Link>
-        <span role="tab" aria-selected="true" className="rounded-lg bg-white px-4 py-2 text-slate-900 shadow-sm">
-          Métricas
-        </span>
-      </div>
+      <SubTabs
+        tabs={[
+          { label: 'Cola de revisión', href: '/revision-ia' },
+          { label: 'Métricas', href: '/revision-ia/metricas' },
+        ]}
+        activeHref="/revision-ia/metricas"
+      />
 
-      <form
-        role="search"
-        method="get"
-        action="/revision-ia/metricas"
-        className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end"
-      >
-        <Input id="desde" name="desde" type="date" label="Desde" defaultValue={params.desde} />
-        <Input id="hasta" name="hasta" type="date" label="Hasta" defaultValue={params.hasta} />
-        <Select
-          id="vajilla"
-          name="vajilla"
-          label="Vajilla"
-          defaultValue={params.vajilla}
-          options={[
-            { value: 'todas', label: 'Todas' },
-            { value: 'plato_playo', label: 'Plato playo' },
-            { value: 'plato_postre', label: 'Plato postre' },
-            { value: 'plato_hondo', label: 'Plato hondo' },
-          ]}
-        />
-        <Select
-          id="prompt"
-          name="prompt"
-          label="Versión de prompt"
-          defaultValue={params.prompt}
-          options={[{ value: 'todas', label: 'Todas' }, ...versiones.map((v) => ({ value: v, label: v }))]}
-        />
-        <Button type="submit">Filtrar</Button>
-        {params.alimento && <input type="hidden" name="alimento" value={params.alimento} />}
-      </form>
+      <FilterBar fields={campos} onChange={onChange} onClear={onClear} canClear={canClear} busy={pending} />
 
       {truncado && (
         <p role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -253,20 +243,22 @@ export default function MetricasClient({
           title="Evolución por versión de prompt"
           subtitle={`Error promedio de peso${params.alimento ? ' del alimento elegido' : ''}, comparado entre versiones del prompt${params.prompt !== 'todas' ? ' (ignora el filtro de versión)' : ''}.`}
         >
-          <form method="get" action="/revision-ia/metricas" className="mb-3 flex flex-wrap items-end gap-2">
-            <input type="hidden" name="desde" value={params.desde} />
-            <input type="hidden" name="hasta" value={params.hasta} />
-            <input type="hidden" name="vajilla" value={params.vajilla} />
-            <input type="hidden" name="prompt" value={params.prompt} />
-            <Select
-              id="alimento"
-              name="alimento"
-              label={`Alimento (con ${MIN_DETECCIONES_EVOLUCION}+ detecciones)`}
-              defaultValue={params.alimento}
-              options={[{ value: '', label: 'Todos' }, ...alimentosEvolucion.map((a) => ({ value: a.alimento_norm, label: `${a.alimento} (${a.detecciones})` }))]}
-            />
-            <Button type="submit" variant="outline" size="sm">Ver</Button>
-          </form>
+          <div className="mb-3 max-w-xs">
+            <label htmlFor="alimento-evolucion" className="mb-1 block text-xs font-medium text-slate-600">
+              {`Alimento (con ${MIN_DETECCIONES_EVOLUCION}+ detecciones)`}
+            </label>
+            <select
+              id="alimento-evolucion"
+              value={params.alimento}
+              onChange={(e) => onChange('alimento', e.target.value)}
+              className={CONTROL_CLASS}
+            >
+              <option value="">Todos</option>
+              {alimentosEvolucion.map((a) => (
+                <option key={a.alimento_norm} value={a.alimento_norm}>{`${a.alimento} (${a.detecciones})`}</option>
+              ))}
+            </select>
+          </div>
           {evolucion.length === 0 || sinDatosDePeso ? (
             <Vacio>Todavía no hay datos de peso para comparar versiones.</Vacio>
           ) : (

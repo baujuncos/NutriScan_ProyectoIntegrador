@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import EmptyState from './EmptyState';
 
 export interface ComplianceSegment {
   name: string;
@@ -22,11 +23,7 @@ export default function ComplianceBar({ data }: { data: ComplianceSegment[] }) {
   const hasData = data.some((d) => d.value > 0);
 
   if (!hasData) {
-    return (
-      <div className="flex h-64 items-center justify-center text-sm text-slate-500">
-        Sin registros de comidas esta semana
-      </div>
-    );
+    return <EmptyState title="Sin registros de comidas esta semana" className="h-64" />;
   }
 
   return (

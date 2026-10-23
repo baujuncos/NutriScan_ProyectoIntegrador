@@ -1,4 +1,6 @@
 import Avatar from './Avatar';
+import EmptyState from './EmptyState';
+import StatusBadge, { type BadgeTone } from './StatusBadge';
 
 export interface TopAthlete {
   user_id: string;
@@ -13,20 +15,16 @@ const DEPORTE_LABELS: Record<string, string> = {
   hockey: 'Hockey',
 };
 
-function complianceTone(pct: number): string {
-  if (pct >= 80) return 'bg-emerald-50 text-emerald-700';
-  if (pct >= 50) return 'bg-amber-50 text-amber-700';
-  return 'bg-rose-50 text-rose-700';
+function complianceTone(pct: number): BadgeTone {
+  if (pct >= 80) return 'emerald';
+  if (pct >= 50) return 'amber';
+  return 'rose';
 }
 
 /** Top 5 athletes ranked by weekly compliance. */
 export default function TopAthletes({ athletes }: { athletes: TopAthlete[] }) {
   if (athletes.length === 0) {
-    return (
-      <div className="py-8 text-center text-sm text-slate-500">
-        No hay deportistas para rankear todavía.
-      </div>
-    );
+    return <EmptyState title="No hay deportistas para rankear todavía." />;
   }
 
   return (
@@ -54,11 +52,9 @@ export default function TopAthletes({ athletes }: { athletes: TopAthlete[] }) {
               />
             </div>
           </div>
-          <span
-            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${complianceTone(a.compliance)}`}
-          >
+          <StatusBadge tone={complianceTone(a.compliance)} className="shrink-0 font-semibold">
             {a.compliance}%
-          </span>
+          </StatusBadge>
         </li>
       ))}
     </ul>

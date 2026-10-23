@@ -29,6 +29,17 @@ export interface ItemMetrica {
   estado_revision: EstadoRevision | null;
   prompt_version: string;
   created_at: string;
+  // Para el resumen descargable (pueden faltar si la vista todavía no tiene esas columnas).
+  candidato_ejemplo?: boolean;
+  vajilla_tipo?: string;
+  vajilla_diametro_cm?: number | null;
+  angulo_captura_grados?: number | null;
+  /** Nombre y origen que dejó el deportista (null = lo quitó). */
+  alimento_usuario?: string | null;
+  origen_usuario?: string | null;
+  /** Valores que dejó el investigador al corregir (null si no corrigió ese campo o no revisó). */
+  nutricionista_alimento?: string | null;
+  nutricionista_gramos?: number | null;
 }
 
 /** Fila de `v_metricas_ia_no_detectados`. */

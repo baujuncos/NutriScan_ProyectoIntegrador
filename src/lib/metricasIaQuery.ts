@@ -80,12 +80,22 @@ function filtrar(query: any, params: MetricasParams) {
 }
 
 /** Trae todas las filas de una vista en bloques; `truncado` = se alcanzó el tope de seguridad. */
-async function traerTodo<T>(client: FromClient, vista: string, columnas: string, params: MetricasParams) {
+async function traerTodo<T>(
+  client: FromClient,
+  vista: string,
+  columnas: string,
+  params: MetricasParams,
+  columnasBasicas?: string,
+): Promise<{ filas: T[]; truncado: boolean }> {
   const filas: T[] = [];
   for (let desde = 0; desde < MAX_FILAS; desde += BLOQUE) {
     const { data, error } = await filtrar(client.from(vista).select(columnas), params)
       .order('created_at', { ascending: true })
       .range(desde, desde + BLOQUE - 1);
+    // Columna inexistente (42703): la vista todavía no tiene las columnas nuevas (falta aplicar el SQL). Se reintenta con las básicas.
+    if (error && columnasBasicas && desde === 0 && (error.code === '42703' || /does not exist/i.test(String(error.message)))) {
+      return traerTodo<T>(client, vista, columnasBasicas, params);
+    }
     if (error) throw new Error(`No se pudieron leer las métricas: ${error.message}`);
     const bloque = (data ?? []) as T[];
     filas.push(...bloque);
@@ -101,17 +111,21 @@ export interface DatosMetricas {
 }
 
 const COLUMNAS_ITEMS =
+  'alimento, alimento_norm, confidence, gramos_ia, gramos_usuario, motivos_revision, estado_revision, candidato_ejemplo, prompt_version, vajilla_tipo, created_at, ' +
+  'alimento_usuario, origen_usuario, nutricionista_alimento, nutricionista_gramos, vajilla_diametro_cm, angulo_captura_grados';
+const COLUMNAS_ITEMS_BASICAS =
   'alimento, alimento_norm, confidence, gramos_ia, gramos_usuario, motivos_revision, estado_revision, prompt_version, vajilla_tipo, created_at';
-const COLUMNAS_NO_DETECTADOS = 'alimento, alimento_norm, prompt_version, vajilla_tipo, created_at';
+const COLUMNAS_NO_DETECTADOS ='alimento, alimento_norm, prompt_version, vajilla_tipo, created_at';
 
 /** Carga ítems evaluados y no detectados con los MISMOS filtros de fecha y vajilla. */
 export async function cargarMetricas(client: FromClient, params: MetricasParams): Promise<DatosMetricas> {
   const [items, noDet] = await Promise.all([
-    traerTodo<ItemMetrica & { confidence: number | string; gramos_ia: number | string; gramos_usuario: number | string | null }>(
+    traerTodo<Omit<ItemMetrica, 'confidence' | 'gramos_ia' | 'gramos_usuario' | 'nutricionista_gramos' | 'vajilla_diametro_cm'> & { confidence: number | string; gramos_ia: number | string; gramos_usuario: number | string | null; nutricionista_gramos?: number | string | null; vajilla_diametro_cm?: number | string | null }>(
       client,
       'v_metricas_ia_items',
       COLUMNAS_ITEMS,
       params,
+      COLUMNAS_ITEMS_BASICAS,
     ),
     traerTodo<NoDetectadoFila>(client, 'v_metricas_ia_no_detectados', COLUMNAS_NO_DETECTADOS, params),
   ]);
@@ -122,6 +136,8 @@ export async function cargarMetricas(client: FromClient, params: MetricasParams)
       confidence: Number(i.confidence),
       gramos_ia: Number(i.gramos_ia),
       gramos_usuario: i.gramos_usuario == null ? null : Number(i.gramos_usuario),
+      nutricionista_gramos: i.nutricionista_gramos == null ? null : Number(i.nutricionista_gramos),
+      vajilla_diametro_cm: i.vajilla_diametro_cm == null ? null : Number(i.vajilla_diametro_cm),
     })),
     noDetectados: noDet.filas,
     truncado: items.truncado || noDet.truncado,

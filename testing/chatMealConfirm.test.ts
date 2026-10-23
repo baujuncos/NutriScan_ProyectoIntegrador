@@ -217,12 +217,16 @@ describe('POST /api/chat/meal/confirm', () => {
   });
 
   it('500 PERSISTENCE_ERROR si falla el guardado, sin exponer el detalle de la base', async () => {
+    // El código loguea el fallo a propósito: se captura para no ensuciar la salida (Vercel lo marca como error) y se verifica.
+    const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
     rpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.confirmar_chat_ia_registro' } });
     const res = await call(request([empanada]));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error.code).toBe('PERSISTENCE_ERROR');
     expect(JSON.stringify(body)).not.toContain('PGRST202');
+    expect(logError).toHaveBeenCalled();
+    logError.mockRestore();
   });
 
   it('un reintento ya guardado (mismo requestId) se informa como yaGuardado', async () => {

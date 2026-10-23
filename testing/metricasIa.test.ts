@@ -203,3 +203,33 @@ describe('estadoCola', () => {
     ).toEqual({ pendiente: 2, confirmado: 1, corregido: 1 });
   });
 });
+
+describe('correcciones del investigador (NUT-149) y métricas', () => {
+  // Las métricas agregan lo que hizo el deportista contra lo que detectó la IA (motivos guardados al
+  // guardar). Confirmar o corregir en la cola (cualquier combinación de mantener / ingresar) sólo
+  // cambia el estado de revisión: no debe alterar ninguna tasa.
+  const base = [
+    item({ motivos_revision: ['correccion_peso_grande'], gramos_usuario: 150 }), // peso cambiado, nombre mantenido
+    item({ motivos_revision: ['cambio_alimento'] }), // nombre cambiado, peso mantenido
+    item({ motivos_revision: ['item_quitado'], gramos_usuario: null }),
+    item({ motivos_revision: [] }),
+  ];
+
+  it('las tasas son las mismas con el ítem pendiente, confirmado o corregido', () => {
+    const conEstado = (estado: 'pendiente' | 'confirmado' | 'corregido') => base.map((i) => ({ ...i, estado_revision: estado }));
+    const esperado = rankingAlimentos(conEstado('pendiente'));
+    expect(rankingAlimentos(conEstado('confirmado'))).toEqual(esperado);
+    expect(rankingAlimentos(conEstado('corregido'))).toEqual(esperado);
+    expect(confianzaVsCorreccion(conEstado('corregido'))).toEqual(confianzaVsCorreccion(conEstado('pendiente')));
+  });
+
+  it('mantener nombre + cambiar peso cuenta sólo como corrección de peso; cambiar nombre + mantener peso, sólo como de nombre', () => {
+    const [m] = rankingAlimentos(base);
+    expect(m).toMatchObject({ detecciones: 4, tasaPeso: 0.25, tasaNombre: 0.25, tasaQuitado: 0.25, tasaCorreccion: 0.75 });
+  });
+
+  it('la cola refleja el avance de la revisión sin tocar las tasas', () => {
+    const items = base.map((i, n) => ({ ...i, estado_revision: (['pendiente', 'confirmado', 'corregido', null] as const)[n] }));
+    expect(estadoCola(items)).toEqual({ pendiente: 1, confirmado: 1, corregido: 1 });
+  });
+});

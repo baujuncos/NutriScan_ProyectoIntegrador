@@ -1,6 +1,7 @@
 'use client';
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import EmptyState from './EmptyState';
 
 const COLORS = {
   basquet: '#2563eb',
@@ -21,7 +22,7 @@ export default function SportDonut({ basquet, hockey }: SportDonutProps) {
   const total = basquet + hockey;
 
   if (total === 0) {
-    return <EmptyState />;
+    return <EmptyState title="Sin datos de deportistas todavía" className="h-64" />;
   }
 
   return (
@@ -65,14 +66,6 @@ export default function SportDonut({ basquet, hockey }: SportDonutProps) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex h-64 items-center justify-center text-sm text-slate-500">
-      Sin datos de deportistas todavía
     </div>
   );
 }

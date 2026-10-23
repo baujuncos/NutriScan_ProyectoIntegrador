@@ -4801,3 +4801,47 @@ create constraint trigger alimentos_pendientes_resolver_manuales
   for each row
   when (old.estado is distinct from new.estado and new.estado in ('validado', 'descartado'))
   execute function public.pendiente_resolver_items_manuales();
+-- ============================================================
+-- NUT-151 (export) — Más columnas en v_metricas_ia_items para el resumen en .md
+--
+-- Se AGREGAN al final (create or replace view no permite cambiar ni reordenar las existentes):
+-- el nombre y el origen que dejó el deportista, lo que corrigió el investigador y el contexto de
+-- captura. Sirven para armar el resumen descargable (qué confunde la IA, sesgos de peso, casos
+-- concretos). No exponen nada personal: ni usuario, ni foto.
+-- ============================================================
+
+create or replace view public.v_metricas_ia_items
+with (security_invoker = true)
+as
+select
+  di.id_deteccion_item,
+  di.ingredient                                              as alimento,
+  coalesce(public.norm_alimento(di.ingredient), lower(btrim(di.ingredient))) as alimento_norm,
+  di.confidence,
+  di.estimated_weight_grams                                  as gramos_ia,
+  gi.grams                                                   as gramos_usuario,
+  di.motivos_revision,
+  di.estado_revision,
+  di.candidato_ejemplo,
+  d.prompt_version,
+  d.vajilla_tipo,
+  d.created_at,
+  gi.name                                                    as alimento_usuario,
+  gi.origin                                                  as origen_usuario,
+  di.nutricionista_alimento,
+  di.nutricionista_gramos,
+  d.vajilla_diametro_cm,
+  d.angulo_captura_grados
+from public.detecciones_ia_items di
+join public.detecciones_ia d on d.id_deteccion = di.id_deteccion
+left join lateral (
+  select g.name, g.grams, g.origin
+  from public.detecciones_guardados_items g
+  where g.source_item_uuid = di.item_uuid
+  order by g.id_guardado_item
+  limit 1
+) gi on true
+where di.necesita_revision is not null;
+
+revoke all on public.v_metricas_ia_items from anon, authenticated;
+grant select on public.v_metricas_ia_items to authenticated;

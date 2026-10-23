@@ -188,7 +188,7 @@ export const HELP: Record<HelpId, HelpContent> = {
       {
         titulo: 'Cómo se usa',
         texto: [
-          'Filtrá por fechas, vajilla o versión de prompt. Empezá por el ranking para ver qué alimentos fallan más y por qué (nombre o peso). Con pocas detecciones los porcentajes no son confiables: mirá siempre la columna Detecciones.',
+          'Filtrá por fechas, vajilla o versión de prompt. Empezá por el ranking para ver qué alimentos fallan más y por qué (nombre o peso). Con pocas detecciones los porcentajes no son confiables: mirá siempre la columna Detecciones. Con "Descargar resumen (.md)" bajás un archivo con estos mismos datos (con los filtros que tengas puestos), el prompt actual y casos concretos, para pasárselo a una IA que proponga mejoras al prompt.',
         ],
       },
       {

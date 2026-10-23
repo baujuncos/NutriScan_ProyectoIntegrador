@@ -76,8 +76,8 @@ Ocho comprobaciones rápidas: "¿el despliegue arrancó?" (login responde, el ma
 | **Partición de equivalencia** | Dividir las entradas en grupos que el programa trata igual y probar un representante de cada grupo | Contraseñas: válida / corta / sin mayúscula / sin minúscula / sin número / vacía |
 | **Valores límite** | Los errores se esconden en los bordes: probar justo antes, en y justo después | Edad 9a 364d (rechaza) · 10 años exactos (acepta) · 100 (acepta) · 101 (rechaza); cantidad 0, 0,01, 2000, 2000,01 |
 | **Tabla de decisión** | Combinar condiciones y definir el resultado de cada combinación | Autorización del cron: (¿hay secreto? × ¿header correcto?) → 200/401 |
-| **Cobertura de sentencia** | % de líneas ejecutadas por los tests | 82,44 % de todo `src/` |
-| **Cobertura de decisión (ramas)** | % de salidas de cada `if` recorridas (verdadera y falsa) | 78,55 %. Es más exigente: 100 % de sentencias no garantiza 100 % de decisiones |
+| **Cobertura de sentencia** | % de líneas ejecutadas por los tests | 84,82 % de todo `src/` |
+| **Cobertura de decisión (ramas)** | % de salidas de cada `if` recorridas (verdadera y falsa) | 81,21 %. Es más exigente: 100 % de sentencias no garantiza 100 % de decisiones |
 
 ---
 
@@ -101,8 +101,8 @@ Ocho comprobaciones rápidas: "¿el despliegue arrancó?" (login responde, el ma
 Bloquea (el job falla y el PR no se puede integrar) si:
 1. hay **algún error de ESLint** (los consideramos "bugs críticos"),
 2. la **duplicación supera 5 %** (2,62 % hoy),
-3. la **cobertura global baja de 80 %** (82,44 %),
-4. la **cobertura del código nuevo** (líneas que agrega el cambio) **baja de 80 %** (98,55 % en este trabajo).
+3. la **cobertura global baja de 80 %** (84,82 %),
+4. la **cobertura del código nuevo** (líneas que agrega el cambio) **baja de 80 %** (98,57 % en este trabajo).
 
 Cómo mide "código nuevo": `git diff` contra la rama base da las líneas agregadas; el reporte `lcov.info` dice qué líneas se ejecutaron; se cruzan. `npm audit` solo **avisa** (no bloquea) porque hay vulnerabilidades en bibliotecas que requieren cambios mayores.
 

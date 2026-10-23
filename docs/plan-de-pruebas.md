@@ -196,7 +196,7 @@ Si está caído el escaneo devuelve "producto no encontrado" y se puede cargar e
 | **Usuario** | La IA responde a tiempo | Latencia de una llamada a Gemini (contrato) | < 15 s | 3,7 s (una prueba) | `reports/e2e` |
 | **Usuario** | Datos propios protegidos | Filas de `profiles` visibles sin sesión | 0 | **5 → pendiente del fix de DEF-009** | E2E real |
 | **Equipo** | El cambio se prueba solo | Pruebas automáticas que pasan | 100 % | 100 % | CI |
-| **Equipo** | Poder cambiar con confianza | Cobertura de sentencias (todo `src/`) | ≥ 80 % | 82,44 % | Vitest |
+| **Equipo** | Poder cambiar con confianza | Cobertura de sentencias (todo `src/`) | ≥ 80 % | 84,82 % | Vitest |
 | **Equipo** | Código mantenible | Duplicación / errores de ESLint | ≤ 5 % / 0 | 2,62 % / 0 | jscpd / ESLint |
 | **Equipo** | Cada defecto se vuelve test | Defectos corregidos con regresión | 100 % | 100 % de los corregidos (16 de 18 registrados; 2 abiertos por una decisión o acción externa: DEF-004 y DEF-009) | [defectos.md](defectos.md) |
 | **Organización** | Detectar problemas antes que el usuario | Despliegues verificados automáticamente | 100 % | Configurado en `deploy-verify.yml` | Pipeline |

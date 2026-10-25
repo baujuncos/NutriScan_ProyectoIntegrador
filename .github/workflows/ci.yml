@@ -21,6 +21,9 @@ env:
   # Valores ficticios: la compilación y los tests no se conectan a ningún servicio real.
   SUPABASE_URL: https://placeholder.supabase.co
   SUPABASE_ANON_KEY: placeholder-anon-key
+  # Sin esto, una ruta que cree el cliente admin al importarse rompe `next build` (pasó con la versión
+  # vulnerable de /api/send-reminders) y el pipeline falla por compilación en vez de por el test que corresponde.
+  SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
   NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
@@ -80,7 +83,7 @@ jobs:
             [ -f reports/quality-gate.md ] && cat reports/quality-gate.md
             echo
             echo "### Cobertura (todo src/)"
-            node -e "const c=require('./coverage/coverage-summary.json').total;const f=k=>c[k].pct+' % ('+c[k].covered+'/'+c[k].total+')';console.log('| Sentencias | Ramas (decisión) | Funciones | Líneas |\n| --- | --- | --- | --- |\n| '+[f('statements'),f('branches'),f('functions'),f('lines')].join(' | ')+' |')"
+            if [ -f coverage/coverage-summary.json ]; then node -e "const c=require('./coverage/coverage-summary.json').total;const f=k=>c[k].pct+' % ('+c[k].covered+'/'+c[k].total+')';console.log('| Sentencias | Ramas (decisión) | Funciones | Líneas |\n| --- | --- | --- | --- |\n| '+[f('statements'),f('branches'),f('functions'),f('lines')].join(' | ')+' |')"; else echo "No se generó la cobertura: falló un paso anterior (compilación o pruebas)."; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Guardar reportes (cobertura, ESLint, duplicación, gate)

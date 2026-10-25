@@ -1,0 +1,53 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |node| testing/validateInvestigatorRoute.test.ts (16 tests | 2 failed) 80ms
+     × tras 10 intentos fallidos desde la misma IP, el siguiente es 429 aunque el código sea correcto 19ms
+     × valor límite: el intento número 10 todavía se evalúa (401), el 11 se bloquea (429) 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| testing/validateInvestigatorRoute.test.ts > /api/validate-investigator — límite de intentos (DEF-005) > tras 10 intentos fallidos desde la misma IP, el siguiente es 429 aunque el código sea correcto
+AssertionError: expected 200 to be 429 // Object.is equality
+
+- Expected
++ Received
+
+- 429
++ 200
+
+ ❯ testing/validateInvestigatorRoute.test.ts:100:24
+     98|     const res = await POST(req({ code: CODIGO }));
+     99|     // Assert
+    100|     expect(res.status).toBe(429);
+       |                        ^
+    101|     expect(res.cookies.get(INV_CODE_COOKIE)).toBeUndefined();
+    102|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |node| testing/validateInvestigatorRoute.test.ts > /api/validate-investigator — límite de intentos (DEF-005) > valor límite: el intento número 10 todavía se evalúa (401), el 11 se bloquea (429)
+AssertionError: expected 401 to be 429 // Object.is equality
+
+- Expected
++ Received
+
+- 429
++ 401
+
+ ❯ testing/validateInvestigatorRoute.test.ts:108:46
+    106|     for (let i = 0; i < RATE_LIMIT_MAX_REQUESTS + 1; i++) estados.push…
+    107|     expect(estados.slice(0, RATE_LIMIT_MAX_REQUESTS).every((s) => s ==…
+    108|     expect(estados[RATE_LIMIT_MAX_REQUESTS]).toBe(429);
+       |                                              ^
+    109|   });
+    110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 passed (16)
+   Start at  18:20:37
+   Duration  816ms (transform 121ms, setup 0ms, import 278ms, tests 80ms, environment 0ms)
+

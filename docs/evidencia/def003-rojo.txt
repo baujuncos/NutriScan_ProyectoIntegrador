@@ -1,0 +1,53 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |node| testing/deleteAccountByEmailRoute.test.ts (14 tests | 2 failed) 43ms
+     × encuentra a un usuario que está en la tercera página (posición 120 de 130) 9ms
+     × valor límite: el último de la primera página (posición 49) y el primero de la segunda (50) 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| testing/deleteAccountByEmailRoute.test.ts > /api/admin/delete-account-by-email — búsqueda del usuario (DEF-003) > encuentra a un usuario que está en la tercera página (posición 120 de 130)
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ testing/deleteAccountByEmailRoute.test.ts:94:24
+     92|     const res = await POST(req({ email: 'Objetivo@Example.com' }));
+     93|     // Assert
+     94|     expect(res.status).toBe(200);
+       |                        ^
+     95|     expect(deleteUserMock).toHaveBeenCalledWith('id-120');
+     96|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |node| testing/deleteAccountByEmailRoute.test.ts > /api/admin/delete-account-by-email — búsqueda del usuario (DEF-003) > valor límite: el último de la primera página (posición 49) y el primero de la segunda (50)
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ testing/deleteAccountByEmailRoute.test.ts:102:68
+    100|     expect((await POST(req({ email: 'p49@example.com' }))).status).toB…
+    101|     usuariosPaginados(60, { posicion: 50, email: 'p50@example.com' });
+    102|     expect((await POST(req({ email: 'p50@example.com' }))).status).toB…
+       |                                                                    ^
+    103|   });
+    104|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 passed (14)
+   Start at  18:18:10
+   Duration  703ms (transform 127ms, setup 0ms, import 275ms, tests 43ms, environment 0ms)
+

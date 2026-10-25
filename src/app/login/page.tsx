@@ -15,7 +15,9 @@ import Link from 'next/link';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'Mínimo 8 caracteres'),
+  // En el login no se aplica la política de contraseñas (eso es del registro): solo se exige que
+  // no esté vacía y Supabase decide si las credenciales sirven. Antes: min(6) con mensaje "Mínimo 8" (DEF-007).
+  password: z.string().min(1, 'Ingresá tu contraseña'),
 });
 
 const registerSchema = z
@@ -357,7 +359,7 @@ function LoginForm() {
             className={`overflow-hidden transition-all duration-500 ease-out ${providerHint === 'google_only' ? 'mt-2 max-h-20 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-1'}`}
           >
             <p className="text-sm text-yellow-700">
-              Esta cuenta fue creada con Google. Ingresá con Google o usá "¿Olvidaste tu contraseña?" para crear una contraseña.
+              Esta cuenta fue creada con Google. Ingresá con Google o usá &quot;¿Olvidaste tu contraseña?&quot; para crear una contraseña.
             </p>
           </div>
         </div>

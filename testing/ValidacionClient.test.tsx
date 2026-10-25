@@ -17,9 +17,8 @@ vi.mock('@/app/(researcher)/validacion/actions', () => ({
 vi.mock('@/app/alimentacion/actions', () => ({ searchAlimentosAction: vi.fn().mockResolvedValue([]) }));
 
 import ValidacionClient from '@/app/(researcher)/validacion/ValidacionClient';
-import { getPendienteDetalleAction } from '@/app/(researcher)/validacion/actions';
 import { parseParams } from '@/lib/validacionQuery';
-import { OCURRENCIA, PENDIENTE } from './fixtures/validacion';
+import { PENDIENTE } from './fixtures/validacion';
 
 const otra = {
   ...PENDIENTE,

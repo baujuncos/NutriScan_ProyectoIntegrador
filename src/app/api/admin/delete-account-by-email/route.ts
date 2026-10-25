@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { borrarFotosDeUsuario } from '@/lib/fotosDeteccion';
+import { secretEquals } from '@/lib/secretEquals';
+import { findUserByEmail } from '@/lib/supabase/findUserByEmail';
 
 // Only available in development or when called with the service role key.
 // Protected by requiring x-admin-key === SUPABASE_SERVICE_ROLE_KEY.
@@ -19,7 +21,7 @@ export async function POST(request: NextRequest) {
   const adminKey = request.headers.get('x-admin-key') ?? '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
-  if (!adminKey || adminKey !== serviceKey) {
+  if (!secretEquals(adminKey, serviceKey)) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
   }
 
@@ -43,12 +45,13 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
 
   // --- Find user by email ---
-  const { data: listData, error: listError } = await admin.auth.admin.listUsers();
-  if (listError) {
-    return NextResponse.json({ error: 'No se pudo consultar usuarios.', detail: listError.message }, { status: 500 });
+  let user;
+  try {
+    user = await findUserByEmail(admin, email);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: 'No se pudo consultar usuarios.', detail }, { status: 500 });
   }
-
-  const user = listData.users.find((u) => u.email?.toLowerCase() === email);
   if (!user) {
     return NextResponse.json({ error: `No existe ningún usuario con email "${email}".` }, { status: 404 });
   }

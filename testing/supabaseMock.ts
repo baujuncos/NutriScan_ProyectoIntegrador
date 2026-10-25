@@ -66,8 +66,7 @@ export function createSupabaseFromMock() {
     // El query builder real de supabase-js es "thenable": awaitear
     // `supabase.from(t).insert(x)` sin `.select().single()` también debe
     // resolver, por eso la cadena expone `.then` además de los métodos.
-    let chain: Record<string, unknown>;
-    chain = new Proxy(
+    const chain: Record<string, unknown> = new Proxy(
       {
         insert: vi.fn((payload: unknown) => {
           inserts.push({ tabla, payload });
@@ -121,6 +120,7 @@ export function createSupabaseFromMock() {
             return Promise.resolve((colasStorage.get(metodo) ?? []).shift() ?? { data: null, error: null });
           }),
         ]),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- doble de prueba: imita la API de storage de supabase-js sin tiparla entera
       ) as unknown as Record<(typeof METODOS_STORAGE)[number], (...args: any[]) => Promise<{ data: any; error: any }>>,
   };
 

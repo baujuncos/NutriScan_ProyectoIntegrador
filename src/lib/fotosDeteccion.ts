@@ -20,6 +20,7 @@ export const TTL_URL_LISTA_S = 600;
 
 /** Lo mínimo de un cliente de Supabase que usamos (facilita mockear). */
 export interface StorageClient {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el bucket real de supabase-js y los dobles de prueba no comparten tipos
   storage: { from: (bucket: string) => any };
 }
 

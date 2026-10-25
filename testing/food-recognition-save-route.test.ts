@@ -104,7 +104,7 @@ function escenario(opts: { uuids?: string[]; match?: unknown[] } = {}) {
 }
 
 const itemsDeLaRpc = (n = 0) =>
-  (adminDb.rpcLlamadas().filter((l) => l.nombre === 'registrar_guardado_deteccion')[n].args as { p_items: any[] })
+  (adminDb.rpcLlamadas().filter((l) => l.nombre === 'registrar_guardado_deteccion')[n].args as { p_items: Array<Record<string, unknown>> })
     .p_items;
 
 beforeEach(() => {

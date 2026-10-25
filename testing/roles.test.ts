@@ -4,7 +4,6 @@ import {
   determineRoleFromEmail,
   extractNombreApellido,
   esAltaInvestigador,
-  esEmailUCC,
 } from '@/lib/roles';
 
 // ─────────────────────────────────────────────────────────────────────────────

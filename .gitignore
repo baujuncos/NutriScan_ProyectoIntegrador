@@ -52,3 +52,6 @@ next-env.d.ts
 # Windows
 desktop.ini
 Thumbs.db
+
+# reportes generados por el pipeline / scripts de QA
+/reports/

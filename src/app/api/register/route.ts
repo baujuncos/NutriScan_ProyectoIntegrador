@@ -4,6 +4,8 @@ import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { strongPasswordSchema } from '@/lib/password';
 import { INV_CODE_COOKIE } from '@/lib/inv-code-cookie';
+import { secretEquals } from '@/lib/secretEquals';
+import { findUserByEmail } from '@/lib/supabase/findUserByEmail';
 
 const bodySchema = z.object({
   email: z.string().email('Email inválido').transform((s) => s.trim().toLowerCase()),
@@ -15,26 +17,6 @@ const bodySchema = z.object({
 
 function badRequest(message: string, field?: string) {
   return NextResponse.json({ error: 'INVALID', message, field }, { status: 400 });
-}
-
-async function emailExists(
-  admin: ReturnType<typeof createAdminClient>,
-  email: string,
-): Promise<boolean> {
-  // listUsers does not support filter in all client versions, so we scan pages
-  // until we find a match. For a research-app MVP, scanning is acceptable.
-  let page = 1;
-  const perPage = 200;
-  // Cap to avoid runaway loops; this is generous for current user counts.
-  for (let i = 0; i < 50; i++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) throw error;
-    const hit = data.users.find((u) => (u.email ?? '').toLowerCase() === email);
-    if (hit) return true;
-    if (data.users.length < perPage) return false;
-    page += 1;
-  }
-  return false;
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +38,7 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies();
     const token = cookieStore.get(INV_CODE_COOKIE)?.value;
     const valid = process.env.INVITATION_CODE_INVESTIGADOR?.trim();
-    if (!valid || !token || token !== valid) {
+    if (!secretEquals(token, valid)) {
       return NextResponse.json(
         { error: 'INV_CODE_REQUIRED', message: 'Código de investigador inválido o expirado. Volvé a ingresarlo.' },
         { status: 403 },
@@ -75,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (await emailExists(admin, email)) {
+    if (await findUserByEmail(admin, email)) {
       return NextResponse.json(
         { error: 'EMAIL_EXISTS', message: 'Ya existe una cuenta con este email.' },
         { status: 409 },

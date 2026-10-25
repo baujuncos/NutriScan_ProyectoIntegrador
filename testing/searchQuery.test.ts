@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, campoDeCoincidencia, rangoCoincidencia, CAMPOS_DEFAULT } from '@/app/alimentacion/searchQuery';
+import { buildMarcaDenominacionOr, aplicarFiltroSuplemento, idsRecientesUnicos, campoDeCoincidencia, rangoCoincidencia } from '@/app/alimentacion/searchQuery';
 
 describe('buildMarcaDenominacionOr', () => {
   it('arma la clausula OR con marca y denominacion cuando ambos campos están tildados', () => {

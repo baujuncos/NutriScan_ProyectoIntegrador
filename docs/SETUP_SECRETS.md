@@ -50,6 +50,7 @@ Cierra la lectura de `profiles` sin sesión que detectó el E2E (ver [defectos.m
 ## 4. Conectar el despliegue con el pipeline
 
 - **Vercel ↔ GitHub:** si el proyecto de Vercel está conectado al repositorio con la integración oficial, cada despliegue crea un evento `deployment_status` en GitHub y dispara `.github/workflows/deploy-verify.yml` solo.
+- **Previews protegidos de Vercel:** por defecto Vercel pone *Deployment Protection* (login de Vercel) a los despliegues de preview, y el smoke recibe un 401/302 en todo. El smoke lo detecta y avisa con un único chequeo fallido ("El despliegue es accesible para el pipeline"). Se resuelve de una de dos formas: (a) *Vercel → Project → Settings → Deployment Protection → Protection Bypass for Automation → Add* (genera un valor) y cargarlo como secret `VERCEL_BYPASS_SECRET` en GitHub; o (b) verificar la URL de **producción** (dominio público) con *Run workflow*.
 - **Limitación de GitHub:** los eventos `deployment_status` y el botón *Run workflow* usan el archivo de workflow de la **rama por defecto** (`main`). Hay que mergear `tp-calidad` a `main` (o a la rama por defecto) para que se active. Mientras tanto, se puede probar a mano con `gh workflow run` o desde la pestaña Actions una vez que el archivo esté en `main`.
 - **Protección de rama (recomendado):** *Settings → Branches → Add rule* sobre `main`: exigir que el check `Compilación, pruebas, análisis estático y quality gate` pase antes de mergear. Así el gate realmente **bloquea**.
 

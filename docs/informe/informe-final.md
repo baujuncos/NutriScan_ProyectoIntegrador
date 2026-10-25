@@ -27,24 +27,26 @@ Se declara el **Nivel 3 (prototipo avanzado)**, porque la tesis está casi termi
 
 ## 3. Metas del nivel 3: cumplidas y no cumplidas
 
-Estado: ✅ cumplida y verificada · 🟡 implementada y verificada **localmente**, falta su primera ejecución en GitHub/Vercel · ⏳ depende de una acción del equipo.
+Estado: ✅ cumplida y verificada (en local y/o en GitHub Actions) · 🟡 parcial · ⏳ depende de una acción del equipo. Las ejecuciones en GitHub están en [evidencia/github-actions.md](../evidencia/github-actions.md).
 
 | Aspecto | Exigido (nivel 3) | Estado | Evidencia / observación |
 | --- | --- | --- | --- |
-| Pipeline | Compilación, pruebas, análisis estático, cobertura, quality gate y reporte automático | 🟡 | `.github/workflows/ci.yml`; todos sus pasos ejecutados en local con `npm run qa` (`docs/evidencia/quality-gate.md`). Falta la ejecución en GitHub Actions (requiere `push`) |
+| Pipeline | Compilación, pruebas, análisis estático, cobertura, quality gate y reporte automático | ✅ | `.github/workflows/ci.yml`. Verde en GitHub Actions sobre `tp-calidad`, en el PR y en `main` (corridas 40149581795, 40150057208, 40150072946, de 2 a 3 minutos); mismos pasos en local con `npm run qa` (`docs/evidencia/quality-gate.md`) |
 | Quality gate | Bloquea ante bugs críticos, duplicación > 5 % y cobertura de código nuevo < 80 % | ✅ | `scripts/qa/quality-gate.mjs` + 21 pruebas del propio gate. Aprobado: 0 errores, 2,62 % de duplicación, 98,57 % de código nuevo |
 | Cobertura de código nuevo | 80 % | ✅ | 98,57 % (69/70 líneas) |
 | Plan de pruebas y riesgos | Versionado, criterios de entrada/salida, riesgos P×I, trazabilidad | ✅ | `docs/plan-de-pruebas.md` (14 riesgos priorizados, trazabilidad requisito → caso → defecto) |
 | Defectos | Con pasos, esperado y obtenido, vinculados a su caso, en Jira u otra herramienta | ✅ / ⏳ | `docs/defectos.md` (19 defectos) y `docs/defectos.csv` listo para importar a Jira. La carga en Jira la hace el equipo |
 | Herramienta nueva | Proceso de 5 pasos | ✅ | k6: `docs/herramienta-k6.md` (requisitos, mercado, PoC, matriz, despliegue incremental). Etapas 4–5 del despliegue (en el pipeline) 🟡 |
 | Cobertura mínima del código existente | 80 % | ✅ | 84,82 % de sentencias; 81,21 % de decisiones |
-| Smoke test | Ejecutado por el pipeline tras el despliegue | 🟡 | `scripts/smoke.mjs` y `deploy-verify.yml`. Ejecutado en local: 8/8 (`docs/evidencia/smoke-local.md`) |
-| Integración externa | Flujo E2E automatizado en cada despliegue | 🟡 / ⏳ | `testing/e2e/` (15 pruebas). Ejecutado en local contra los servicios reales: 7 pasan, 1 falla (detectó DEF-009), 7 se saltean por falta del usuario de prueba (⏳) |
-| Stress y esfuerzo sostenido | Ejecutado con resultados y umbrales | ✅ (local) 🟡 (pipeline) | `docs/pruebas-de-carga.md`, `docs/evidencia/carga/`. Falta la corrida contra Vercel desde el pipeline |
-| Entregable: ejecución en verde y ejecución fallida que detectó un problema real | Pipeline con ambas | ⏳ | Los commits están preparados (`c220b12` rojo → `da001fb` verde); hay que hacer `push` para que queden en el historial de Actions |
-| Entregable: demostración con despliegue nuevo | Integraciones, pruebas y cargas | ⏳ | `docs/guion-demo.md` |
+| Smoke test | Ejecutado por el pipeline tras el despliegue | ✅ | `scripts/smoke.mjs` y `deploy-verify.yml`. En GitHub, tras el despliegue de `main`: ✅ en 8 s (corrida 40150497052). Antes, en 8/8 en local (`docs/evidencia/smoke-local.md`) |
+| Integración externa | Flujo E2E automatizado en cada despliegue | ✅ | `testing/e2e/` (15 pruebas). En la misma corrida 40150497052 el job E2E contra Supabase, Gemini y Open Food Facts terminó en éxito (33 s). En local, antes de cargar el usuario de prueba: 7 pasaban, 1 fallaba (detectó DEF-009) y 7 se salteaban |
+| Stress y esfuerzo sostenido | Ejecutado con resultados y umbrales | ✅ | `docs/pruebas-de-carga.md`, `docs/evidencia/carga/` (local, una instancia). Desde el pipeline contra Vercel: job de k6 en éxito, 15 min 40 s (corrida 40150497052); el paso falla con código 99 si se cruza un umbral, por lo que el éxito indica umbrales cumplidos. Cifras: artefactos de la corrida |
+| Entregable: ejecución en verde y ejecución fallida que detectó un problema real | Pipeline con ambas | ✅ | Roja: corrida 40149003238 (`tp-demo-rojo`), falla el paso de pruebas con 10 aserciones sobre DEF-002. Verde: corrida 40149581795 (`tp-calidad`) y 40150072946 (`main`). Detalle en [evidencia/github-actions.md](../evidencia/github-actions.md) |
+| Entregable: demostración con despliegue nuevo | Integraciones, pruebas y cargas | ⏳ | `docs/guion-demo.md`; el flujo que se muestra es el de la corrida 40150497052 |
 
-**No cumplido / abierto, dicho con claridad:** (1) las ejecuciones en GitHub Actions y contra Vercel todavía no existen; (2) DEF-009 y DEF-004 siguen abiertos; (3) el E2E del flujo completo (login → chat con IA → guardado) no se pudo ejecutar porque falta crear el usuario de prueba.
+**Hallazgos del propio pipeline, además de los defectos del código.** (1) La primera corrida roja falló en la compilación y no en las pruebas (corrida 40147988808): la versión vulnerable de `/api/send-reminders` crea el cliente admin al importarse y el CI no tenía `SUPABASE_SERVICE_ROLE_KEY`; se agregó un valor ficticio (`f961aa1`). (2) La primera verificación posterior al despliegue falló porque Vercel protege los *previews* (todas las respuestas eran 401/302 al login de Vercel) y el smoke atribuía ese resultado a la app, incluso con un falso "el endpoint del cron no está protegido"; ahora el smoke detecta la protección y lo informa con una sola línea (`36c1438`). (3) En una corrida roja el *quality gate* queda en verde: evalúa ESLint, duplicación y cobertura, no el resultado de las pruebas; lo que bloquea son las dos barreras juntas.
+
+**No cumplido / abierto, dicho con claridad:** (1) DEF-009 y DEF-004 siguen abiertos en este informe hasta que el equipo confirme la sentencia SQL en Supabase y decida la fórmula; (2) la demostración con un despliegue nuevo se hace el día de la presentación; (3) las cifras de k6 contra Vercel quedan en los artefactos de la corrida y no se transcriben acá hasta revisarlas.
 
 ## 4. Evolución de las métricas
 
@@ -85,7 +87,9 @@ Ejemplos de módulos críticos (sentencias / decisiones): cálculos nutricionale
 
 `ci.yml` (cada push/PR): checkout completo → `npm ci` → `next build` → `tsc` → pruebas con cobertura → ESLint + jscpd + `npm audit` → **quality gate** → resumen y artefactos. `deploy-verify.yml` (cada despliegue de Vercel, evento `deployment_status`, o manual): **smoke → E2E real → k6 (stress y sostenido)**, con informes como artefactos.
 
-Quality gate (ejecución del 23/10/2026, commit `fac8117`):
+Ejecuciones reales en GitHub Actions (25/10/2026): CI roja en `tp-demo-rojo` (falla el paso de pruebas, 10 aserciones sobre DEF-002) → CI verde en `tp-calidad`, en el PR #39 y en `main` → verificación del despliegue de `main` en verde: smoke (8 s) → E2E real (33 s) → k6 (15 min 40 s). Tabla completa con identificadores de corrida: [evidencia/github-actions.md](../evidencia/github-actions.md).
+
+Quality gate (ejecución local del 23/10/2026, commit `fac8117`):
 
 | Chequeo | Valor | Umbral | Resultado |
 | --- | --- | --- | --- |
@@ -111,7 +115,7 @@ El límite de una instancia está entre 100 y 300 usuarios simultáneos; el cuel
 
 (`docs/defectos.md`.) 19 registrados: 3 críticos, 5 altos, 9 medios, 2 bajos; **17 corregidos y 2 abiertos**. Todos tienen caso de prueba; los corregidos, una prueba de regresión.
 
-**Contraste rojo/verde (DEF-002).** El test, escrito primero, falló contra el código original con `expected 200 to be 401` y mostró que la respuesta incluía los emails (10 de 11 pruebas en rojo, commit `c220b12`). Tras agregar la autorización por `CRON_SECRET` (commit `da001fb`) pasan 23 de 23. Evidencia: `docs/evidencia/def002-rojo.txt` y `def002-verde.txt`.
+**Contraste rojo/verde (DEF-002).** El test, escrito primero, falló contra el código original con `expected 200 to be 401` y mostró que la respuesta incluía los emails (10 de 11 pruebas en rojo, commit `c220b12`). Tras agregar la autorización por `CRON_SECRET` (commit `da001fb`) pasan 23 de 23. Evidencia: `docs/evidencia/def002-rojo.txt` y `def002-verde.txt`. El mismo contraste quedó en GitHub Actions: la rama `tp-demo-rojo`, que reintroduce el código vulnerable, falló el paso de pruebas del CI (corrida 40149003238, 10 aserciones fallidas) y `tp-calidad`, con la corrección, pasó en verde (corrida 40149581795).
 
 | ID | Defecto | Sev. | Estado |
 | --- | --- | --- | --- |
@@ -133,7 +137,7 @@ Proceso de cinco pasos (`docs/herramienta-k6.md`): **requisitos** (umbrales como
 ## 12. Análisis crítico
 
 - **Lo que se hizo bien.** Medir la cobertura sobre todo el código evitó una falsa tranquilidad; escribir primero el test rojo dio evidencia de que cada prueba detecta de verdad el defecto; el E2E contra el servicio real encontró el hallazgo más grave.
-- **Qué no se logró.** No hay todavía ejecuciones en GitHub Actions ni contra Vercel; faltó el usuario de prueba para el flujo E2E completo; las pantallas de servidor (`home`, `perfil`, `elegir-uso`, `encuesta-psicologica`) siguen sin pruebas; hay 46 funciones de complejidad > 15, la mayor (124) en la exportación a Excel.
+- **Qué no se logró.** El esfuerzo sostenido contra Vercel corre desde el pipeline pero sus cifras no se analizaron en este informe; el pipeline falló en sus dos primeras ejecuciones por configuración (variable ausente en el CI, protección de *previews* de Vercel) y recién después quedó en verde; las pantallas de servidor (`home`, `perfil`, `elegir-uso`, `encuesta-psicologica`) siguen sin pruebas; hay 46 funciones de complejidad > 15, la mayor (124) en la exportación a Excel.
 - **Limitaciones de las mediciones.** La carga se midió sobre una sola instancia y compartiendo CPU con el generador; no incluye el flujo con Gemini (cuota y costo de terceros). La cobertura mide ejecución, no calidad de las aserciones.
 - **Decisiones discutibles.** Bajar a *warning* 13 reglas del React Compiler para que el gate bloquee solo bugs reales (queda como deuda visible); no cambiar la fórmula de Harris-Benedict sin acuerdo del equipo; el límite de intentos del código de investigador es por instancia (aproximado).
 - **Riesgos remanentes.** R-01 (Gemini), R-05 (fórmula), R-07 (consulta de cumplimiento sin paginar), R-11 (dependencias con cambios mayores pendientes).
@@ -142,7 +146,7 @@ Proceso de cinco pasos (`docs/herramienta-k6.md`): **requisitos** (umbrales como
 
 1. La calidad de NutriScan se sostiene hoy en **datos medidos y repetibles**: un comando (`npm run qa`) produce las cifras de este informe y el pipeline las vuelve a producir en cada cambio.
 2. Los defectos más graves estaban donde no había pruebas (API y acciones del servidor) y donde los mocks no alcanzan (la base real). Por eso la combinación de pruebas unitarias rápidas con pruebas E2E contra servicios reales es lo más valioso del proceso.
-3. Para cerrar el trabajo hacen falta cuatro acciones del equipo, todas documentadas: ejecutar la sentencia SQL de DEF-009, cargar los secrets y `CRON_SECRET` (`docs/SETUP_SECRETS.md`), hacer `push` y mergear para obtener las ejecuciones en GitHub, y decidir DEF-004.
+3. El pipeline ya corre en GitHub: una ejecución roja que detectó un problema real, ejecuciones verdes y una verificación automática del despliegue (smoke, E2E y carga). Sus dos primeras fallas fueron de configuración, y por eso el smoke ahora distingue "la app está rota" de "el pipeline no pudo entrar". Quedan dos acciones del equipo, documentadas: confirmar la sentencia SQL de DEF-009 (`docs/SETUP_SECRETS.md`) y decidir DEF-004.
 
 ## Anexo A — Comandos para reproducir
 
@@ -163,5 +167,6 @@ BASE_URL=<url> npm run load:soak            # k6
 | Rojo/verde de cada defecto | `docs/evidencia/defNNN-rojo.txt`, `defNNN-verde.txt` |
 | Quality gate | `docs/evidencia/quality-gate.md` |
 | Cobertura (resumen y por módulo) | `docs/evidencia/coverage-summary.json`, `cobertura-modulos.md` |
+| Corridas en GitHub Actions (rojo/verde, post-despliegue) | `docs/evidencia/github-actions.md` |
 | Smoke y E2E locales | `docs/evidencia/smoke-local.md`, `e2e-local.txt` |
 | Resultados de k6 | `docs/evidencia/carga/` |

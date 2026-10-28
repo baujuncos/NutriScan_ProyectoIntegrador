@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import Button from '@/components/ui/Button';
 import HojaRevision from './HojaRevision';
 import ContextoComidas from './ContextoComidas';
+import SolicitudesChat from './SolicitudesChat';
 import SolicitudesManuales from './SolicitudesManuales';
 import VincularAlimento, { valoresCompletos } from './VincularAlimento';
 import type { AlimentoOption } from '@/app/alimentacion/actions';
@@ -41,6 +42,7 @@ import {
   type OcurrenciaDetalle,
   type PendienteFila,
   type PropioInfo,
+  type SolicitudChat,
   type SolicitudManual,
   type VerificacionPropio,
 } from './actions';
@@ -63,6 +65,9 @@ interface Datos {
   /** NUT-192: cargas manuales (sin foto) y avisos de nombre ya existente en SARA2/ANMAT. */
   solicitudesManuales: SolicitudManual[];
   totalSolicitudesManuales: number;
+  /** NUT-228: ítems que el chat estimó (sin foto). */
+  solicitudesChat: SolicitudChat[];
+  totalSolicitudesChat: number;
   existentesCatalogo: ExistenteCatalogo[];
 }
 
@@ -228,6 +233,8 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
         propio: r.propio ?? null,
         solicitudesManuales: r.solicitudesManuales ?? [],
         totalSolicitudesManuales: r.totalSolicitudesManuales ?? 0,
+        solicitudesChat: r.solicitudesChat ?? [],
+        totalSolicitudesChat: r.totalSolicitudesChat ?? 0,
         existentesCatalogo: r.existentesCatalogo ?? [],
       });
       setForm(inicial);
@@ -243,13 +250,14 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
   const p = datos?.pendiente;
   const total = datos?.totalOcurrencias ?? 0;
   const manuales = datos?.totalSolicitudesManuales ?? 0;
-  /** Ítems del diario que se actualizan al resolver: con foto + cargados manualmente. */
-  const totalItems = total + manuales;
-  /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano» o vincular. */
-  const soloManual = datos != null && total === 0;
+  const chats = datos?.totalSolicitudesChat ?? 0;
+  /** Ítems del diario que se actualizan al resolver: con foto + cargados manualmente + estimados por el chat. */
+  const totalItems = total + manuales + chats;
+  /** Sin ninguna ocurrencia con foto no hay peso de referencia: solo se puede cargar «A mano», usar la IA (si hay valores precargados) o vincular. */
+  const sinFoto = datos != null && total === 0;
   const soloLectura = p != null && p.estado !== 'pendiente';
   /** NUT-225: la entrada se valida vinculándola a un alimento existente (solo en entradas solo manuales). */
-  const vincula = soloManual && !soloLectura && vinculando;
+  const vincula = sinFoto && !soloLectura && vinculando;
   const calc = datos && form && p ? calcular(form, p, datos.ocurrencias) : null;
   const macrosVinculado: Macros100 | null =
     vincula && vinculado && valoresCompletos(vinculado)
@@ -532,6 +540,11 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                 <SolicitudesManuales solicitudes={datos.solicitudesManuales} total={manuales} usuarios={p.usuarios_distintos ?? 0} />
               </div>
             )}
+            {chats > 0 && (
+              <div className={total > 0 || manuales > 0 ? 'mt-5' : undefined}>
+                <SolicitudesChat solicitudes={datos.solicitudesChat} total={chats} usuarios={p.usuarios_distintos ?? 0} />
+              </div>
+            )}
           </div>
 
           {/* RESULTADO (único lugar donde se muestra) */}
@@ -579,7 +592,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                   <p role="note" className="rounded-xl bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
                     Ya hay un alimento con este nombre en el catálogo:{' '}
                     {datos.existentesCatalogo.map((e) => `«${e.nombre}» (${e.fuente})`).join(', ')}.{' '}
-                    {soloManual ? 'Revisá que no sea el mismo antes de validar.' : 'Si es el mismo, usalo desde «Del catálogo».'} No te impide validar.
+                    {sinFoto ? 'Revisá que no sea el mismo antes de validar.' : 'Si es el mismo, usalo desde «Del catálogo».'} No te impide validar.
                   </p>
                 )}
               </div>
@@ -597,13 +610,19 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
             <Paso n={2} titulo="¿De dónde salen los valores?" pista="Valores por 100 g">
               <fieldset className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
                 <legend className="sr-only">Fuente de los valores nutricionales</legend>
-                {soloManual && (
+                {sinFoto && chats === 0 && (
                   <p className="text-xs text-slate-600">
                     Este alimento se cargó manualmente, sin foto: no hay una estimación de la IA ni un peso de referencia para armar una
                     mezcla del catálogo. Cargá los 4 valores.
                   </p>
                 )}
-                {METODOS.filter((m) => !soloManual || m.modo === 'manual').map((m) => {
+                {sinFoto && chats > 0 && (
+                  <p className="text-xs text-slate-600">
+                    Este alimento lo estimó el chat{manuales > 0 ? ' y también se cargó manualmente' : ''}, sin foto: no hay un peso de
+                    referencia para armar una mezcla del catálogo. Revisá la estimación de la IA o cargá los 4 valores.
+                  </p>
+                )}
+                {METODOS.filter((m) => !sinFoto || m.modo === 'manual' || (m.modo === 'ia' && !!calc.ia)).map((m) => {
                   const sel = form.modo === m.modo && !vincula;
                   const sinIA = m.modo === 'ia' && !calc.ia;
                   return (
@@ -621,7 +640,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                           checked={sel}
                           disabled={sinIA}
                           onChange={() => {
-                            if (soloManual) setVinculando(false);
+                            if (sinFoto) setVinculando(false);
                             cambiar({ modo: m.modo });
                           }}
                           className="peer sr-only"
@@ -700,7 +719,7 @@ export default function PendienteDetalle({ idPendiente, onClose, onResuelto, onG
                     </div>
                   );
                 })}
-                {soloManual && !soloLectura && (
+                {sinFoto && !soloLectura && (
                   <VincularAlimento activo={vinculando} onActivar={() => setVinculando(true)} seleccionado={vinculado} onSeleccionar={setVinculado} />
                 )}
               </fieldset>

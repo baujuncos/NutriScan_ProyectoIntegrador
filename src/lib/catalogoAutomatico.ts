@@ -1,3 +1,4 @@
+import { desdeTabla, type FromClient } from './supabaseQuery';
 /**
  * NUT-119 — Catálogo que usa el matching automático de lo que detecta la IA:
  * sólo SARA2 (genéricos, ~930). ANMAT queda afuera a propósito: son productos
@@ -18,9 +19,7 @@ export interface EntradaCatalogo {
 }
 
 /** Lo mínimo del cliente de Supabase que usamos (facilita mockear). */
-export interface CatalogoClient {
-  from: (tabla: string) => any;
-}
+export type CatalogoClient = FromClient;
 
 const TTL_MS = 5 * 60 * 1000;
 // PostgREST devuelve como máximo 1000 filas por consulta: se pagina.
@@ -80,8 +79,7 @@ export async function cargarCatalogoAutomatico(
   const entradas: EntradaCatalogo[] = [];
   for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
     const desde = pagina * PAGINA;
-    const { data, error } = await client
-      .from('alimentos')
+    const { data, error } = await desdeTabla(client, 'alimentos')
       .select('id_alimento, nombre')
       .in('fuente', [...FUENTES_AUTOMATICAS])
       .order('id_alimento')

@@ -1,4 +1,5 @@
-/**
+
+import { desdeTabla, type FromClient, type QueryLike } from './supabaseQuery';/**
  * NUT-119 — Parámetros y consulta paginada de la cola de validación
  * (`/validacion`, panel de investigadores). Todo vive en la querystring para
  * que los filtros funcionen sin JS (`<form method="get">`) y los links de
@@ -51,13 +52,8 @@ export function buildQuery(params: ValidacionParams, overrides: Partial<Validaci
   return s ? `?${s}` : '';
 }
 
-/** Lo mínimo del cliente de Supabase que usamos (facilita mockear). */
-export interface FromClient {
-  from: (tabla: string) => any;
-}
-
 /** Aplica estado + búsqueda (comunes a la página y al conteo). */
-function filtrar(query: any, params: ValidacionParams) {
+function filtrar(query: QueryLike, params: ValidacionParams): QueryLike {
   if (params.estado !== 'todos') query = query.eq('estado', params.estado);
   if (params.q) query = query.ilike('nombre_original', `%${params.q}%`);
   return query;
@@ -68,7 +64,7 @@ export async function consultarPendientes(
   client: FromClient,
   params: ValidacionParams,
 ): Promise<{ rows: unknown[]; total: number }> {
-  let query = filtrar(client.from('v_alimentos_pendientes').select('*', { count: 'exact' }), params);
+  let query = filtrar(desdeTabla(client, 'v_alimentos_pendientes').select('*', { count: 'exact' }), params);
 
   // Orden estable: el criterio elegido, lo más reciente y, de desempate final, el id.
   if (params.orden === 'ocurrencias') query = query.order('ocurrencias', { ascending: false });
@@ -81,7 +77,7 @@ export async function consultarPendientes(
     // no es un error — devolvemos 0 filas con el total real y la página redirige a la última válida.
     if (error.code === 'PGRST103') {
       const { count: total, error: errorConteo } = await filtrar(
-        client.from('v_alimentos_pendientes').select('id_pendiente', { count: 'exact', head: true }),
+        desdeTabla(client, 'v_alimentos_pendientes').select('id_pendiente', { count: 'exact', head: true }),
         params,
       );
       if (errorConteo) throw new Error(`No se pudo leer la cola de validación: ${errorConteo.message}`);

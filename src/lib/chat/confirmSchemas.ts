@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { INGESTA_TIPOS } from '@/lib/nutrition';
+import { conversationSchema } from './conversation';
 import { INGREDIENT_TYPES } from './mealSchemas';
 
 /** Mismo tope por ítem que la carga manual del diario (MAX_CANTIDAD en alimentacion/actions.ts). */
@@ -69,6 +70,8 @@ export const confirmRequestSchema = z.object({
     .array(confirmItemSchema)
     .min(1, { error: 'No hay ningún alimento para guardar.' })
     .max(MAX_CONFIRM_ITEMS, { error: `Podés guardar hasta ${MAX_CONFIRM_ITEMS} alimentos por vez.` }),
+  /** NUT-228: opcional. Solo se guarda si algún ítem entra a la cola de validación. */
+  conversacion: conversationSchema.optional(),
 });
 
 export type ConfirmItem = z.infer<typeof confirmItemSchema>;

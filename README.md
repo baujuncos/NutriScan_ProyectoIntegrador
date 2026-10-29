@@ -129,10 +129,15 @@ NutriScan_ProyectoIntegrador/
 │   │   ├── supabase/                 # Clientes Supabase (client/server/admin)
 │   │   └── calculations.ts · nutrition.ts · roles.ts · password.ts · dates.ts
 │   └── types/                        # Tipos del dominio
-├── testing/                          # Suite de tests (Vitest)
+├── testing/                          # Pruebas (Vitest): unitarias, componentes, API
+│   ├── integration/                  # Integración (solo Gemini y Supabase simulados)
+│   └── e2e/                          # E2E contra servicios reales (npm run test:e2e)
+├── load/                             # Escenarios de k6 (stress y esfuerzo sostenido)
+├── .github/workflows/                # CI y verificación posterior al despliegue                          
 ├── supabase/
 │   ├── schema_consolidado.sql        # Fuente de verdad del esquema
-│   └── 020_alimento_personalizado_cola_nut192.sql  # Migración suelta (ya incluida arriba)
+│   ├── 020_alimento_personalizado_cola_nut192.sql  # Migración suelta (ya incluida arriba)
+│   └── 021_chat_ia_cola_validacion_nut228.sql      # Migración suelta (ya incluida arriba)
 ├── SARA2/                            # ETL + seed del catálogo SARA2 (ver README_ETL_SARA2.md)
 ├── ANMAT/                            # Catálogo ANMAT: CSV + seed_anmat.py / unseed_anmat.py
 ├── scripts/                          # Íconos PWA, preview del matcher, prueba de prompt
@@ -166,6 +171,7 @@ GEMINI_API_KEY=<tu-api-key-de-gemini>
 
 # Opcionales
 GEMINI_MODEL=gemini-3.5-flash
+CRON_SECRET=<secreto-largo-aleatorio>   # obligatorio en Vercel: protege /api/send-reminders
 GEMINI_FALLBACK_MODEL=gemini-3.6-flash
 GMAIL_USER=<cuenta-que-envia-recordatorios>
 GMAIL_PASS=<app-password-de-gmail>
@@ -235,19 +241,43 @@ npm run dev      # http://localhost:3000
 | `npm run lint` | ESLint |
 | `npm test` / `npm run test:watch` | Tests con Vitest |
 
-### 7. Tests
+### 7. Ejecutar las pruebas y el proceso de calidad
 
-```bash
-npm test
-```
+Todo se ejecuta con un comando (Node 24):
 
-La suite vive en `testing/` y tiene dos proyectos de Vitest: `node` (lógica pura: cálculos, roles, matching, detección, métricas, rutas API con mocks) y `jsdom` (componentes React con Testing Library). No requiere conexión a la base de datos ni a Gemini. `npm run build` ejecuta los tests antes de compilar, así que un test roto frena el deploy.
+| Qué | Comando | Necesita red / credenciales |
+| --- | --- | --- |
+| Todas las pruebas (unitarias, componentes, API, integración) | `npm test` | No |
+| Con cobertura de sentencia y de decisión (`coverage/index.html`) | `npm run test:coverage` | No |
+| Solo unitarias/componentes · solo integración | `npm run test:unit` · `npm run test:integration` | No |
+| Análisis estático + quality gate completo | `npm run qa` (lint, tipos, cobertura, jscpd, npm audit, gate) | No |
+| Solo el quality gate (con los reportes ya generados) | `npm run qa:gate` | No |
+| **Smoke test** del despliegue | `BASE_URL=https://tu-app.vercel.app npm run smoke` | No (solo la URL) |
+| **E2E contra Supabase, Gemini y Open Food Facts reales** | `npm run test:e2e` | Sí (`.env.local`, ver [SETUP_SECRETS](docs/SETUP_SECRETS.md)) |
+| **Stress** (k6) | `BASE_URL=... npm run load:stress` | Necesita [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (o `K6_BIN`) |
+| **Esfuerzo sostenido** (k6) | `BASE_URL=... SOAK_DURATION=10m npm run load:soak` | idem |
 
-Scripts de apoyo para el chat de comidas, sin gastar cuota de Gemini:
+El pipeline (`.github/workflows/`) hace lo mismo automáticamente: **CI** en cada push/PR (compila, prueba, analiza y aplica el quality gate) y **Verificar despliegue** después de cada despliegue (smoke → E2E real → carga).
+La suite vive en `testing/` y tiene dos proyectos de Vitest: `node` (lógica pura: cálculos, roles, matching, detección, métricas, rutas API con mocks) y `jsdom` (componentes React con Testing Library). `npm run build` ejecuta los tests antes de compilar, así que un test roto frena el deploy.
+
+Script de apoyo para el chat de comidas, sin gastar cuota de Gemini:
 
 ```bash
 npx tsx --env-file=.env.local scripts/preview-sara2-matching.ts "pan blanco" "banana"
 ```
+**Documentación de calidad** (trabajo integrador de Calidad de Software, nivel 3):
+
+| Documento | Contenido |
+| --- | --- |
+| [docs/plan-de-pruebas.md](docs/plan-de-pruebas.md) | Criterios de entrada/salida, ISO 25010, riesgos, niveles, QA vs QC, plantillas, contingencia, 7 principios, trazabilidad |
+| [docs/casos-de-prueba.md](docs/casos-de-prueba.md) | Clases de equivalencia, valores límite, tablas de decisión, cobertura de sentencia y decisión |
+| [docs/defectos.md](docs/defectos.md) · [defectos.csv](docs/defectos.csv) | Registro de defectos (importable a Jira) y contraste rojo/verde |
+| [docs/integracion-externa.md](docs/integracion-externa.md) | Contrato y pruebas de Supabase, Gemini y Open Food Facts |
+| [docs/pruebas-de-carga.md](docs/pruebas-de-carga.md) · [docs/herramienta-k6.md](docs/herramienta-k6.md) | Stress, esfuerzo sostenido y la herramienta incorporada |
+| [docs/metricas.md](docs/metricas.md) | Análisis estático, métricas y mejoras antes/después |
+| [docs/SETUP_SECRETS.md](docs/SETUP_SECRETS.md) | Secrets y configuración externa necesarios |
+| [docs/guion-demo.md](docs/guion-demo.md) | Guion de la demostración |
+| [docs/GUIA_DEFENSA.md](docs/GUIA_DEFENSA.md) | Explicación simple de cada test, paso del pipeline y decisión |
 
 ---
 

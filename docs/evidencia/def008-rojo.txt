@@ -1,0 +1,115 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |node| testing/hidratacionAction.test.ts (15 tests | 8 failed) 91ms
+     × delta NaN → error y no guarda nada 8ms
+     × delta Infinity → error y no guarda nada 3ms
+     × delta -Infinity → error y no guarda nada 2ms
+     × delta no entero → error y no guarda nada 2ms
+     × delta fuera de rango (10001) → error y no guarda nada 3ms
+     × delta fuera de rango negativo (-10001) → error y no guarda nada 2ms
+     × delta absurdo (1e12) → error y no guarda nada 2ms
+     × el total del día no puede superar 10000 ml aunque cada delta sea válido 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta NaN → error y no guarda nada
+AssertionError: expected { ml: NaN } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta Infinity → error y no guarda nada
+AssertionError: expected { ml: Infinity } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta -Infinity → error y no guarda nada
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta fuera de rango negativo (-10001) → error y no guarda nada
+AssertionError: expected { ml: +0 } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta no entero → error y no guarda nada
+AssertionError: expected { ml: 750.5 } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta fuera de rango (10001) → error y no guarda nada
+AssertionError: expected { ml: 10501 } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > delta absurdo (1e12) → error y no guarda nada
+AssertionError: expected { ml: 1000000000500 } to have property "error"
+ ❯ testing/hidratacionAction.test.ts:81:15
+     79|     db.mockTable('hidratacion', { data: { ml_total: 500 }, error: null…
+     80|     const r = await updateHidratacion(delta);
+     81|     expect(r).toHaveProperty('error');
+       |               ^
+     82|     expect(guardado()).toBeUndefined();
+     83|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |node| testing/hidratacionAction.test.ts > updateHidratacion — validación del lado del servidor (DEF-008) > el total del día no puede superar 10000 ml aunque cada delta sea válido
+AssertionError: expected { ml: 14900 } to deeply equal { ml: 10000 }
+
+- Expected
++ Received
+
+  {
+-   "ml": 10000,
++   "ml": 14900,
+  }
+
+ ❯ testing/hidratacionAction.test.ts:98:15
+     96|     db.mockTable('hidratacion', { data: { ml_total: 9_900 }, error: nu…
+     97|     const r = await updateHidratacion(5_000);
+     98|     expect(r).toEqual({ ml: 10_000 });
+       |               ^
+     99|     expect(guardado()?.ml_total).toBe(10_000);
+    100|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 7 passed (15)
+   Start at  18:53:34
+   Duration  845ms (transform 144ms, setup 0ms, import 203ms, tests 91ms, environment 0ms)
+

@@ -153,11 +153,13 @@ describe('birthDateRange', () => {
     expect(minISO < todayISO).toBe(true);
   });
 
-  it(`minISO corresponde aproximadamente a ${MAX_AGE} años atrás`, () => {
+  // DEF-019: la fecha mínima es "hoy hace MAX_AGE + 1 años, más un día" (la más antigua con edad <= MAX_AGE);
+  // por eso la diferencia de años calendario es MAX_AGE + 1, o MAX_AGE si hoy es 31/12 (el +1 día cae en enero).
+  it(`minISO corresponde a ${MAX_AGE} años de edad cumplidos (diferencia de ${MAX_AGE} o ${MAX_AGE + 1} años de calendario)`, () => {
     const { todayISO, minISO } = birthDateRange();
     const todayYear = Number(todayISO.slice(0, 4));
     const minYear = Number(minISO.slice(0, 4));
-    expect(todayYear - minYear).toBe(MAX_AGE);
+    expect([MAX_AGE, MAX_AGE + 1]).toContain(todayYear - minYear);
   });
 });
 

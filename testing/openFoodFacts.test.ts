@@ -128,6 +128,23 @@ describe('obtenerProductoPorEAN', () => {
     expect(result).toEqual({ encontrado: false, ean: '7790040000400' });
   });
 
+  // Regresión de 0980b7f: una ficha con kcal pero SIN ningún macro (proteínas, grasas, carbohidratos
+  // en 0 o ausentes) no sirve para registrar el alimento y debe tratarse como "no encontrado".
+  it.each([
+    ['macros en 0', { 'energy-kcal_100g': 250, proteins_100g: 0, fat_100g: 0, carbohydrates_100g: 0 }],
+    ['macros ausentes (solo kcal)', { 'energy-kcal_100g': 250 }],
+    ['macros como string "0"', { 'energy-kcal_100g': '250', proteins_100g: '0', fat_100g: '0', carbohydrates_100g: '0' }],
+  ])('regresión: ficha con kcal pero %s → encontrado:false', async (_caso, nutriments) => {
+    mockFetchOnce({ status: 1, product: { product_name: 'Ficha incompleta', nutriments } });
+    expect(await obtenerProductoPorEAN('7790040000401')).toEqual({ encontrado: false, ean: '7790040000401' });
+  });
+
+  it('valor límite: un único macro distinto de 0 alcanza para que la ficha sea utilizable', async () => {
+    mockFetchOnce({ status: 1, product: { product_name: 'Casi vacía', nutriments: { 'energy-kcal_100g': 4, carbohydrates_100g: 1 } } });
+    const result = await obtenerProductoPorEAN('7790040000402');
+    expect(result.encontrado).toBe(true);
+  });
+
   it('devuelve encontrado:true con 0 en los campos que falten cuando NO faltan los 4', async () => {
     mockFetchOnce({
       status: 1,

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  18:20:07
+   Duration  795ms (transform 164ms, setup 0ms, import 337ms, tests 49ms, environment 0ms)
+

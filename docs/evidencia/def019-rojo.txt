@@ -1,0 +1,33 @@
+
+ RUN  v4.1.8 C:/Users/sofis/NutriScan_ProyectoIntegrador
+
+ ❯ |node| testing/valoresLimiteDominio.test.ts (28 tests | 1 failed) 28ms
+     × el día anterior al mínimo del selector es inválido para el validador (límites idénticos) 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| testing/valoresLimiteDominio.test.ts > DEF-019 — el selector de fecha y el validador usan el mismo límite > el día anterior al mínimo del selector es inválido para el validador (límites idénticos)
+AssertionError: expected null to be 'La edad máxima es 100 años.' // Object.is equality
+
+- Expected:
+"La edad máxima es 100 años."
+
++ Received:
+null
+
+ ❯ testing/valoresLimiteDominio.test.ts:66:47
+     64|     const [y, m, d] = minISO.split('-').map(Number);
+     65|     const anterior = new Date(Date.UTC(y, m - 1, d - 1)).toISOString()…
+     66|     expect(validateFechaNacimiento(anterior)).toBe(`La edad máxima es …
+       |                                               ^
+     67|   });
+     68|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 64 passed (65)
+   Start at  20:27:12
+   Duration  3.61s (transform 277ms, setup 0ms, import 449ms, tests 62ms, environment 1ms)
+

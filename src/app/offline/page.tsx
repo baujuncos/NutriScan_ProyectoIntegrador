@@ -8,6 +8,8 @@ export default function OfflinePage() {
       <p className="max-w-sm text-sm text-gray-500">
         No pudimos conectarnos a internet. Revisá tu conexión e intentá de nuevo.
       </p>
+      {/* <a> y no <Link>: sin conexión hace falta una recarga completa, no una navegación del lado del cliente. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <a
         href="/"
         className="mt-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"

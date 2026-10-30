@@ -1,3 +1,4 @@
+import type { EntradaAntropometria } from '@/lib/antropometria';
 import type { SeriesPorVariable } from '@/lib/antropometria/variables';
 
 // Paciente FICTICIA: los valores numéricos son los de la planilla de ejemplo de F. Holway
@@ -34,6 +35,16 @@ export const SERIES_JULIETA: SeriesPorVariable = {
 
 /** Masa ósea de referencia cargada a mano en la planilla (Proc datos brutos!I39). */
 export const MASA_OSEA_REFERENCIA_JULIETA = 6.196;
+
+export const ENTRADA_JULIETA: EntradaAntropometria = {
+  sexo: 'F',
+  fechaNacimiento: '2002-04-05',
+  fechaMedicion: '2026-10-24',
+  series: SERIES_JULIETA,
+  nivelActividad: 'moderada',
+  deporte: 'voleibol',
+  masaOseaReferencia: MASA_OSEA_REFERENCIA_JULIETA,
+};
 
 /** Edad decimal que muestra la planilla de ejemplo ('Proc datos brutos'!I3), usada para validar fórmulas puntuales. */
 export const EDAD_PLANILLA_JULIETA = 24.54757016;

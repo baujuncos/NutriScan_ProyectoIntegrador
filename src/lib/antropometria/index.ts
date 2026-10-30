@@ -1,0 +1,23 @@
+// Motor de cálculo antropométrico (NUT-248). Módulo puro: sin UI, base de datos ni I/O.
+export { calcularAntropometria, compararMediciones } from './calcular';
+export type { ComparacionMediciones, EntradaAntropometria, ResultadoAntropometria } from './calcular';
+export { calcularEdad, EDAD_MINIMA } from './edad';
+export type { Edad } from './edad';
+export { ErrorAntropometria } from './errores';
+export type { CodigoErrorAntropometria } from './errores';
+export { DIFERENCIAS_CON_EXCEL } from './diferenciasExcel';
+export { variablesFaltantes } from './series';
+export type { EstadisticaSerie } from './series';
+export { deportesDisponibles, somatotipoDeDeporte } from './somatotipo';
+export type { ComparacionDeporte, Somatotipo } from './somatotipo';
+export { NIVELES_ACTIVIDAD } from './datos/actividad';
+export { DEPORTE_NINGUNO } from './datos/deportes';
+export { EDAD_FIJA_MASA_OSEA } from './datos/kerr';
+export type { MasaKerr, MasaOsea, NombreMasa, ResultadoKerr } from './kerr';
+export type { Energia } from './energia';
+export type { Indices, NivelRiesgoIcc, RiesgoIcc } from './indices';
+export type { ClavePhantom } from './datos/phantom';
+export type { ResultadoPhantom } from './phantom';
+export type { NivelActividad, Sexo } from './tipos';
+export { CLAVES_VARIABLES, GRUPOS_VARIABLE, VARIABLES, variablesDelGrupo } from './variables';
+export type { ClaveVariable, GrupoVariable, SeriesPorVariable, ValoresPorVariable } from './variables';

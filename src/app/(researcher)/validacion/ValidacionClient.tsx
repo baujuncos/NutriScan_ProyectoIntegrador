@@ -40,6 +40,8 @@ const ESTADO_TONE: Record<PendienteFila['estado'], BadgeTone> = {
 
 /** "1 manual", "2 manuales". */
 const manuales = (n: number) => `${n} ${n === 1 ? 'manual' : 'manuales'}`;
+/** NUT-228: "1 chat", "2 chats". */
+const chats = (n: number) => `${n} ${n === 1 ? 'chat' : 'chats'}`;
 
 const GRID = 'sm:grid sm:grid-cols-[minmax(0,2fr)_6rem_5rem_7rem_auto] sm:items-center sm:gap-4';
 
@@ -125,6 +127,9 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                       {r.origen === 'manual' && (
                         <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 align-[1px] text-[11px] font-semibold text-slate-700">Manual</span>
                       )}
+                      {r.origen === 'chat' && (
+                        <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 align-[1px] text-[11px] font-semibold text-slate-700">Chat</span>
+                      )}
                     </p>
                     {nombre !== r.nombre_original && (
                       <p className="truncate text-xs text-slate-600">Detectado como: {r.nombre_original}</p>
@@ -135,13 +140,20 @@ export default function ValidacionClient({ rows, total, params }: Props) {
                   </span>
                   <span className="text-sm text-slate-700">
                     <span className="sm:hidden text-slate-600">Ocurrencias: </span>
-                    {r.ocurrencias === 0 && r.ocurrencias_manuales > 0 ? (
+                    {r.ocurrencias === 0 && r.ocurrencias_manuales === 0 && (r.ocurrencias_chat ?? 0) > 0 ? (
+                      // NUT-228: solo chat (sin foto ni cargas manuales).
+                      <span>{chats(r.ocurrencias_chat ?? 0)}</span>
+                    ) : r.ocurrencias === 0 && r.ocurrencias_manuales > 0 ? (
                       // Solo manual: no hay ocurrencias con foto, así que no se muestra un "0".
-                      <span>{manuales(r.ocurrencias_manuales)}</span>
+                      <>
+                        <span>{manuales(r.ocurrencias_manuales)}</span>
+                        {(r.ocurrencias_chat ?? 0) > 0 && <span className="block text-xs text-slate-600">+{chats(r.ocurrencias_chat ?? 0)}</span>}
+                      </>
                     ) : (
                       <>
                         <span>{r.ocurrencias}</span>
                         {r.ocurrencias_manuales > 0 && <span className="block text-xs text-slate-600">+{manuales(r.ocurrencias_manuales)}</span>}
+                        {(r.ocurrencias_chat ?? 0) > 0 && <span className="block text-xs text-slate-600">+{chats(r.ocurrencias_chat ?? 0)}</span>}
                       </>
                     )}
                     {r.usuarios_distintos > 0 && (

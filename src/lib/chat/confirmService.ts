@@ -6,6 +6,7 @@
 
 import { toFixed2 } from '@/lib/nutrition';
 import { MAX_DIARY_ITEM_AMOUNT, type ConfirmItem, type ConfirmRequest } from './confirmSchemas';
+import type { ConversationMessage } from './conversation';
 import type { Macros } from './mealSchemas';
 import { sanitizeEstimate } from './mealService';
 import { macrosForQuantity, type Per100 } from './sara2Catalog';
@@ -38,6 +39,22 @@ export interface RpcPayload {
   promptVersion: string;
   totales: AmountAndMacros;
   items: RpcItem[];
+  /** NUT-228: solo cuando algún ítem entra a la cola de validación. */
+  conversacion?: ConversationMessage[];
+}
+
+/**
+ * NUT-228 — Entra a la cola de validación solo lo que el chat estimó sin match en el catálogo:
+ * macroSource 'estimado_ia', sin id_alimento, que va al diario y no fue quitado. Ni el agua, ni los
+ * de SARA2, ni los agregados a mano (no son una predicción del chat).
+ */
+export function isQueueable(item: Pick<RpcItem, 'macroSource' | 'idAlimento' | 'destino' | 'origin'>): boolean {
+  return (
+    item.macroSource === 'estimado_ia' &&
+    item.idAlimento === null &&
+    item.destino === 'diario' &&
+    (item.origin === 'ai' || item.origin === 'edited')
+  );
 }
 
 /** Error de validación de negocio: se responde 400 con este mensaje (apto para el usuario). */
@@ -138,6 +155,7 @@ export function buildConfirmPayload(
   const sum = (pick: (m: AmountAndMacros) => number) => toFixed2(confirmed.reduce((acc, m) => acc + pick(m), 0));
 
   return {
+    ...(request.conversacion && items.some(isQueueable) ? { conversacion: request.conversacion } : {}),
     requestId: request.requestId,
     fecha: request.fecha,
     tipoIngesta: request.tipoIngesta,

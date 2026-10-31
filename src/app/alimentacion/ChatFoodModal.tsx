@@ -27,6 +27,7 @@ import {
   type ResolvedItem,
 } from '@/lib/chatFoodEdits';
 import { getMealChatService } from '@/lib/chatFoodService';
+import { toRequestMessages } from '@/lib/chatFoodRealService';
 import { getMealSaveService } from '@/lib/chatFoodSaveService';
 import type { IngestaTipo } from '@/lib/nutrition';
 
@@ -457,7 +458,12 @@ export default function ChatFoodModal({
     setIsSaving(true);
     try {
       // Mismo requestId en cada reintento: si el guardado anterior sí llegó, no se duplica.
-      const request = buildConfirmRequest(pendingResult, edits, { requestId, fecha, tipoIngesta });
+      const request = buildConfirmRequest(pendingResult, edits, {
+        requestId,
+        fecha,
+        tipoIngesta,
+        conversacion: toRequestMessages(messages),
+      });
       await (saveService ?? getMealSaveService()).save(request);
       const confirmed = toConfirmedResult(pendingResult, edits);
       resetState();

@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { calcularAntropometria, compararMediciones } from '@/lib/antropometria';
 import { ENTRADA_JULIETA, SERIES_JULIETA } from './fixtures/antropometria';
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }), usePathname: () => '/antropometrias' }));
+vi.mock('@/app/(researcher)/antropometrias/actions', () => ({ anularMedicionAction: vi.fn() }));
+
 import AccionesInforme from '@/app/(researcher)/antropometrias/medicion/[medicionId]/AccionesInforme';
 import { fmtZ, GraficoPhantom, Somatocarta } from '@/app/(researcher)/antropometrias/medicion/[medicionId]/GraficosInforme';
 import InformeParte1 from '@/app/(researcher)/antropometrias/medicion/[medicionId]/InformeParte1';
@@ -141,7 +144,7 @@ describe('AccionesInforme — exportar PDF', () => {
       expect(document.title).toBe('Marchetti_Julieta_2026-10-24');
     });
     document.title = 'NutriScan';
-    render(<AccionesInforme nombreArchivo="Marchetti_Julieta_2026-10-24" hrefEditar="/antropometrias/medicion/x/editar" />);
+    render(<AccionesInforme medicionId="x" fecha="24/10/2026" nombreArchivo="Marchetti_Julieta_2026-10-24" hrefEditar="/antropometrias/medicion/x/editar" />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Exportar PDF' }));
 
@@ -151,7 +154,7 @@ describe('AccionesInforme — exportar PDF', () => {
   });
 
   it('enlaza a la edición de la medición', () => {
-    render(<AccionesInforme nombreArchivo="x" hrefEditar="/antropometrias/medicion/x/editar" />);
+    render(<AccionesInforme medicionId="x" fecha="24/10/2026" nombreArchivo="x" hrefEditar="/antropometrias/medicion/x/editar" />);
     expect(screen.getByRole('link', { name: 'Editar' })).toHaveAttribute('href', '/antropometrias/medicion/x/editar');
   });
 });

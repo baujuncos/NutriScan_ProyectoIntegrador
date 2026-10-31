@@ -97,6 +97,21 @@ describe('página del informe', () => {
     expect(within(screen.getByRole('row', { name: /Peso bruto/ })).getByText('−1,05')).toBeInTheDocument();
   });
 
+  it('editar los datos crudos cambia el informe (se recalcula al vuelo) y muestra quién modificó', async () => {
+    const editada = medicion('m2', { series: { ...SERIES_JULIETA, pliegue_triceps: [24, 26] }, actualizado_por: 'inv-2' });
+    sb.mockTable('antropometria_mediciones', { data: editada, error: null });
+    sb.mockTable('antropometria_pacientes_manuales', { data: PACIENTE, error: null });
+    sb.mockTable('antropometria_mediciones', { data: [editada], error: null });
+    sb.mockTable('profiles', { data: [INVESTIGADORA, { user_id: 'inv-2', nombre: 'Beto', apellido: 'Diaz' }], error: null });
+
+    render(await InformePage({ params: Promise.resolve({ medicionId: 'm2' }) }));
+
+    // Con el tríceps duplicado la masa adiposa ya no es la del valor ancla (17,64 kg).
+    expect(within(screen.getByRole('row', { name: /Masa adiposa/ })).queryByText('17,64')).not.toBeInTheDocument();
+    expect(screen.getByText(/Última modificación/)).toBeInTheDocument();
+    expect(screen.getByText(/Beto Diaz/)).toBeInTheDocument();
+  });
+
   it('una medición anulada no se abre', async () => {
     sb.mockTable('antropometria_mediciones', { data: medicion('m9', { estado: 'anulada' }), error: null });
     await expect(InformePage({ params: Promise.resolve({ medicionId: 'm9' }) })).rejects.toThrow('NEXT_NOT_FOUND');
@@ -146,6 +161,16 @@ describe('página de la ficha', () => {
     expect(screen.getByRole('link', { name: 'Retomar' })).toHaveAttribute('href', '/antropometrias/medicion/b1/editar');
     expect(screen.getByRole('link', { name: 'Nueva medición' })).toHaveAttribute('href', '/antropometrias/manual/p1/medicion/nueva');
     expect(screen.getByText('1 de 12')).toBeInTheDocument();
+  });
+
+  it('cada medición ofrece Ver informe, Editar y Anular; el borrador, Retomar y Descartar', async () => {
+    cargarFicha([medicion('m1'), medicion('b1', { estado: 'borrador', fecha_medicion: '2026-10-28', series: {} })]);
+    await abrir();
+
+    const fila = screen.getByRole('row', { name: /24\/10\/2026/ });
+    expect(within(fila).getByRole('link', { name: 'Editar' })).toHaveAttribute('href', '/antropometrias/medicion/m1/editar');
+    expect(within(fila).getByRole('button', { name: 'Anular' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Descartar' })).toBeInTheDocument();
   });
 
   it('sin mediciones muestra el estado vacío', async () => {

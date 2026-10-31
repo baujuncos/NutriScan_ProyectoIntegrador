@@ -79,7 +79,14 @@ export default async function InformePage({ params }: { params: Promise<{ medici
         title="Informe de antropometría"
         subtitle={`${paciente.apellido}, ${paciente.nombre} · ${fechaLegible(medicion.fecha_medicion)}`}
         helpId="antropometrias"
-        actions={<AccionesInforme nombreArchivo={nombreArchivoInforme(paciente, medicion.fecha_medicion)} hrefEditar={rutaEditarMedicion(medicion.id)} />}
+        actions={
+          <AccionesInforme
+            medicionId={medicion.id}
+            fecha={fechaLegible(medicion.fecha_medicion)}
+            nombreArchivo={nombreArchivoInforme(paciente, medicion.fecha_medicion)}
+            hrefEditar={rutaEditarMedicion(medicion.id)}
+          />
+        }
       />
 
       <div id="informe-imprimible" className="space-y-8 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 sm:p-8 print:p-0 print:shadow-none print:ring-0">

@@ -16,6 +16,7 @@ import {
 } from '@/lib/researcher/antropometria/rutas';
 import { createClient } from '@/lib/supabase/server';
 import { MAX_MEDICIONES_POR_PACIENTE } from '@/types/antropometria';
+import AnularMedicion from '../../AnularMedicion';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,9 +82,12 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
                   <span className="mr-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Borrador</span>
                   {fechaLegible(m.fecha_medicion)}
                 </span>
-                <Link href={rutaEditarMedicion(m.id)} className={ENLACE}>
-                  Retomar
-                </Link>
+                <span className="flex items-center gap-3">
+                  <Link href={rutaEditarMedicion(m.id)} className={ENLACE}>
+                    Retomar
+                  </Link>
+                  <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} esBorrador destino="refrescar" />
+                </span>
               </li>
             ))}
           </ul>
@@ -125,9 +129,15 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
                       <td className="px-4 py-3 text-slate-700">{r ? `${fmt(r.masaAdiposaKg, 2)} kg` : '—'}</td>
                       <td className="px-4 py-3 text-slate-700">{r ? `${fmt(r.masaMuscularKg, 2)} kg` : '—'}</td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={rutaInforme(m.id)} className={ENLACE}>
-                          Ver informe
-                        </Link>
+                        <span className="inline-flex items-center gap-3">
+                          <Link href={rutaInforme(m.id)} className={ENLACE}>
+                            Ver informe
+                          </Link>
+                          <Link href={rutaEditarMedicion(m.id)} className={ENLACE}>
+                            Editar
+                          </Link>
+                          <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} destino="refrescar" />
+                        </span>
                       </td>
                     </tr>
                   );

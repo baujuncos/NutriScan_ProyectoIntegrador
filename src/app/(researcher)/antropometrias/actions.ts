@@ -12,7 +12,7 @@ import { ErrorAntropometria, variablesFaltantes } from '@/lib/antropometria';
 import { todayAR } from '@/lib/date';
 import { parseDateLocal } from '@/lib/dates';
 import { clienteInvestigador, type SupabaseServidor } from '@/lib/researcher/clienteInvestigador';
-import { cargarMediciones, cargarPaciente } from '@/lib/researcher/antropometria/datos';
+import { cargarMedicion, cargarMediciones, cargarPaciente } from '@/lib/researcher/antropometria/datos';
 import { decidirMasaOsea, esLaMedicionMasAntigua, sanearSeries } from '@/lib/researcher/antropometria/guardado';
 import { cargarListado } from '@/lib/researcher/antropometria/listado';
 import {
@@ -194,6 +194,31 @@ export async function guardarBorradorAction(input: unknown): Promise<ResultadoMe
     .single();
   if (error || !data) return { error: 'No se pudo guardar el borrador.' };
   return { ok: true, id: (data as { id: string }).id };
+}
+
+/**
+ * Baja lógica: pasa la medición a `anulada` (nunca se borra). Una anulada deja de verse en la ficha,
+ * en el listado y como "medición anterior" de las comparaciones. Vale también para descartar un borrador.
+ */
+export async function anularMedicionAction(medicionId: unknown): Promise<{ ok: true; fichaHref: string } | ResultadoError> {
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+
+  const id = ID.safeParse(medicionId);
+  if (!id.success) return { error: 'Identificador inválido.' };
+
+  const medicion = await cargarMedicion(auth.supabase, id.data);
+  if (!medicion) return { error: 'No se encontró la medición.' };
+  if (medicion.estado === 'anulada') return { error: 'La medición ya estaba anulada.' };
+
+  const { error } = await auth.supabase.from('antropometria_mediciones').update({ estado: 'anulada' }).eq('id', medicion.id);
+  if (error) return { error: 'No se pudo anular la medición. Probá de nuevo.' };
+
+  const fichaHref = medicion.user_id ? rutaFicha('deportista', medicion.user_id) : rutaFicha('manual', medicion.paciente_manual_id ?? '');
+  revalidatePath(RUTA_LISTADO);
+  revalidatePath(fichaHref);
+  revalidatePath(rutaInforme(medicion.id));
+  return { ok: true, fichaHref };
 }
 
 /**

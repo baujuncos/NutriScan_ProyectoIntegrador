@@ -8,7 +8,7 @@
 import { UMBRAL_CONFIANZA_ALTA, UMBRAL_TASA_CORRECCION_ALTA } from '@/lib/metricasIa';
 import { UMBRAL_CONFIANZA_BAJA, UMBRAL_DIFERENCIA_PESO } from '@/lib/revisionIa';
 
-export type HelpId = 'dashboard' | 'deportistas' | 'validacion' | 'revision-cola' | 'revision-metricas';
+export type HelpId = 'dashboard' | 'deportistas' | 'validacion' | 'revision-cola' | 'revision-metricas' | 'antropometrias';
 
 export interface HelpSeccion {
   titulo: string;
@@ -165,6 +165,40 @@ export const HELP: Record<HelpId, HelpContent> = {
       {
         termino: EJEMPLO_IA_TITULO,
         definicion: EJEMPLO_IA_AYUDA,
+      },
+    ],
+  },
+
+  antropometrias: {
+    titulo: 'Antropometrías',
+    secciones: [
+      {
+        titulo: 'Qué es',
+        texto: [
+          'Las mediciones antropométricas de los deportistas registrados y de los pacientes que se cargan a mano: un informe con la composición corporal en 5 masas, el somatotipo y el gasto energético.',
+        ],
+      },
+      {
+        titulo: 'Para qué sirve',
+        texto: [
+          'Para cargar las 25 variables de una medición (peso, talla, diámetros, perímetros y pliegues, con 2 o 3 series cada una) y obtener el informe, y para seguir cómo cambia cada paciente mes a mes.',
+        ],
+      },
+      {
+        titulo: 'Cómo se usa',
+        pasos: [
+          'Buscá a la persona por nombre o filtrá por origen. Si no está, tocá "Agregar paciente": solo se pueden registrar mayores de 18 años.',
+          'Abrí su ficha y tocá "Nueva medición". La carga se guarda sola como borrador y la podés retomar después.',
+          'El informe solo se genera con las 25 variables completas. El % de error de cada variable es informativo: no bloquea nada.',
+          'Cada paciente puede tener hasta 12 mediciones (una por mes). Si editás una medición vieja, el informe se recalcula.',
+        ],
+      },
+    ],
+    glosario: [
+      {
+        termino: 'Masa ósea de referencia',
+        definicion:
+          'Desde los 21 años la masa ósea no cambia: se calcula en la primera medición y se reutiliza en las siguientes.',
       },
     ],
   },

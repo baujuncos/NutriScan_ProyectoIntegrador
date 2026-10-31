@@ -8,6 +8,7 @@ import FilterBar from '@/components/researcher/FilterBar';
 import PageHeader from '@/components/researcher/PageHeader';
 import type { PacienteListado } from '@/lib/researcher/antropometria/listado';
 import { fechaLegible, normalizarNombre } from '@/lib/researcher/antropometria/reglas';
+import { RUTA_LISTADO, rutaFicha } from '@/lib/researcher/antropometria/rutas';
 import { MAX_MEDICIONES_POR_PACIENTE, type OrigenPaciente } from '@/types/antropometria';
 
 type FiltroOrigen = 'todos' | OrigenPaciente;
@@ -34,7 +35,7 @@ export default function AntropometriasClient({ pacientes }: { pacientes: Pacient
 
   const hayFiltros = busqueda !== '' || origen !== 'todos';
   const agregar = (
-    <Link href="/antropometrias/nuevo" className={BOTON_AGREGAR}>
+    <Link href={`${RUTA_LISTADO}/nuevo`} className={BOTON_AGREGAR}>
       Agregar paciente
     </Link>
   );
@@ -92,7 +93,7 @@ export default function AntropometriasClient({ pacientes }: { pacientes: Pacient
                       <tr key={`${p.origen}-${p.id}`} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-medium text-slate-900">
                           <Link
-                            href={`/antropometrias/${p.origen}/${p.id}`}
+                            href={rutaFicha(p.origen, p.id)}
                             className="rounded hover:text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                           >
                             {p.apellido}, {p.nombre}

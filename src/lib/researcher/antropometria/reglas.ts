@@ -60,6 +60,20 @@ export function puedeAgregarMedicion(cantidadVigentes: number): boolean {
 
 export const MENSAJE_LIMITE_MEDICIONES = `Este paciente ya tiene ${MAX_MEDICIONES_POR_PACIENTE} mediciones. Anulá una para poder cargar otra.`;
 
+/**
+ * Por qué no se puede cargar una medición nueva, o null si se puede. Un deportista sin
+ * fecha de nacimiento no se bloquea: el asistente se la pide en el primer paso.
+ */
+export function motivoBloqueoNuevaMedicion(
+  paciente: { fechaNacimiento: string | null },
+  cantidadVigentes: number,
+  hoy: Date = new Date(),
+): string | null {
+  if (paciente.fechaNacimiento && !esMayorDeEdad(paciente.fechaNacimiento, hoy)) return MENSAJE_MENOR_DE_EDAD;
+  if (!puedeAgregarMedicion(cantidadVigentes)) return MENSAJE_LIMITE_MEDICIONES;
+  return null;
+}
+
 /** "2026-10-24" → "24/10/2026" (sin pasar por Date: evita corrimientos de zona horaria). */
 export function fechaLegible(iso: string): string {
   const [anio, mes, dia] = iso.split('-');

@@ -1,7 +1,7 @@
 begin;
 
 -- ============================================================
--- 021 (NUT-247/NUT-252) — Antropometrías: pacientes manuales y mediciones
+-- 022 (NUT-247/NUT-252) — Antropometrías: pacientes manuales y mediciones
 --
 -- Qué agrega (todo ADITIVO: no toca ninguna tabla ni función existente):
 --   * antropometria_pacientes_manuales: pacientes que no son usuarios de la app

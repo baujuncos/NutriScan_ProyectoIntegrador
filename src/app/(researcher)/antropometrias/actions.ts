@@ -3,7 +3,7 @@
 /**
  * Acciones de Antropometrías (NUT-235). Toda acción arranca con
  * `clienteInvestigador()`; además de ese chequeo, la base aplica RLS
- * (supabase/021_antropometria_nut247.sql).
+ * (supabase/022_antropometria_nut247.sql).
  */
 
 import { revalidatePath } from 'next/cache';

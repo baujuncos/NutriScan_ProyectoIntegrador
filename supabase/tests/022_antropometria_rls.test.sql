@@ -1,13 +1,13 @@
 -- ============================================================
--- Prueba de la migración 021 (NUT-247/NUT-252, antropometrías) para un
+-- Prueba de la migración 022 (NUT-247/NUT-252, antropometrías) para un
 -- proyecto/base DE PRUEBA. NUNCA correr contra producción.
 -- Todo corre dentro de una transacción que termina en ROLLBACK: no deja datos.
 -- Falla (RAISE EXCEPTION) en el primer caso que no se cumple; si llega al final
 -- imprime "TODOS LOS CASOS OK".
--- Requiere el esquema base + 021 aplicados. Crea usuarios en auth.users: en
+-- Requiere el esquema base + 022 aplicados. Crea usuarios en auth.users: en
 -- Supabase real esa tabla puede tener columnas/triggers extra; ajustar el insert
 -- si hace falta.
--- Uso: psql "$DATABASE_URL" -f supabase/tests/021_antropometria_rls.test.sql
+-- Uso: psql "$DATABASE_URL" -f supabase/tests/022_antropometria_rls.test.sql
 -- ============================================================
 begin;
 

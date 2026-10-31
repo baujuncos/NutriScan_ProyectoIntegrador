@@ -94,8 +94,10 @@ export interface PendienteFila {
   ocurrencias: number;
   ultima_ocurrencia: string | null;
   /** NUT-192: cómo se creó la entrada y cuántas cargas manuales (sin foto) y usuarios distintos tiene. */
-  origen: 'ia' | 'manual';
+  origen: 'ia' | 'manual' | 'chat';
   ocurrencias_manuales: number;
+  /** NUT-228: ítems que el chat con IA estimó sin catálogo (sin foto). Desde la 021; ausente en filas viejas. */
+  ocurrencias_chat?: number;
   usuarios_distintos: number;
 }
 
@@ -124,6 +126,18 @@ export interface SolicitudManual {
   gramos: number;
 }
 
+/** NUT-228: un ítem que el chat estimó sin catálogo (sin foto), con lo que escribió la persona. */
+export interface SolicitudChat {
+  idItem: number | null;
+  fecha: string;
+  deportista: string | null;
+  /** El alimento tal como lo interpretó el chat. */
+  interpretado: string;
+  gramos: number | null;
+  /** Mensajes del chat ({role, content}); null si no se guardaron. */
+  conversacion: Array<{ role: 'user' | 'assistant'; content: string }> | null;
+}
+
 export type PendienteDetalleResultado =
   | {
       ok: true;
@@ -134,6 +148,9 @@ export type PendienteDetalleResultado =
       /** Últimas cargas manuales (hasta MAX_OCURRENCIAS) y el total real (`pendiente.ocurrencias_manuales`). */
       solicitudesManuales?: SolicitudManual[];
       totalSolicitudesManuales?: number;
+      /** NUT-228: ítems del chat (sin foto) y el total real (`pendiente.ocurrencias_chat`). */
+      solicitudesChat?: SolicitudChat[];
+      totalSolicitudesChat?: number;
       /** Alimentos de SARA2/ANMAT con el mismo nombre normalizado (aviso no bloqueante). */
       existentesCatalogo?: ExistenteCatalogo[];
     }
@@ -511,6 +528,18 @@ type OcurrenciaRaw = {
   } | null;
 };
 
+type ChatRaw = {
+  id_item: number | null;
+  ingrediente: string;
+  gramos_final: number | string | null;
+  created_at: string;
+  chat_ia_registros: {
+    fecha: string;
+    id_usuario: string;
+    conversacion: Array<{ role: 'user' | 'assistant'; content: string }> | null;
+  } | null;
+};
+
 type ManualRaw = {
   id_item: number;
   nombre_manual: string | null;
@@ -539,7 +568,7 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
           'detecciones_ia_items(ingredient, estimated_weight_grams, bbox_x, bbox_y, bbox_width, bbox_height)',
       )
       .eq('id_pendiente', idPendiente);
-  const [pendienteRes, ocurrenciasRes, primeraRes, manualesRes] = await Promise.all([
+  const [pendienteRes, ocurrenciasRes, primeraRes, manualesRes, chatRes] = await Promise.all([
     supabase.from('v_alimentos_pendientes').select('*').eq('id_pendiente', idPendiente).single(),
     seleccion().order('created_at', { ascending: false }).limit(MAX_OCURRENCIAS),
     // La foto de referencia es la PRIMERA ocurrencia (no cambia cuando aparecen más); puede no estar entre las últimas.
@@ -547,7 +576,16 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
     // NUT-192: cargas manuales (sin foto) de esta entrada.
     supabase
       .from('items')
-      .select('id_item, nombre_manual, cantidad, created_at, ingestas(fecha, id_usuario)')
+      .select('id_item, nombre_manual, cantidad, created_at, ingestas(fecha, id_usuario), chat_ia_registros_items(id_registro_item)')
+      .eq('id_pendiente', idPendiente)
+      // NUT-228: los ítems que vienen del chat se muestran aparte (no son cargas manuales).
+      .is('chat_ia_registros_items', null)
+      .order('created_at', { ascending: false })
+      .limit(MAX_OCURRENCIAS),
+    // NUT-228: ítems estimados por el chat (sin foto) con la conversación de su registro.
+    supabase
+      .from('chat_ia_registros_items')
+      .select('id_item, ingrediente, gramos_final, created_at, chat_ia_registros(fecha, id_usuario, conversacion)')
       .eq('id_pendiente', idPendiente)
       .order('created_at', { ascending: false })
       .limit(MAX_OCURRENCIAS),
@@ -563,10 +601,12 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
   // La referencia va primero (una sola vez, aunque también esté entre las más recientes).
   const raws = primera ? [primera, ...recientes.filter((r) => r.id_guardado_item !== primera.id_guardado_item)] : recientes;
   const manuales = ((manualesRes?.data ?? []) as unknown as ManualRaw[]);
+  const chats = ((chatRes?.data ?? []) as unknown as ChatRaw[]);
   const userIds = [
     ...new Set([
       ...raws.map((r) => r.detecciones_guardados?.id_usuario),
       ...manuales.map((m) => m.ingestas?.id_usuario),
+      ...chats.map((c) => c.chat_ia_registros?.id_usuario),
     ].filter((u): u is string => !!u)),
   ];
   const paths = [...new Set(raws.map((r) => r.detecciones_guardados?.detecciones_ia?.imagen_path).filter((p): p is string => !!p))];
@@ -637,6 +677,14 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
     nombre: m.nombre_manual ?? '',
     gramos: Number(m.cantidad),
   }));
+  const solicitudesChat: SolicitudChat[] = chats.map((c) => ({
+    idItem: c.id_item,
+    fecha: c.chat_ia_registros?.fecha ?? c.created_at,
+    deportista: nombres.get(c.chat_ia_registros?.id_usuario ?? '') ?? null,
+    interpretado: c.ingrediente,
+    gramos: c.gramos_final == null ? null : Number(c.gramos_final),
+    conversacion: c.chat_ia_registros?.conversacion ?? null,
+  }));
   const existentesCatalogo: ExistenteCatalogo[] = (
     (existentesRes?.data ?? []) as Array<{ id_alimento: number; nombre: string; fuente: string }>
   ).map((a) => ({ origen: 'catalogo', id: a.id_alimento, nombre: a.nombre, fuente: a.fuente }));
@@ -648,6 +696,8 @@ export async function getPendienteDetalleAction(idPendiente: number): Promise<Pe
     propio,
     solicitudesManuales,
     totalSolicitudesManuales: Number(pendiente.ocurrencias_manuales ?? solicitudesManuales.length),
+    solicitudesChat,
+    totalSolicitudesChat: Number(pendiente.ocurrencias_chat ?? solicitudesChat.length),
     existentesCatalogo,
   };
 }

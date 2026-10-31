@@ -20,8 +20,8 @@ Verificado: `tsc` sin errores, ESLint sin errores (solo warnings viejos de otros
 
 ## Cómo probarlo
 
-1. Pegar `supabase/021_antropometria_nut247.sql` en el SQL Editor de Supabase (idempotente; la misma sección está al final de `schema_consolidado.sql`).
-2. Opcional, en una base **descartable**: `psql "$DATABASE_URL" -f supabase/tests/021_antropometria_rls.test.sql` (termina en `ROLLBACK`; imprime `TODOS LOS CASOS OK`). Nunca se corrió: puede pedir ajustes del `insert into auth.users`.
+1. Pegar `supabase/022_antropometria_nut247.sql` en el SQL Editor de Supabase (idempotente; la misma sección está al final de `schema_consolidado.sql`).
+2. Opcional, en una base **descartable**: `psql "$DATABASE_URL" -f supabase/tests/022_antropometria_rls.test.sql` (termina en `ROLLBACK`; imprime `TODOS LOS CASOS OK`). Nunca se corrió: puede pedir ajustes del `insert into auth.users`.
 3. `npm run dev`, entrar como investigador o administrador → pestaña **Antropometrías**.
 4. Recorrido con la paciente ficticia: Agregar paciente → Julieta Marchetti, 05/04/2002, Femenino → Nueva medición (24/10/2026, nivel Moderada, deporte Voleibol) con los valores de `testing/fixtures/antropometria.ts` (`SERIES_JULIETA`, 2 series por variable).
 5. Valores ancla del informe: masa adiposa **17,64 kg**, muscular **21,26 kg**, somatotipo **2,8 – 3,6 – 3,3**, IMC **19,8**. (Ya están asertados en tests contra el motor y las páginas con Supabase simulado.)
@@ -34,12 +34,12 @@ Tests: `npm run test:unit` (archivos nuevos: `testing/antropometria/*.test.ts`, 
 - Motor puro (ya existía): `src/lib/antropometria/`.
 - Capa de la app: `src/lib/researcher/antropometria/` — `reglas` (menores, duplicados, límite de 12, mismo mes, coma decimal), `listado`, `datos`, `calculo`, `guardado` (masa ósea de referencia), `asistente`, `informe`, `formato`, `rutas`.
 - Pantallas: `src/app/(researcher)/antropometrias/` (`page`, `nuevo`, `[origen]/[id]` ficha, `[origen]/[id]/medicion/nueva`, `medicion/[medicionId]` informe, `.../editar`) + `actions.ts`, `MedicionWizard`, `AnularMedicion`.
-- Datos: `supabase/021_antropometria_nut247.sql`; tipos a mano en `src/types/antropometria.ts` (el repo no genera tipos de la base).
+- Datos: `supabase/022_antropometria_nut247.sql`; tipos a mano en `src/types/antropometria.ts` (el repo no genera tipos de la base).
 
 ## Decisiones tomadas
 
 - **Roles:** investigador **y administrador** (mismo criterio que el resto del panel y que `get_my_role()`); los demás roles y anon no ven nada (RLS + guard de acciones).
-- **Sin carpeta de migraciones:** el repo aplica el SQL a mano; se siguió esa convención (sección 021 + archivo suelto).
+- **Sin carpeta de migraciones:** el repo aplica el SQL a mano; se siguió esa convención (sección 022 + archivo suelto).
 - **Datos del deportista registrado:** `physical_data` tiene sexo y nacimiento `NOT NULL`, así que un deportista que no completó su perfil no tiene fila y no se le puede escribir desde el panel. En lugar de una RPC se creó la tabla auxiliar `antropometria_deportistas_datos`: guarda la **masa ósea de referencia** y, solo como respaldo, sexo y fecha de nacimiento. Si `physical_data` tiene el dato, manda ese; nunca se pisa.
 - **Masa ósea de referencia:** si la persona tiene ≥ 21 años y no hay referencia, se guarda la masa ósea calculada de esa medición. Al editar la medición vigente **más antigua** se recalcula desde ella. Menores de 21: se calcula siempre y no se guarda.
 - **Solo datos crudos:** el informe se calcula al abrirlo; no hay resultados guardados que puedan quedar desincronizados.

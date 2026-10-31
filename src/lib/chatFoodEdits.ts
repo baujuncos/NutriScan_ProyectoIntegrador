@@ -1,4 +1,5 @@
 import type { ConfirmItem, ConfirmRequest } from '@/lib/chat/confirmSchemas';
+import { sanitizeConversation } from '@/lib/chat/conversation';
 import { INGREDIENT_TYPES } from '@/lib/chat/mealSchemas';
 import type { IngestaTipo } from '@/lib/nutrition';
 import type { FoodChatEntry, FoodChatResult, FoodMacros } from './chatFood';
@@ -96,7 +97,13 @@ const INGREDIENT_TYPE_SET = new Set<string>(INGREDIENT_TYPES);
 export function buildConfirmRequest(
   result: FoodChatResult,
   edits: ItemEdits,
-  context: { requestId: string; fecha: string; tipoIngesta: IngestaTipo },
+  context: {
+    requestId: string;
+    fecha: string;
+    tipoIngesta: IngestaTipo;
+    /** NUT-228: mensajes del chat; viajan solo si algún ítem es estimado por la IA (entra a la cola). */
+    conversacion?: ReadonlyArray<{ role: string; content: string }>;
+  },
 ): ConfirmRequest {
   const items: ConfirmItem[] = resolveItems(result, edits).map(({ entry, removed, gramos }) => {
     const gramosIa = entry.gramos as number;
@@ -114,7 +121,15 @@ export function buildConfirmRequest(
       gramosFinal,
     };
   });
-  return { requestId: context.requestId, fecha: context.fecha, tipoIngesta: context.tipoIngesta, items };
+  const hayEstimado = items.some((i) => i.macroSource === 'estimado_ia' && i.origin !== 'removed');
+  const conversacion = hayEstimado && context.conversacion ? sanitizeConversation(context.conversacion) : null;
+  return {
+    requestId: context.requestId,
+    fecha: context.fecha,
+    tipoIngesta: context.tipoIngesta,
+    items,
+    ...(conversacion ? { conversacion } : {}),
+  };
 }
 
 /** El resultado confirmado, sin los ítems quitados y con las cantidades editadas. */

@@ -1,7 +1,7 @@
 import type { NivelActividad, Sexo, SeriesPorVariable } from '@/lib/antropometria';
 
 /**
- * Filas de las tablas de antropometrías (supabase/021_antropometria_nut247.sql).
+ * Filas de las tablas de antropometrías (supabase/022_antropometria_nut247.sql).
  * El repo no genera tipos de la base: se mantienen a mano, como el resto de `src/types`.
  */
 

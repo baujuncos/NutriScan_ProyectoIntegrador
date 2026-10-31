@@ -123,7 +123,27 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 }
 
 const results = [];
-for (const c of checks) {
+
+// Previo: si Vercel protege el despliegue (previews con "Deployment Protection"), TODAS las respuestas son
+// un 401 o un 302 al login de Vercel. Sin este chequeo parecería que la app está rota (o, peor, que
+// /api/send-reminders no está protegida), cuando en realidad el pipeline ni siquiera llegó a la app.
+const wall = await http('/login').then(
+  (r) => (r.status === 401 && /Protected deployment|Authentication Required/i.test(r.text)) ||
+    ((r.status === 302 || r.status === 307) && /vercel\.com\/(sso-api|login)/i.test(r.headers.get('location') ?? '')),
+  () => false,
+);
+if (wall) {
+  results.push({
+    name: 'El despliegue es accesible para el pipeline',
+    ok: false,
+    attempts: 1,
+    detail: 'Vercel protege este despliegue (Deployment Protection) y bloqueó al smoke test antes de llegar a la app. ' +
+      (process.env.VERCEL_BYPASS_SECRET
+        ? 'VERCEL_BYPASS_SECRET está cargado pero Vercel no lo aceptó: revisá que sea el de este proyecto.'
+        : 'Cargá el secret VERCEL_BYPASS_SECRET (docs/SETUP_SECRETS.md) o verificá la URL de producción.'),
+  });
+}
+for (const c of wall ? [] : checks) {
   let attempt = 0;
   for (;;) {
     attempt++;

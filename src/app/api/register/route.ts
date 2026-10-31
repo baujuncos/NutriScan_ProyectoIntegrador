@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@/lib/supabase/server';
 import { strongPasswordSchema } from '@/lib/password';
 import { INV_CODE_COOKIE } from '@/lib/inv-code-cookie';
 import { secretEquals } from '@/lib/secretEquals';
@@ -71,14 +72,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: created, error: createError } = await admin.auth.admin.createUser({
+  // signUp (y no admin.createUser + generateLink): generateLink solo devuelve el enlace, no envía
+  // ningún mail. signUp crea el usuario sin confirmar y hace que Supabase mande el mail de
+  // confirmación (flujo PKCE, que es el que espera /auth/callback con ?code=).
+  const redirectTo = new URL(
+    `/auth/callback${role === 'investigador' ? '?role=investigador' : ''}`,
+    req.nextUrl.origin,
+  ).toString();
+
+  const supabase = await createClient();
+  const { data: created, error: createError } = await supabase.auth.signUp({
     email,
     password,
-    email_confirm: false,
-    user_metadata: { nombre, apellido },
-    // El rol va en app_metadata: solo se escribe con service role (el usuario no lo puede forjar).
-    ...(role ? { app_metadata: { role } } : {}),
+    options: { data: { nombre, apellido }, emailRedirectTo: redirectTo },
   });
+
+  if (!createError && role && created.user) {
+    // El rol va en app_metadata: solo se escribe con service role (el usuario no lo puede forjar).
+    const { error: roleError } = await admin.auth.admin.updateUserById(created.user.id, {
+      app_metadata: { role },
+    });
+    if (roleError) {
+      console.error('No se pudo asignar el rol de investigador:', roleError);
+      await admin.auth.admin.deleteUser(created.user.id);
+      return NextResponse.json(
+        { error: 'SERVER_ERROR', message: 'No pudimos crear la cuenta. Intentá de nuevo.' },
+        { status: 500 },
+      );
+    }
+  }
 
   if (createError) {
     const msg = createError.message ?? '';
@@ -93,26 +115,6 @@ export async function POST(req: NextRequest) {
       { error: 'SERVER_ERROR', message: 'No pudimos crear la cuenta. Intentá de nuevo.' },
       { status: 500 },
     );
-  }
-
-  // Send the confirmation email via Supabase generateLink (signup type).
-  // This mirrors what supabase.auth.signUp does for the email-link flow.
-  const redirectTo = new URL(
-    `/auth/callback${role === 'investigador' ? '?role=investigador' : ''}`,
-    req.nextUrl.origin,
-  ).toString();
-
-  try {
-    await admin.auth.admin.generateLink({
-      type: 'signup',
-      email,
-      password,
-      options: { redirectTo },
-    });
-  } catch (e) {
-    // The user is created; if the link generation fails, they can use
-    // "resend confirmation" from the login page. Log and continue.
-    console.error('generateLink failed:', e);
   }
 
   // Clear the inv-code cookie now that it has been consumed (if any).

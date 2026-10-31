@@ -137,7 +137,8 @@ NutriScan_ProyectoIntegrador/
 ├── supabase/
 │   ├── schema_consolidado.sql        # Fuente de verdad del esquema
 │   ├── 020_alimento_personalizado_cola_nut192.sql  # Migración suelta (ya incluida arriba)
-│   └── 021_chat_ia_cola_validacion_nut228.sql      # Migración suelta (ya incluida arriba)
+│   ├── 021_chat_ia_cola_validacion_nut228.sql      # Migración suelta (ya incluida arriba)
+│   └── 022_antropometria_nut247.sql                # Migración suelta (ya incluida arriba)
 ├── SARA2/                            # ETL + seed del catálogo SARA2 (ver README_ETL_SARA2.md)
 ├── ANMAT/                            # Catálogo ANMAT: CSV + seed_anmat.py / unseed_anmat.py
 ├── scripts/                          # Íconos PWA, preview del matcher, prueba de prompt

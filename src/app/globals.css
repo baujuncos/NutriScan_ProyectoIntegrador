@@ -150,3 +150,39 @@ a:active,
     transition: none;
   }
 }
+
+/*
+ * Impresión / "Guardar como PDF" del informe de antropometrías (A4). Se imprime solo
+ * #informe-imprimible: el resto del panel (menú, barra superior, botones) queda oculto sin
+ * tocar el shell. Los colores de las barras de los gráficos se conservan.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #informe-imprimible,
+  #informe-imprimible * {
+    visibility: visible;
+  }
+  #informe-imprimible {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  .no-imprimir {
+    display: none !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

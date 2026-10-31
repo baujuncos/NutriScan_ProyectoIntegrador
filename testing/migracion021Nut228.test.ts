@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const leer = (archivo: string) => readFileSync(path.resolve(__dirname, '../supabase', archivo), 'utf8');
+const leer = (archivo: string) => readFileSync(path.resolve(__dirname, '../supabase', archivo), 'utf8').replace(/\r\n/g, '\n');
 const sql021 = leer('021_chat_ia_cola_validacion_nut228.sql');
 const consolidado = leer('schema_consolidado.sql');
 const sin012y020 = consolidado.slice(0, consolidado.indexOf('-- 021 (NUT-228'));
@@ -19,10 +19,10 @@ const funcion = (sql: string, nombre: string) => {
   return sql.slice(ini, sql.indexOf('\n$$;', ini) + 4);
 };
 
-describe('021 — es el último paso del consolidado y coincide con el archivo suelto', () => {
-  it('schema_consolidado.sql termina con la misma sección 021', () => {
+describe('021 — es una sección del consolidado y coincide con el archivo suelto', () => {
+  it('schema_consolidado.sql contiene la misma sección 021 (la 022 va después)', () => {
     const seccion = sql021.slice(sql021.indexOf('-- 021 (NUT-228'));
-    expect(normalizar(consolidado.slice(consolidado.indexOf('-- 021 (NUT-228')))).toBe(normalizar(seccion));
+    expect(normalizar(consolidado.slice(consolidado.indexOf('-- 021 (NUT-228'), consolidado.indexOf('-- 022 (')))).toBe(normalizar(seccion));
   });
 });
 

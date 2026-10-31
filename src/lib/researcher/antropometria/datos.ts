@@ -105,3 +105,18 @@ export async function cargarNombres(supabase: SupabaseServidor, ids: readonly (s
   const { data } = await supabase.from('profiles').select('user_id, nombre, apellido').in('user_id', unicos);
   return new Map(((data ?? []) as PerfilFila[]).map((p) => [p.user_id, `${p.nombre} ${p.apellido}`.trim()]));
 }
+
+/** Una medición por id (cualquier estado); la página decide qué hacer con las anuladas. */
+export async function cargarMedicion(supabase: SupabaseServidor, id: string): Promise<MedicionRow | null> {
+  const { data } = await supabase.from('antropometria_mediciones').select('*').eq('id', id).maybeSingle();
+  return (data as MedicionRow | null) ?? null;
+}
+
+/** El paciente dueño de una medición, sin importar el origen. */
+export async function cargarPacienteDeMedicion(supabase: SupabaseServidor, medicion: MedicionRow): Promise<PacienteAntropometria | null> {
+  return medicion.user_id
+    ? cargarPaciente(supabase, 'deportista', medicion.user_id)
+    : medicion.paciente_manual_id
+      ? cargarPaciente(supabase, 'manual', medicion.paciente_manual_id)
+      : null;
+}

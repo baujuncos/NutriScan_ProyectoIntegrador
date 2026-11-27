@@ -71,6 +71,7 @@ describe('anularMedicionAction', () => {
     expect(sb.filtrosLlamados().some((f) => f.metodo === 'delete')).toBe(false);
     expect(revalidatePathMock).toHaveBeenCalledWith('/antropometrias');
     expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/manual/${PACIENTE_ID}`);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/manual/${PACIENTE_ID}/evolucion`);
     expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/medicion/${MEDICION_ID}`);
   });
 

@@ -14,6 +14,8 @@ import { parseDateLocal } from '@/lib/dates';
 import { clienteInvestigador, type SupabaseServidor } from '@/lib/researcher/clienteInvestigador';
 import { cargarMedicion, cargarMediciones, cargarPaciente } from '@/lib/researcher/antropometria/datos';
 import { decidirMasaOsea, esLaMedicionMasAntigua, sanearSeries } from '@/lib/researcher/antropometria/guardado';
+import { cargarUsuarioId, esInvestigador } from '@/lib/researcher/antropometria/investigadores';
+import { columnasInstrumentos, instrumentosSchema } from '@/lib/researcher/antropometria/instrumentos';
 import { cargarListado } from '@/lib/researcher/antropometria/listado';
 import {
   buscarDuplicado,
@@ -23,7 +25,7 @@ import {
   MENSAJE_MENOR_DE_EDAD,
   puedeAgregarMedicion,
 } from '@/lib/researcher/antropometria/reglas';
-import { RUTA_LISTADO, rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
+import { RUTA_CONFIGURACION, RUTA_LISTADO, rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
 import type { MedicionRow, PacienteAntropometria } from '@/types/antropometria';
 
 export type ResultadoError = { error: string };
@@ -97,6 +99,10 @@ const medicionSchema = z.object({
   nivelActividad: z.enum(NIVELES).nullish(),
   deporte: z.string().max(80).nullish(),
   series: z.unknown(),
+  /** Investigador que midió (opcional; '' o ausente = el que la carga). Tiene que ser investigador o administrador. */
+  medidoPor: z.preprocess((v) => (v === '' ? null : v), ID.nullish()),
+  /** Instrumentos usados (opcionales, texto libre). Si no vienen, la medición conserva los que tenía. */
+  instrumentos: instrumentosSchema.nullish(),
   /** Solo para deportistas sin `physical_data`: lo que el asistente pidió en el primer paso. */
   datosPaciente: z.object({ sexo: z.enum(['M', 'F']).nullish(), fechaNacimiento: fechaIso.nullish() }).nullish(),
 });
@@ -111,6 +117,19 @@ interface ContextoMedicion {
   existente: MedicionRow | null;
   /** Mediciones vigentes del paciente SIN la que se está guardando. */
   otrasVigentes: MedicionRow[];
+}
+
+/**
+ * Columnas de "quién midió" y de instrumentos. Lo que no llega no se toca; los instrumentos vacíos se guardan como null.
+ * Si una medición vieja (medido_por null = quien la cargó) vuelve a mandar a quien la cargó, no se escribe nada.
+ */
+function camposAutoria(datos: z.output<typeof medicionSchema>, existente: MedicionRow | null) {
+  const campos: Record<string, string | null> = {};
+  if (datos.medidoPor !== undefined && !(existente && existente.medido_por === null && datos.medidoPor === existente.investigador_id)) {
+    campos.medido_por = datos.medidoPor;
+  }
+  if (datos.instrumentos) Object.assign(campos, columnasInstrumentos(datos.instrumentos));
+  return campos;
 }
 
 /** Validación y carga comunes a "guardar borrador" y "guardar y generar informe". */
@@ -129,6 +148,12 @@ async function prepararMedicion(input: unknown): Promise<ContextoMedicion | Resu
 
   const existente = datos.medicionId ? (mediciones.find((m) => m.id === datos.medicionId) ?? null) : null;
   if (datos.medicionId && !existente) return { error: 'No se encontró la medición.' };
+
+  // Quién midió: solo se valida si cambia (si a alguien le sacan el rol, sus mediciones viejas siguen editables).
+  const medidoPorActual = existente ? (existente.medido_por ?? existente.investigador_id) : null;
+  if (datos.medidoPor && datos.medidoPor !== medidoPorActual && !(await esInvestigador(supabase, datos.medidoPor))) {
+    return { error: 'El investigador que midió tiene que ser un investigador o administrador.' };
+  }
 
   // Un deportista sin `physical_data` no tiene sexo ni nacimiento: se piden una vez y se guardan en la tabla auxiliar.
   // Lo que ya existe nunca se pisa.
@@ -175,6 +200,7 @@ export async function guardarBorradorAction(input: unknown): Promise<ResultadoMe
     nivel_actividad: datos.nivelActividad ?? null,
     deporte: datos.deporte ?? null,
     series: sanearSeries(datos.series),
+    ...camposAutoria(datos, existente),
   };
 
   if (existente) {
@@ -264,6 +290,7 @@ export async function finalizarMedicionAction(input: unknown): Promise<Resultado
     deporte: datos.deporte ?? null,
     series,
     estado: 'vigente',
+    ...camposAutoria(datos, existente),
   };
 
   let id: string;
@@ -300,4 +327,32 @@ export async function finalizarMedicionAction(input: unknown): Promise<Resultado
   revalidatePath(rutaFicha(paciente.origen, paciente.id));
   revalidatePath(rutaInforme(id));
   return { ok: true, id };
+}
+
+// ───────────────────────── Mis instrumentos (NUT-246) ─────────────────────────
+
+/**
+ * Guarda "Mis instrumentos" del investigador con sesión (una fila propia, upsert). Los 4 campos son
+ * opcionales: vacío = sin informar. Precargan las mediciones nuevas; no cambian las ya guardadas.
+ */
+export async function guardarMisInstrumentosAction(input: unknown): Promise<{ ok: true } | ResultadoError> {
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+
+  const parsed = instrumentosSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos.' };
+
+  const usuarioId = await cargarUsuarioId(auth.supabase);
+  if (!usuarioId) return { error: 'No autenticado' };
+
+  const { error } = await auth.supabase
+    .from('antropometria_instrumentos_investigador')
+    .upsert(
+      { investigador_id: usuarioId, ...columnasInstrumentos(parsed.data), actualizado_en: new Date().toISOString() },
+      { onConflict: 'investigador_id' },
+    );
+  if (error) return { error: 'No se pudieron guardar los instrumentos. Probá de nuevo.' };
+
+  revalidatePath(RUTA_CONFIGURACION);
+  return { ok: true };
 }

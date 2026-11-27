@@ -20,7 +20,7 @@ export interface EstadisticaSerie {
 }
 
 /** Una celda vacía (o 0) en la planilla equivale a "serie no medida". */
-function valoresValidos(serie: readonly (number | null | undefined)[] | undefined): number[] {
+export function valoresValidos(serie: readonly (number | null | undefined)[] | undefined): number[] {
   if (!serie) return [];
   return serie.filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
 }

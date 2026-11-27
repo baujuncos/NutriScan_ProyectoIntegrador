@@ -8,7 +8,7 @@ import FilterBar from '@/components/researcher/FilterBar';
 import PageHeader from '@/components/researcher/PageHeader';
 import type { PacienteListado } from '@/lib/researcher/antropometria/listado';
 import { fechaLegible, normalizarNombre } from '@/lib/researcher/antropometria/reglas';
-import { RUTA_LISTADO, rutaFicha } from '@/lib/researcher/antropometria/rutas';
+import { RUTA_CONFIGURACION, RUTA_LISTADO, rutaFicha } from '@/lib/researcher/antropometria/rutas';
 import { MAX_MEDICIONES_POR_PACIENTE, type OrigenPaciente } from '@/types/antropometria';
 
 type FiltroOrigen = 'todos' | OrigenPaciente;
@@ -21,6 +21,9 @@ const OPCIONES_ORIGEN = [
 
 const BOTON_AGREGAR =
   'inline-flex h-10 items-center justify-center rounded-lg bg-blue-700 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2';
+
+const BOTON_SECUNDARIO =
+  'inline-flex h-10 items-center justify-center rounded-lg border border-blue-700 px-4 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2';
 
 export default function AntropometriasClient({ pacientes }: { pacientes: PacienteListado[] }) {
   const [busqueda, setBusqueda] = useState('');
@@ -46,7 +49,14 @@ export default function AntropometriasClient({ pacientes }: { pacientes: Pacient
         title="Antropometrías"
         subtitle="Mediciones antropométricas de deportistas registrados y pacientes cargados a mano"
         helpId="antropometrias"
-        actions={pacientes.length > 0 ? agregar : undefined}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href={RUTA_CONFIGURACION} className={BOTON_SECUNDARIO}>
+              Instrumentos y error técnico
+            </Link>
+            {pacientes.length > 0 && agregar}
+          </div>
+        }
       />
 
       {pacientes.length === 0 ? (

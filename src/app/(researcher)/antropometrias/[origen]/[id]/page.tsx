@@ -38,7 +38,9 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
   const mediciones = await cargarMediciones(supabase, paciente);
   const vigentes = mediciones.filter((m) => m.estado === 'vigente');
   const borradores = mediciones.filter((m) => m.estado === 'borrador');
-  const nombres = await cargarNombres(supabase, mediciones.map((m) => m.investigador_id));
+  // Quien midió (si no se registró otro, quien cargó la medición).
+  const medidoPor = (m: { medido_por?: string | null; investigador_id: string }) => m.medido_por ?? m.investigador_id;
+  const nombres = await cargarNombres(supabase, mediciones.map(medidoPor));
 
   const bloqueo = motivoBloqueoNuevaMedicion(paciente, vigentes.length);
   const edad = paciente.fechaNacimiento ? edadEn(paciente.fechaNacimiento) : null;
@@ -135,7 +137,7 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
                   return (
                     <tr key={m.id}>
                       <td className="px-4 py-3 font-medium text-slate-900">{fechaLegible(m.fecha_medicion)}</td>
-                      <td className="px-4 py-3 text-slate-700">{nombres.get(m.investigador_id) ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-700">{nombres.get(medidoPor(m)) ?? '—'}</td>
                       <td className="px-4 py-3 text-slate-700">{r ? `${fmt(r.pesoKg, 1)} kg` : '—'}</td>
                       <td className="px-4 py-3 text-slate-700">{r ? `${fmt(r.masaAdiposaKg, 2)} kg` : '—'}</td>
                       <td className="px-4 py-3 text-slate-700">{r ? `${fmt(r.masaMuscularKg, 2)} kg` : '—'}</td>

@@ -9,12 +9,15 @@ import { formatFechaCorta } from '@/lib/date';
 import { calcularMedicion } from '@/lib/researcher/antropometria/calculo';
 import { cargarMedicion, cargarMediciones, cargarNombres, cargarPacienteDeMedicion } from '@/lib/researcher/antropometria/datos';
 import { nombreArchivoInforme } from '@/lib/researcher/antropometria/informe';
+import { instrumentosDeFila } from '@/lib/researcher/antropometria/instrumentos';
+import { cargarErrorTecnicoPorInvestigador, resumenEtm } from '@/lib/researcher/antropometria/investigadores';
 import { fechaLegible } from '@/lib/researcher/antropometria/reglas';
 import { rutaEditarMedicion, rutaFicha } from '@/lib/researcher/antropometria/rutas';
 import { createClient } from '@/lib/supabase/server';
 import AccionesInforme from './AccionesInforme';
 import InformeParte1 from './InformeParte1';
 import InformeParte2 from './InformeParte2';
+import InformePie from './InformePie';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +43,9 @@ export default async function InformePage({ params }: { params: Promise<{ medici
   const calculoAnterior = filaAnterior ? calcularMedicion(paciente, filaAnterior) : null;
   const anterior = calculoAnterior?.ok ? calculoAnterior.resultado : null;
 
-  const nombres = await cargarNombres(supabase, [medicion.investigador_id, medicion.actualizado_por]);
+  // Quien midió (si no se registró otro, quien cargó la medición).
+  const medidoPorId = medicion.medido_por ?? medicion.investigador_id;
+  const nombres = await cargarNombres(supabase, [medicion.investigador_id, medidoPorId, medicion.actualizado_por]);
   const volver = (
     <Link href={rutaFicha(paciente.origen, paciente.id)} className="inline-block text-sm text-slate-600 hover:text-slate-900 hover:underline no-imprimir">
       ← {paciente.apellido}, {paciente.nombre}
@@ -69,7 +74,8 @@ export default async function InformePage({ params }: { params: Promise<{ medici
   const nivel = medicion.nivel_actividad!;
   const deporte =
     medicion.deporte && paciente.sexo ? (deportesDisponibles(paciente.sexo).find((d) => d.id === medicion.deporte)?.nombre ?? null) : null;
-  const investigador = nombres.get(medicion.investigador_id) ?? '—';
+  const investigador = nombres.get(medidoPorId) ?? '—';
+  const etm = resumenEtm((await cargarErrorTecnicoPorInvestigador(supabase))[medidoPorId]);
   const modificadoPor = medicion.actualizado_por ? (nombres.get(medicion.actualizado_por) ?? '—') : null;
 
   return (
@@ -110,6 +116,7 @@ export default async function InformePage({ params }: { params: Promise<{ medici
         <div className="print:break-before-page">
           <InformeParte2 resultado={resultado} anterior={anterior} nivelActividad={nivel} />
         </div>
+        <InformePie medidoPor={investigador} instrumentos={instrumentosDeFila(medicion)} etm={etm} />
       </div>
     </div>
   );

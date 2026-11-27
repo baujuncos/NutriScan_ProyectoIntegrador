@@ -6,6 +6,8 @@ export type { Edad } from './edad';
 export { ErrorAntropometria } from './errores';
 export type { CodigoErrorAntropometria } from './errores';
 export { DIFERENCIAS_CON_EXCEL } from './diferenciasExcel';
+export { calcularErrorTecnico, resumirErrorTecnico } from './errorTecnico';
+export type { ErrorTecnico, ErrorTecnicoPorVariable, ErrorTecnicoVariable, ResumenErrorTecnico } from './errorTecnico';
 export { variablesFaltantes } from './series';
 export type { EstadisticaSerie } from './series';
 export { deportesDisponibles, somatotipoDeDeporte } from './somatotipo';

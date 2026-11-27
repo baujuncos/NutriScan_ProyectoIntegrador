@@ -59,6 +59,11 @@ const ACCIONES: CasoAccion[] = [
     ejecutar: () => acciones.anularMedicionAction(MEDICION_ID),
     ejecutarConEntradaInvalida: () => acciones.anularMedicionAction('no-es-un-id'),
   },
+  {
+    nombre: 'guardarMisInstrumentosAction',
+    ejecutar: () => acciones.guardarMisInstrumentosAction({}),
+    ejecutarConEntradaInvalida: () => acciones.guardarMisInstrumentosAction(null),
+  },
 ];
 
 function conSesion(role: string | null) {

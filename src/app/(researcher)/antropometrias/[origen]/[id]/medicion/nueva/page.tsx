@@ -4,6 +4,7 @@ import Card from '@/components/researcher/Card';
 import PageHeader from '@/components/researcher/PageHeader';
 import { todayAR } from '@/lib/date';
 import { cargarMediciones, cargarPaciente } from '@/lib/researcher/antropometria/datos';
+import { cargarAyudasAsistente } from '@/lib/researcher/antropometria/investigadores';
 import { motivoBloqueoNuevaMedicion } from '@/lib/researcher/antropometria/reglas';
 import { esOrigen, rutaFicha } from '@/lib/researcher/antropometria/rutas';
 import { createClient } from '@/lib/supabase/server';
@@ -21,6 +22,7 @@ export default async function NuevaMedicionPage({ params }: { params: Promise<{ 
 
   const vigentes = (await cargarMediciones(supabase, paciente)).filter((m) => m.estado === 'vigente');
   const bloqueo = motivoBloqueoNuevaMedicion(paciente, vigentes.length);
+  const ayudas = bloqueo ? null : await cargarAyudasAsistente(supabase, { conMisInstrumentos: true });
 
   return (
     <div className="space-y-6">
@@ -35,12 +37,15 @@ export default async function NuevaMedicionPage({ params }: { params: Promise<{ 
           </Link>
         </Card>
       ) : (
-        <MedicionWizard
-          paciente={paciente}
-          otrasVigentes={vigentes.map((m) => ({ id: m.id, fecha_medicion: m.fecha_medicion }))}
-          hoy={todayAR()}
-          inicial={null}
-        />
+        ayudas && (
+          <MedicionWizard
+            paciente={paciente}
+            otrasVigentes={vigentes.map((m) => ({ id: m.id, fecha_medicion: m.fecha_medicion }))}
+            hoy={todayAR()}
+            inicial={null}
+            {...ayudas}
+          />
+        )
       )}
     </div>
   );

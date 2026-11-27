@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import PageHeader from '@/components/researcher/PageHeader';
 import { todayAR } from '@/lib/date';
 import { cargarMedicion, cargarMediciones, cargarPacienteDeMedicion } from '@/lib/researcher/antropometria/datos';
+import { cargarFotos } from '@/lib/researcher/antropometria/fotos';
 import { cargarAyudasAsistente } from '@/lib/researcher/antropometria/investigadores';
 import { instrumentosDeFila } from '@/lib/researcher/antropometria/instrumentos';
 import { createClient } from '@/lib/supabase/server';
@@ -22,6 +23,7 @@ export default async function EditarMedicionPage({ params }: { params: Promise<{
   const otras = (await cargarMediciones(supabase, paciente)).filter((m) => m.estado === 'vigente' && m.id !== medicion.id);
   const medidoPor = medicion.medido_por ?? medicion.investigador_id;
   const ayudas = await cargarAyudasAsistente(supabase, { medidoPorActual: medidoPor });
+  const fotos = await cargarFotos(supabase, medicion.id);
 
   return (
     <div className="space-y-6">
@@ -44,6 +46,7 @@ export default async function EditarMedicionPage({ params }: { params: Promise<{
           medidoPor,
           instrumentos: instrumentosDeFila(medicion),
         }}
+        fotosIniciales={fotos}
         {...ayudas}
       />
     </div>

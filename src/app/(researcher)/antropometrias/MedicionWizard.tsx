@@ -47,10 +47,12 @@ import {
   MENSAJE_MENOR_DE_EDAD,
 } from '@/lib/researcher/antropometria/reglas';
 import { rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
+import type { FotoMedicion } from '@/lib/researcher/antropometria/fotos';
 import type { ClaveInstrumento, Instrumentos } from '@/lib/researcher/antropometria/instrumentos';
 import type { Investigador, ResumenEtmInvestigador } from '@/lib/researcher/antropometria/investigadores';
 import type { PacienteAntropometria } from '@/types/antropometria';
 import { finalizarMedicionAction, guardarBorradorAction } from './actions';
+import FotosPosturales from './FotosPosturales';
 import InstrumentosResponsable from './InstrumentosResponsable';
 
 export interface InicialMedicion {
@@ -80,6 +82,8 @@ interface Props {
   misInstrumentos: Instrumentos;
   /** Error técnico de cada investigador (id → resumen); falta el que no tiene mediciones vigentes. */
   etmPorInvestigador: Record<string, ResumenEtmInvestigador>;
+  /** Fotos posturales ya cargadas (con signed URL); vacío en una medición nueva. */
+  fotosIniciales?: FotoMedicion[];
 }
 
 type EstadoBorrador = 'inactivo' | 'guardando' | 'guardado' | 'error';
@@ -89,7 +93,7 @@ const ETIQUETA = 'mb-1 block text-sm font-medium text-slate-700';
 const INPUT_SERIE =
   'h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base tabular-nums text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30';
 
-export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, investigadores, miId, misInstrumentos, etmPorInvestigador }: Props) {
+export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, investigadores, miId, misInstrumentos, etmPorInvestigador, fotosIniciales = [] }: Props) {
   const router = useRouter();
   const editandoVigente = inicial?.estado === 'vigente';
 
@@ -106,6 +110,9 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, 
   const [errorBorrador, setErrorBorrador] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardando, empezarGuardado] = useTransition();
+  // Las fotos necesitan el id de la medición: se conoce desde el principio al retomar/editar, o cuando el primer borrador se guarda.
+  const [medicionId, setMedicionId] = useState<string | null>(inicial?.id ?? null);
+  const [fotos, setFotos] = useState<FotoMedicion[]>(fotosIniciales);
 
   const sexo = paciente.sexo ?? (sexoExtra || null);
   const nacimiento = paciente.fechaNacimiento ?? (nacimientoExtra || null);
@@ -158,6 +165,7 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, 
           const r = await guardarBorradorAction({ ...payloadRef.current, medicionId: idRef.current });
           if ('ok' in r) {
             idRef.current = r.id;
+            setMedicionId(r.id);
             setEstadoBorrador('guardado');
             setErrorBorrador(null);
           } else {
@@ -500,6 +508,7 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, 
             investigadores={investigadores}
             etm={etmPorInvestigador[medidoPor] ?? null}
           />
+          <FotosPosturales medicionId={medicionId} fotos={fotos} onFotos={setFotos} />
           {faltaContexto && (
             <p className="text-sm text-amber-800">
               Antes de generar el informe completá en &quot;Datos básicos&quot; la fecha, el nivel de actividad

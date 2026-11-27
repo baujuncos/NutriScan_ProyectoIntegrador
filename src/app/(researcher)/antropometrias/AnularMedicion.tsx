@@ -14,13 +14,15 @@ interface Props {
   esBorrador?: boolean;
   /** Después de anular: ir a la ficha (desde el informe) o refrescar la lista (desde la ficha). */
   destino: 'ficha' | 'refrescar';
+  /** Fotos posturales de la medición: se borran al anular (no se puede deshacer), y la confirmación lo avisa. */
+  fotos?: number;
 }
 
 const BOTON_ABRIR =
   'rounded px-1 text-sm font-medium text-red-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500';
 
-/** Baja lógica con confirmación: la medición no se borra, solo deja de verse y de contar. */
-export default function AnularMedicion({ medicionId, fecha, esBorrador = false, destino }: Props) {
+/** Baja lógica con confirmación: la medición no se borra, solo deja de verse y de contar. Sus fotos posturales sí se borran. */
+export default function AnularMedicion({ medicionId, fecha, esBorrador = false, destino, fotos = 0 }: Props) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,14 @@ export default function AnularMedicion({ medicionId, fecha, esBorrador = false, 
             : `La medición del ${fecha} deja de verse en la ficha, en los gráficos y en las comparaciones con otras mediciones.`}{' '}
           No se borra: queda registrada como anulada.
         </p>
+        {fotos > 0 && (
+          <p className="mt-2 text-sm font-medium text-red-800">
+            {fotos === 1
+              ? 'También se va a borrar la foto postural.'
+              : `También se van a borrar las ${fotos} fotos posturales.`}{' '}
+            Esta acción no se puede deshacer.
+          </p>
+        )}
         {error && (
           <p role="alert" className="mt-3 text-sm text-red-700">
             {error}

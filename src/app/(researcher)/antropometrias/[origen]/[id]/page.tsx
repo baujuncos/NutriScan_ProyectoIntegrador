@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Card from '@/components/researcher/Card';
 import EmptyState from '@/components/researcher/EmptyState';
 import PageHeader from '@/components/researcher/PageHeader';
+import SubTabs from '@/components/researcher/SubTabs';
 import { fmt } from '@/lib/numeros';
 import { resumirMedicion } from '@/lib/researcher/antropometria/calculo';
 import { cargarMediciones, cargarNombres, cargarPaciente } from '@/lib/researcher/antropometria/datos';
@@ -11,6 +12,8 @@ import {
   esOrigen,
   RUTA_LISTADO,
   rutaEditarMedicion,
+  rutaEvolucion,
+  rutaFicha,
   rutaInforme,
   rutaNuevaMedicion,
 } from '@/lib/researcher/antropometria/rutas';
@@ -67,6 +70,14 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
             </Link>
           )
         }
+      />
+      <SubTabs
+        label="Secciones del paciente"
+        activeHref={rutaFicha(paciente.origen, paciente.id)}
+        tabs={[
+          { label: 'Historial', href: rutaFicha(paciente.origen, paciente.id) },
+          { label: 'Evolución', href: rutaEvolucion(paciente.origen, paciente.id) },
+        ]}
       />
       {bloqueo && (
         <p id="bloqueo-nueva" role="status" className="-mt-3 text-sm text-amber-800">

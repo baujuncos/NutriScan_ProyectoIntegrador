@@ -25,7 +25,7 @@ import {
   MENSAJE_MENOR_DE_EDAD,
   puedeAgregarMedicion,
 } from '@/lib/researcher/antropometria/reglas';
-import { RUTA_CONFIGURACION, RUTA_LISTADO, rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
+import { RUTA_CONFIGURACION, RUTA_LISTADO, rutaEvolucion, rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
 import type { MedicionRow, PacienteAntropometria } from '@/types/antropometria';
 
 export type ResultadoError = { error: string };
@@ -240,9 +240,12 @@ export async function anularMedicionAction(medicionId: unknown): Promise<{ ok: t
   const { error } = await auth.supabase.from('antropometria_mediciones').update({ estado: 'anulada' }).eq('id', medicion.id);
   if (error) return { error: 'No se pudo anular la medición. Probá de nuevo.' };
 
-  const fichaHref = medicion.user_id ? rutaFicha('deportista', medicion.user_id) : rutaFicha('manual', medicion.paciente_manual_id ?? '');
+  const origen = medicion.user_id ? 'deportista' : 'manual';
+  const pacienteId = medicion.user_id ?? medicion.paciente_manual_id ?? '';
+  const fichaHref = rutaFicha(origen, pacienteId);
   revalidatePath(RUTA_LISTADO);
   revalidatePath(fichaHref);
+  revalidatePath(rutaEvolucion(origen, pacienteId));
   revalidatePath(rutaInforme(medicion.id));
   return { ok: true, fichaHref };
 }
@@ -325,6 +328,7 @@ export async function finalizarMedicionAction(input: unknown): Promise<Resultado
 
   revalidatePath(RUTA_LISTADO);
   revalidatePath(rutaFicha(paciente.origen, paciente.id));
+  revalidatePath(rutaEvolucion(paciente.origen, paciente.id));
   revalidatePath(rutaInforme(id));
   return { ok: true, id };
 }

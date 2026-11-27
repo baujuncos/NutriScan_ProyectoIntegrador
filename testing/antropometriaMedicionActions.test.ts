@@ -173,6 +173,7 @@ describe('finalizarMedicionAction', () => {
 
     expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/medicion/${NUEVA_ID}`);
     expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/manual/${PACIENTE_ID}`);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/antropometrias/manual/${PACIENTE_ID}/evolucion`);
   });
 
   it('con 24 de 25 variables NO genera el informe ni escribe', async () => {

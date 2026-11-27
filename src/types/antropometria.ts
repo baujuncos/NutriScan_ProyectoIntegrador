@@ -1,8 +1,9 @@
 import type { NivelActividad, Sexo, SeriesPorVariable } from '@/lib/antropometria';
 
 /**
- * Filas de las tablas de antropometrías (supabase/022_antropometria_nut247.sql y
- * supabase/023_antropometria_instrumentos_nut246.sql).
+ * Filas de las tablas de antropometrías (supabase/022_antropometria_nut247.sql,
+ * supabase/023_antropometria_instrumentos_nut246.sql y
+ * supabase/024_antropometria_fotos_nut251.sql).
  * El repo no genera tipos de la base: se mantienen a mano, como el resto de `src/types`.
  */
 
@@ -65,6 +66,20 @@ export interface InstrumentosInvestigadorRow {
   instrumento_plicometro: string | null;
   instrumento_cinta: string | null;
   actualizado_en: string;
+}
+
+/** Posiciones fijas de las fotos posturales: una foto por posición, hasta 3 por medición (024). */
+export const POSICIONES_FOTO = ['frente', 'lateral', 'espalda'] as const;
+export type PosicionFoto = (typeof POSICIONES_FOTO)[number];
+
+/** Foto postural de una medición. `path` es el objeto en el bucket privado `antropometria-fotos`. */
+export interface FotoRow {
+  id: string;
+  medicion_id: string;
+  posicion: PosicionFoto;
+  path: string;
+  creado_por: string;
+  creado_en: string;
 }
 
 /** Paciente ya resuelto, igual para ambos orígenes (lo que consumen listado, ficha e informe). */

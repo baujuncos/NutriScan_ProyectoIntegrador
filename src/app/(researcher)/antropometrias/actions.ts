@@ -14,6 +14,16 @@ import { parseDateLocal } from '@/lib/dates';
 import { clienteInvestigador, type SupabaseServidor } from '@/lib/researcher/clienteInvestigador';
 import { cargarMedicion, cargarMediciones, cargarPaciente } from '@/lib/researcher/antropometria/datos';
 import { decidirMasaOsea, esLaMedicionMasAntigua, sanearSeries } from '@/lib/researcher/antropometria/guardado';
+import {
+  borrarObjetos,
+  cargarFilasFotos,
+  cargarFotos,
+  esPosicionFoto,
+  existeObjeto,
+  MENSAJE_BORRADO_FOTOS,
+  pathCorresponde,
+  type FotoMedicion,
+} from '@/lib/researcher/antropometria/fotos';
 import { cargarUsuarioId, esInvestigador } from '@/lib/researcher/antropometria/investigadores';
 import { columnasInstrumentos, instrumentosSchema } from '@/lib/researcher/antropometria/instrumentos';
 import { cargarListado } from '@/lib/researcher/antropometria/listado';
@@ -223,8 +233,12 @@ export async function guardarBorradorAction(input: unknown): Promise<ResultadoMe
 }
 
 /**
- * Baja lógica: pasa la medición a `anulada` (nunca se borra). Una anulada deja de verse en la ficha,
+ * Baja lógica: pasa la medición a `anulada` (la fila nunca se borra). Una anulada deja de verse en la ficha,
  * en el listado y como "medición anterior" de las comparaciones. Vale también para descartar un borrador.
+ *
+ * Las fotos posturales SÍ se borran (decisión de producto, NUT-251; no se puede deshacer): primero los archivos
+ * del bucket y las filas, y recién después se anula. Si Storage falla no se anula nada: la persona reintenta
+ * y no queda una medición anulada con fotos de una persona dando vueltas.
  */
 export async function anularMedicionAction(medicionId: unknown): Promise<{ ok: true; fichaHref: string } | ResultadoError> {
   const auth = await clienteInvestigador();
@@ -236,6 +250,13 @@ export async function anularMedicionAction(medicionId: unknown): Promise<{ ok: t
   const medicion = await cargarMedicion(auth.supabase, id.data);
   if (!medicion) return { error: 'No se encontró la medición.' };
   if (medicion.estado === 'anulada') return { error: 'La medición ya estaba anulada.' };
+
+  const fotos = await cargarFilasFotos(auth.supabase, medicion.id);
+  if (fotos.length > 0) {
+    if (!(await borrarObjetos(auth.supabase, fotos.map((f) => f.path)))) return { error: MENSAJE_BORRADO_FOTOS };
+    const { error: errorFilas } = await auth.supabase.from('antropometria_fotos').delete().eq('medicion_id', medicion.id);
+    if (errorFilas) return { error: MENSAJE_BORRADO_FOTOS };
+  }
 
   const { error } = await auth.supabase.from('antropometria_mediciones').update({ estado: 'anulada' }).eq('id', medicion.id);
   if (error) return { error: 'No se pudo anular la medición. Probá de nuevo.' };
@@ -327,6 +348,86 @@ export async function finalizarMedicionAction(input: unknown): Promise<Resultado
   revalidatePath(rutaFicha(paciente.origen, paciente.id));
   revalidatePath(rutaInforme(id));
   return { ok: true, id };
+}
+
+// ───────────────────────── Fotos posturales (NUT-251) ─────────────────────────
+
+export type ResultadoFotos = { ok: true; fotos: FotoMedicion[] } | ResultadoError;
+
+/** La medición de las fotos tiene que existir y no estar anulada (a una anulada se le borraron las fotos). */
+async function medicionConFotos(supabase: SupabaseServidor, medicionId: unknown): Promise<{ id: string } | ResultadoError> {
+  const id = ID.safeParse(medicionId);
+  if (!id.success) return { error: 'Identificador inválido.' };
+  const medicion = await cargarMedicion(supabase, id.data);
+  if (!medicion) return { error: 'No se encontró la medición.' };
+  if (medicion.estado === 'anulada') return { error: 'La medición está anulada: no admite fotos.' };
+  return { id: medicion.id };
+}
+
+/** Fotos de la medición con signed URLs de corta duración. */
+export async function listarFotosAction(medicionId: unknown): Promise<ResultadoFotos> {
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+
+  const medicion = await medicionConFotos(auth.supabase, medicionId);
+  if ('error' in medicion) return medicion;
+  return { ok: true, fotos: await cargarFotos(auth.supabase, medicion.id) };
+}
+
+/**
+ * Registra una foto que el navegador ya subió a `{medicionId}/{posicion}-{uuid}.jpg`. Si la posición ya tenía foto,
+ * la reemplaza (se cambia el path de la fila y se borra el archivo anterior). Opcional: nunca bloquea guardar la medición.
+ */
+export async function registrarFotoAction(medicionId: unknown, posicion: unknown, path: unknown): Promise<ResultadoFotos> {
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+  const { supabase } = auth;
+
+  if (!esPosicionFoto(posicion)) return { error: 'La posición de la foto no es válida.' };
+  const medicion = await medicionConFotos(supabase, medicionId);
+  if ('error' in medicion) return medicion;
+  if (!pathCorresponde(path, medicion.id, posicion)) return { error: 'La foto no corresponde a esta medición.' };
+
+  // El archivo subido tiene que estar en el bucket: si no, quedaría una fila apuntando a la nada.
+  if (!(await existeObjeto(supabase, path))) return { error: 'No se encontró la foto subida. Probá de nuevo.' };
+
+  // El máximo de 3 fotos sale de las posiciones fijas (una por posición) y lo garantiza `unique (medicion_id, posicion)`:
+  // si dos cargas de la misma posición compiten, la segunda falla en el insert y se limpia su archivo.
+  const existente = (await cargarFilasFotos(supabase, medicion.id)).find((f) => f.posicion === posicion);
+
+  const { error } = existente
+    ? await supabase.from('antropometria_fotos').update({ path, creado_en: new Date().toISOString() }).eq('id', existente.id)
+    : await supabase.from('antropometria_fotos').insert({ medicion_id: medicion.id, posicion, path });
+  if (error) {
+    await borrarObjetos(supabase, [path]);
+    return { error: 'No se pudo guardar la foto. Probá de nuevo.' };
+  }
+  // El reemplazo ya quedó hecho: si el archivo viejo no se pudo borrar solo se loguea (borrarObjetos).
+  if (existente) await borrarObjetos(supabase, [existente.path]);
+
+  revalidatePath(rutaInforme(medicion.id));
+  return { ok: true, fotos: await cargarFotos(supabase, medicion.id) };
+}
+
+/** Quita la foto de una posición: primero el archivo, después la fila (si el archivo no se borra, la foto sigue y se puede reintentar). */
+export async function quitarFotoAction(medicionId: unknown, posicion: unknown): Promise<ResultadoFotos> {
+  const auth = await clienteInvestigador();
+  if ('error' in auth) return auth;
+  const { supabase } = auth;
+
+  if (!esPosicionFoto(posicion)) return { error: 'La posición de la foto no es válida.' };
+  const medicion = await medicionConFotos(supabase, medicionId);
+  if ('error' in medicion) return medicion;
+
+  const existente = (await cargarFilasFotos(supabase, medicion.id)).find((f) => f.posicion === posicion);
+  if (existente) {
+    if (!(await borrarObjetos(supabase, [existente.path]))) return { error: 'No se pudo quitar la foto. Probá de nuevo.' };
+    const { error } = await supabase.from('antropometria_fotos').delete().eq('id', existente.id);
+    if (error) return { error: 'No se pudo quitar la foto. Probá de nuevo.' };
+  }
+
+  revalidatePath(rutaInforme(medicion.id));
+  return { ok: true, fotos: await cargarFotos(supabase, medicion.id) };
 }
 
 // ───────────────────────── Mis instrumentos (NUT-246) ─────────────────────────

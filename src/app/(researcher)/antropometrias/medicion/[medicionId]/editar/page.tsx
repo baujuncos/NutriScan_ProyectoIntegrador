@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation';
 import PageHeader from '@/components/researcher/PageHeader';
 import { todayAR } from '@/lib/date';
 import { cargarMedicion, cargarMediciones, cargarPacienteDeMedicion } from '@/lib/researcher/antropometria/datos';
+import { cargarAyudasAsistente } from '@/lib/researcher/antropometria/investigadores';
+import { instrumentosDeFila } from '@/lib/researcher/antropometria/instrumentos';
 import { createClient } from '@/lib/supabase/server';
 import MedicionWizard from '../../../MedicionWizard';
 
@@ -18,6 +20,8 @@ export default async function EditarMedicionPage({ params }: { params: Promise<{
   if (!paciente) notFound();
 
   const otras = (await cargarMediciones(supabase, paciente)).filter((m) => m.estado === 'vigente' && m.id !== medicion.id);
+  const medidoPor = medicion.medido_por ?? medicion.investigador_id;
+  const ayudas = await cargarAyudasAsistente(supabase, { medidoPorActual: medidoPor });
 
   return (
     <div className="space-y-6">
@@ -37,7 +41,10 @@ export default async function EditarMedicionPage({ params }: { params: Promise<{
           nivelActividad: medicion.nivel_actividad,
           deporte: medicion.deporte,
           series: medicion.series,
+          medidoPor,
+          instrumentos: instrumentosDeFila(medicion),
         }}
+        {...ayudas}
       />
     </div>
   );

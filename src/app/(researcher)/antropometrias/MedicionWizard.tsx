@@ -47,8 +47,11 @@ import {
   MENSAJE_MENOR_DE_EDAD,
 } from '@/lib/researcher/antropometria/reglas';
 import { rutaFicha, rutaInforme } from '@/lib/researcher/antropometria/rutas';
+import type { ClaveInstrumento, Instrumentos } from '@/lib/researcher/antropometria/instrumentos';
+import type { Investigador, ResumenEtmInvestigador } from '@/lib/researcher/antropometria/investigadores';
 import type { PacienteAntropometria } from '@/types/antropometria';
 import { finalizarMedicionAction, guardarBorradorAction } from './actions';
+import InstrumentosResponsable from './InstrumentosResponsable';
 
 export interface InicialMedicion {
   id: string;
@@ -57,6 +60,9 @@ export interface InicialMedicion {
   nivelActividad: NivelActividad | null;
   deporte: string | null;
   series: SeriesPorVariable;
+  /** Quien midió (si no se registró, quien cargó la medición). */
+  medidoPor: string;
+  instrumentos: Instrumentos;
 }
 
 interface Props {
@@ -66,6 +72,14 @@ interface Props {
   /** AAAA-MM-DD de hoy en Argentina (lo calcula el servidor). */
   hoy: string;
   inicial: InicialMedicion | null;
+  /** Investigadores y administradores (selector de "Investigador que midió"). */
+  investigadores: Investigador[];
+  /** Usuario con sesión: es el "investigador que midió" por defecto. */
+  miId: string;
+  /** "Mis instrumentos" del usuario: precargan una medición nueva. */
+  misInstrumentos: Instrumentos;
+  /** Error técnico de cada investigador (id → resumen); falta el que no tiene mediciones vigentes. */
+  etmPorInvestigador: Record<string, ResumenEtmInvestigador>;
 }
 
 type EstadoBorrador = 'inactivo' | 'guardando' | 'guardado' | 'error';
@@ -75,7 +89,7 @@ const ETIQUETA = 'mb-1 block text-sm font-medium text-slate-700';
 const INPUT_SERIE =
   'h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base tabular-nums text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30';
 
-export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }: Props) {
+export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial, investigadores, miId, misInstrumentos, etmPorInvestigador }: Props) {
   const router = useRouter();
   const editandoVigente = inicial?.estado === 'vigente';
 
@@ -83,6 +97,8 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }
   const [fecha, setFecha] = useState(inicial?.fechaMedicion ?? hoy);
   const [nivel, setNivel] = useState<NivelActividad | ''>(inicial?.nivelActividad ?? '');
   const [deporte, setDeporte] = useState(inicial?.deporte ?? '');
+  const [medidoPor, setMedidoPor] = useState(inicial?.medidoPor ?? miId);
+  const [instrumentos, setInstrumentos] = useState<Instrumentos>(inicial?.instrumentos ?? misInstrumentos);
   const [sexoExtra, setSexoExtra] = useState<'' | 'M' | 'F'>('');
   const [nacimientoExtra, setNacimientoExtra] = useState('');
   const [texto, setTexto] = useState<TextoSeries>(() => (inicial ? textoDesdeSeries(inicial.series) : textoVacio()));
@@ -120,6 +136,8 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }
       nivelActividad: nivel || null,
       deporte: deporte || null,
       series: seriesDesdeTexto(texto),
+      medidoPor: medidoPor || null,
+      instrumentos,
       datosPaciente: { sexo: sexoExtra || null, fechaNacimiento: nacimientoExtra || null },
     };
   });
@@ -160,7 +178,7 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }
     if (editandoVigente || !sucio.current || !fechaValida || esMenor) return;
     const t = setTimeout(() => void guardarBorrador(), AUTOGUARDADO_MS);
     return () => clearTimeout(t);
-  }, [fecha, nivel, deporte, texto, sexoExtra, nacimientoExtra, editandoVigente, fechaValida, esMenor, guardarBorrador]);
+  }, [fecha, nivel, deporte, texto, medidoPor, instrumentos, sexoExtra, nacimientoExtra, editandoVigente, fechaValida, esMenor, guardarBorrador]);
 
   function tocar() {
     sucio.current = true;
@@ -169,6 +187,11 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }
   function cambiarCampo(clave: string, indice: number, valor: string) {
     tocar();
     setTexto((t) => ({ ...t, [clave]: t[clave as keyof TextoSeries].map((v, i) => (i === indice ? valor : v)) }));
+  }
+
+  function cambiarInstrumento(clave: ClaveInstrumento, valor: string) {
+    tocar();
+    setInstrumentos((i) => ({ ...i, [clave]: valor }));
   }
 
   function siguienteCampo(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -466,6 +489,17 @@ export default function MedicionWizard({ paciente, otrasVigentes, hoy, inicial }
               </dd>
             </div>
           </dl>
+          <InstrumentosResponsable
+            instrumentos={instrumentos}
+            onInstrumento={cambiarInstrumento}
+            medidoPor={medidoPor}
+            onMedidoPor={(id) => {
+              tocar();
+              setMedidoPor(id);
+            }}
+            investigadores={investigadores}
+            etm={etmPorInvestigador[medidoPor] ?? null}
+          />
           {faltaContexto && (
             <p className="text-sm text-amber-800">
               Antes de generar el informe completá en &quot;Datos básicos&quot; la fecha, el nivel de actividad

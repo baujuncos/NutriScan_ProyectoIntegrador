@@ -16,6 +16,7 @@ vi.mock('@/app/(researcher)/antropometrias/actions', () => ({
 }));
 
 import MedicionWizard, { type InicialMedicion } from '@/app/(researcher)/antropometrias/MedicionWizard';
+import type { Instrumentos } from '@/lib/researcher/antropometria/instrumentos';
 import type { PacienteAntropometria } from '@/types/antropometria';
 
 const PACIENTE: PacienteAntropometria = {
@@ -35,10 +36,31 @@ const INICIAL_COMPLETA: InicialMedicion = {
   nivelActividad: 'moderada',
   deporte: 'voleibol',
   series: SERIES_JULIETA,
+  medidoPor: 'inv-1',
+  instrumentos: { balanza: '', calibres: '', plicometro: '', cinta: '' },
 };
 
+const INVESTIGADORES = [
+  { id: 'inv-1', nombre: 'Lucía Ferreyra' },
+  { id: 'inv-2', nombre: 'Martín Sosa' },
+];
+const MIS_INSTRUMENTOS: Instrumentos = { balanza: 'Tanita BC-601', calibres: '', plicometro: 'Harpenden', cinta: '' };
+const ETM = { 'inv-1': { pliegues: 2.5, otras: 0.8, mediciones: 4 } };
+
 function mostrar(props: Partial<React.ComponentProps<typeof MedicionWizard>> = {}) {
-  return render(<MedicionWizard paciente={PACIENTE} otrasVigentes={[]} hoy="2026-10-30" inicial={null} {...props} />);
+  return render(
+    <MedicionWizard
+      paciente={PACIENTE}
+      otrasVigentes={[]}
+      hoy="2026-10-30"
+      inicial={null}
+      investigadores={INVESTIGADORES}
+      miId="inv-1"
+      misInstrumentos={MIS_INSTRUMENTOS}
+      etmPorInvestigador={ETM}
+      {...props}
+    />,
+  );
 }
 
 const irARevision = () => userEvent.click(screen.getByRole('button', { name: /5\. Revisión/ }));

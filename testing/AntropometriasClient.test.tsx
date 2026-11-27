@@ -21,6 +21,14 @@ describe('AntropometriasClient', () => {
     expect(screen.getByRole('link', { name: 'Agregar paciente' })).toHaveAttribute('href', '/antropometrias/nuevo');
   });
 
+  it('el encabezado enlaza a "Instrumentos y error técnico", con o sin pacientes', () => {
+    const { unmount } = render(<AntropometriasClient pacientes={[]} />);
+    expect(screen.getByRole('link', { name: 'Instrumentos y error técnico' })).toHaveAttribute('href', '/antropometrias/configuracion');
+    unmount();
+    render(<AntropometriasClient pacientes={PACIENTES} />);
+    expect(screen.getByRole('link', { name: 'Instrumentos y error técnico' })).toHaveAttribute('href', '/antropometrias/configuracion');
+  });
+
   it('lista origen, cantidad "n de 12" y última medición en formato local', () => {
     render(<AntropometriasClient pacientes={PACIENTES} />);
     const filaLucia = screen.getByRole('row', { name: /Vega, Lucía/ });

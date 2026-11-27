@@ -126,15 +126,11 @@ async function cargarBitmap(file: File): Promise<ImageBitmap | HTMLImageElement>
 }
 
 /**
- * Aplica `rect` sobre `file` y devuelve un JPEG recortado (lado máx `maxLado`).
+ * Dibuja `rect` (o la imagen entera si es null) en un canvas de lado máx `maxLado` y lo exporta a JPEG.
  * Degrada de forma segura: sin `document` / sin contexto 2d / sin `canvas.toBlob`
  * (jsdom, navegadores viejos) devuelve el `file` original sin tocar y nunca tira.
  */
-export async function recortarImagen(
-  file: File,
-  rect: Recorte,
-  maxLado = MAX_LADO_PX,
-): Promise<File> {
+async function aJpeg(file: File, rect: Recorte | null, maxLado: number, calidad: number, nombre: (original: string) => string): Promise<File> {
   if (typeof document === 'undefined') return file;
 
   const canvas = document.createElement('canvas');
@@ -148,17 +144,41 @@ export async function recortarImagen(
     return file;
   }
 
-  const sw = Math.max(1, Math.round(rect.sw));
-  const sh = Math.max(1, Math.round(rect.sh));
+  const origen = rect ?? { sx: 0, sy: 0, sw: bitmap.width, sh: bitmap.height };
+  const sw = Math.max(1, Math.round(origen.sw));
+  const sh = Math.max(1, Math.round(origen.sh));
   const { w, h } = dimensionesSalida(sw, sh, maxLado);
   canvas.width = w;
   canvas.height = h;
-  ctx.drawImage(bitmap, Math.round(rect.sx), Math.round(rect.sy), sw, sh, 0, 0, w, h);
+  ctx.drawImage(bitmap, Math.round(origen.sx), Math.round(origen.sy), sw, sh, 0, 0, w, h);
   if ('close' in bitmap && typeof bitmap.close === 'function') bitmap.close();
 
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/jpeg', 0.9),
-  );
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', calidad));
   if (!blob) return file;
-  return new File([blob], nombreRecortado(file.name), { type: 'image/jpeg' });
+  return new File([blob], nombre(file.name), { type: 'image/jpeg' });
+}
+
+/**
+ * Aplica `rect` sobre `file` y devuelve un JPEG recortado (lado máx `maxLado`).
+ * Degrada de forma segura: ver `aJpeg`.
+ */
+export async function recortarImagen(file: File, rect: Recorte, maxLado = MAX_LADO_PX): Promise<File> {
+  return aJpeg(file, rect, maxLado, 0.9, nombreRecortado);
+}
+
+/** Lado máximo (px) de las fotos posturales de antropometría (NUT-251). */
+export const MAX_LADO_FOTO_POSTURAL_PX = 1600;
+
+function nombreComprimido(nombre: string): string {
+  const base = nombre.replace(/\.[^.]+$/, '') || 'foto';
+  return `${base}.jpg`;
+}
+
+/**
+ * Compresión en el navegador ANTES de subir una foto (NUT-251): sin recortar, JPEG de calidad `calidad`
+ * y lado máx `maxLado`. Una foto de celular pasa de varios MB a unos pocos cientos de KB.
+ * Degrada de forma segura: si no se puede comprimir (jsdom, sin canvas, imagen ilegible) devuelve el `file` original.
+ */
+export async function comprimirImagen(file: File, maxLado = MAX_LADO_FOTO_POSTURAL_PX, calidad = 0.85): Promise<File> {
+  return aJpeg(file, null, maxLado, calidad, nombreComprimido);
 }

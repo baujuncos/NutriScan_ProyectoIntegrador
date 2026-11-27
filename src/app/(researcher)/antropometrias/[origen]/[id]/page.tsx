@@ -7,6 +7,7 @@ import SubTabs from '@/components/researcher/SubTabs';
 import { fmt } from '@/lib/numeros';
 import { resumirMedicion } from '@/lib/researcher/antropometria/calculo';
 import { cargarMediciones, cargarNombres, cargarPaciente } from '@/lib/researcher/antropometria/datos';
+import { contarFotosPorMedicion } from '@/lib/researcher/antropometria/fotos';
 import { edadEn, fechaLegible, motivoBloqueoNuevaMedicion } from '@/lib/researcher/antropometria/reglas';
 import {
   esOrigen,
@@ -41,6 +42,8 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
   // Quien midió (si no se registró otro, quien cargó la medición).
   const medidoPor = (m: { medido_por?: string | null; investigador_id: string }) => m.medido_por ?? m.investigador_id;
   const nombres = await cargarNombres(supabase, mediciones.map(medidoPor));
+  // Cuántas fotos posturales se borrarían al anular cada medición (la confirmación lo avisa).
+  const fotosPorMedicion = await contarFotosPorMedicion(supabase, mediciones.map((m) => m.id));
 
   const bloqueo = motivoBloqueoNuevaMedicion(paciente, vigentes.length);
   const edad = paciente.fechaNacimiento ? edadEn(paciente.fechaNacimiento) : null;
@@ -99,7 +102,7 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
                   <Link href={rutaEditarMedicion(m.id)} className={ENLACE}>
                     Retomar
                   </Link>
-                  <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} esBorrador destino="refrescar" />
+                  <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} esBorrador destino="refrescar" fotos={fotosPorMedicion.get(m.id) ?? 0} />
                 </span>
               </li>
             ))}
@@ -149,7 +152,7 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
                           <Link href={rutaEditarMedicion(m.id)} className={ENLACE}>
                             Editar
                           </Link>
-                          <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} destino="refrescar" />
+                          <AnularMedicion medicionId={m.id} fecha={fechaLegible(m.fecha_medicion)} destino="refrescar" fotos={fotosPorMedicion.get(m.id) ?? 0} />
                         </span>
                       </td>
                     </tr>

@@ -59,13 +59,19 @@ export async function borrarFoto(client: StorageClient, path: string): Promise<v
 /**
  * Signed URLs de varias fotos en UNA llamada (sin repetir paths: varios ítems comparten la foto de su detección).
  * Los paths que fallen quedan fuera del mapa. Las URLs firmadas nunca se loguean.
+ * `bucket` es opcional (por defecto el de fotos de detección): lo reusan otros buckets privados (antropometría, NUT-251).
  */
-export async function urlsFirmadas(client: StorageClient, paths: string[], ttlSegundos = TTL_URL_FIRMADA_S): Promise<Map<string, string>> {
+export async function urlsFirmadas(
+  client: StorageClient,
+  paths: string[],
+  ttlSegundos = TTL_URL_FIRMADA_S,
+  bucket = BUCKET_FOTOS,
+): Promise<Map<string, string>> {
   const urls = new Map<string, string>();
   const unicos = [...new Set(paths)];
   if (unicos.length === 0) return urls;
   try {
-    const { data, error } = await client.storage.from(BUCKET_FOTOS).createSignedUrls(unicos, ttlSegundos);
+    const { data, error } = await client.storage.from(bucket).createSignedUrls(unicos, ttlSegundos);
     if (error) {
       console.error('No se pudieron firmar las URLs de las fotos:', error);
       return urls;

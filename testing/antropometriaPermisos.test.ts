@@ -64,6 +64,21 @@ const ACCIONES: CasoAccion[] = [
     ejecutar: () => acciones.guardarMisInstrumentosAction({}),
     ejecutarConEntradaInvalida: () => acciones.guardarMisInstrumentosAction(null),
   },
+  {
+    nombre: 'listarFotosAction',
+    ejecutar: () => acciones.listarFotosAction(MEDICION_ID),
+    ejecutarConEntradaInvalida: () => acciones.listarFotosAction('no-es-un-id'),
+  },
+  {
+    nombre: 'registrarFotoAction',
+    ejecutar: () => acciones.registrarFotoAction(MEDICION_ID, 'frente', `${MEDICION_ID}/frente-33333333-3333-4333-8333-333333333333.jpg`),
+    ejecutarConEntradaInvalida: () => acciones.registrarFotoAction('no-es-un-id', 'frente', 'x'),
+  },
+  {
+    nombre: 'quitarFotoAction',
+    ejecutar: () => acciones.quitarFotoAction(MEDICION_ID, 'frente'),
+    ejecutarConEntradaInvalida: () => acciones.quitarFotoAction('no-es-un-id', 'frente'),
+  },
 ];
 
 function conSesion(role: string | null) {

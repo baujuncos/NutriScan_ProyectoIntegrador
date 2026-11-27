@@ -61,11 +61,23 @@ export function GraficoPhantom({ titulo, barras }: { titulo: string; barras: Bar
   );
 }
 
+const CLASE_MARCA: Record<PuntoSomatocarta['tipo'], string> = {
+  actual: 'rounded-full bg-blue-600',
+  anterior: 'rounded-full border-2 border-slate-500 bg-white',
+  deporte: 'rotate-45 bg-green-600',
+  trayectoria: 'rounded-full bg-blue-200',
+};
+
 export interface PuntoSomatocarta {
   etiqueta: string;
   x: number;
   y: number;
-  tipo: 'actual' | 'anterior' | 'deporte';
+  /** `trayectoria` (pantalla de Evolución): punto numerado de una serie de mediciones unidas por una línea. */
+  tipo: 'actual' | 'anterior' | 'deporte' | 'trayectoria';
+  /** Solo `trayectoria`: número de medición que se escribe dentro del punto. */
+  numero?: number;
+  /** Solo `trayectoria`: la primera y la última medición se marcan distinto del resto. */
+  extremo?: 'primera' | 'ultima' | 'unica';
 }
 
 const X_MIN = -8;
@@ -83,6 +95,7 @@ const py = (y: number) => LADO - MARGEN - ((Math.max(Y_MIN, Math.min(Y_MAX, y)) 
  * Dibuja ejes, grilla y los puntos (actual, anterior y deporte). El contorno clásico de la carta no se dibuja.
  */
 export function Somatocarta({ puntos }: { puntos: PuntoSomatocarta[] }) {
+  const trayectoria = puntos.filter((p) => p.tipo === 'trayectoria');
   return (
     <figure className="break-inside-avoid">
       <figcaption className="mb-1 text-sm font-semibold text-slate-900">Somatocarta</figcaption>
@@ -115,9 +128,31 @@ export function Somatocarta({ puntos }: { puntos: PuntoSomatocarta[] }) {
         <text x={8} y={LADO / 2} fontSize={10} fill="#334155" transform={`rotate(-90 8 ${LADO / 2})`} textAnchor="middle">
           Mesomorfia · Y
         </text>
+        {trayectoria.length > 1 && (
+          <polyline
+            points={trayectoria.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')}
+            fill="none"
+            stroke="#93c5fd"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        )}
         {puntos.map((p) => {
           const cx = px(p.x);
           const cy = py(p.y);
+          if (p.tipo === 'trayectoria') {
+            const primera = p.extremo === 'primera';
+            const ultima = p.extremo === 'ultima' || p.extremo === 'unica';
+            return (
+              <g key={p.etiqueta}>
+                <circle cx={cx} cy={cy} r={10} fill={ultima ? AZUL : primera ? '#fff' : '#dbeafe'} stroke={primera ? AZUL : '#fff'} strokeWidth={primera ? 3 : 2} />
+                <text x={cx} y={cy + 3.5} textAnchor="middle" fontSize={10} fontWeight={700} fill={ultima ? '#fff' : '#1e3a8a'}>
+                  {p.numero}
+                </text>
+              </g>
+            );
+          }
           if (p.tipo === 'actual') return <circle key={p.etiqueta} cx={cx} cy={cy} r={7} fill={AZUL} stroke="#fff" strokeWidth={2} />;
           if (p.tipo === 'anterior') return <circle key={p.etiqueta} cx={cx} cy={cy} r={6} fill="#fff" stroke="#64748b" strokeWidth={2} />;
           return <rect key={p.etiqueta} x={cx - 6} y={cy - 6} width={12} height={12} fill="#16a34a" stroke="#fff" strokeWidth={2} transform={`rotate(45 ${cx} ${cy})`} />;
@@ -126,10 +161,7 @@ export function Somatocarta({ puntos }: { puntos: PuntoSomatocarta[] }) {
       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
         {puntos.map((p) => (
           <li key={p.etiqueta} className="flex items-center gap-1.5">
-            <span
-              aria-hidden="true"
-              className={`inline-block h-3 w-3 ${p.tipo === 'actual' ? 'rounded-full bg-blue-600' : p.tipo === 'anterior' ? 'rounded-full border-2 border-slate-500 bg-white' : 'rotate-45 bg-green-600'}`}
-            />
+            <span aria-hidden="true" className={`inline-block h-3 w-3 ${CLASE_MARCA[p.tipo]}`} />
             {p.etiqueta}
           </li>
         ))}

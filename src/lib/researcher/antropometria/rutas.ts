@@ -4,6 +4,7 @@ import type { OrigenPaciente } from '@/types/antropometria';
 export const RUTA_LISTADO = '/antropometrias';
 
 export const rutaFicha = (origen: OrigenPaciente, id: string) => `${RUTA_LISTADO}/${origen}/${id}`;
+export const rutaEvolucion = (origen: OrigenPaciente, id: string) => `${rutaFicha(origen, id)}/evolucion`;
 export const rutaNuevaMedicion = (origen: OrigenPaciente, id: string) => `${rutaFicha(origen, id)}/medicion/nueva`;
 export const rutaInforme = (medicionId: string) => `${RUTA_LISTADO}/medicion/${medicionId}`;
 export const rutaEditarMedicion = (medicionId: string) => `${rutaInforme(medicionId)}/editar`;
